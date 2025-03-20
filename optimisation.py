@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 import matplotlib.pyplot as plt
 from termcolor import colored
@@ -9,8 +10,16 @@ import utils
 
 class OptimiseFixedHeatKernels:
     def __init__(
-        self, verts, faces, fnorms, n_sources, lr=1e-4, k_eig=256, fpath=None
+        self,
+        verts: np.ndarray,
+        faces: np.ndarray,
+        fnorms: np.ndarray,
+        n_sources: int,
+        k_eig: int = 256,
+        fpath: str = None,
+        device: str = "cpu",
     ):
+        self.device = device
 
         self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
             verts, faces, fnorms, k_eig=k_eig, fpath=fpath
@@ -21,26 +30,34 @@ class OptimiseFixedHeatKernels:
         self._n_sources = n_sources
 
         self._verts = torch.tensor(verts)
-        self._diff_time_scaler = 1e-2
-        self._angle_conversion_coeff = 180.0 / torch.pi
-        self._anis_scaler = 10
+        self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
+        self._anis_scaler = 1
 
-        # Optimisation params (leaf tensor)
-        self._kernel_colours = torch.rand(
-            (n_sources, 3), dtype=torch.float, requires_grad=True
-        )
-        self._angles = torch.rand(n_sources, requires_grad=True)
-        self._anisotropies = torch.rand(n_sources, requires_grad=True)
-        self._diff_times = torch.rand(n_sources, requires_grad=True)
+        self._splats, self._optims = self._make_splats_and_optimisers(n_sources)
+
+    def _make_splats_and_optimisers(self, n_sources: int):
+        kernel_colours = torch.rand((n_sources, 3), dtype=torch.float)
+        angles = (torch.rand(n_sources) + torch.pi / 4) * 0.1
+        anisotropies = torch.rand(n_sources)
+        diff_times = torch.rand(n_sources)
 
         params = [
-            self._kernel_colours,  # colour of each source
-            self._angles,  # angle of the heat kernel
-            self._anisotropies,  # anisotropy of the heat kernel
-            self._diff_times,  # size of the heat kernel
+            # name, value, lr
+            ("kernel_colours", torch.nn.Parameter(kernel_colours), 1e-2),
+            ("angles", torch.nn.Parameter(angles), 1e-4),
+            ("anisotropies", torch.nn.Parameter(anisotropies), 1e-3),
+            ("diff_times", torch.nn.Parameter(diff_times), 1e-2),
         ]
 
-        self._optim = torch.optim.Adam(params, lr=lr)
+        splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(
+            self.device
+        )
+
+        optimisers = {
+            name: torch.optim.Adam([{"params": splats[name], "lr": lr}])
+            for name, _, lr in params
+        }
+        return splats, optimisers
 
     def _make_gt_colours(self):
         gt_colours = torch.zeros([self._n_sources, *self._verts.shape])
@@ -50,7 +67,7 @@ class OptimiseFixedHeatKernels:
 
         albo_evals, albo_evecs, mass = (
             self._eigalbo_interp.get_albo_eigenquantities(
-                angles=torch.tensor([45.0, 18.3, 10.0]),
+                angles=torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])),
                 scales=torch.tensor([33.0, 60, 5.2]),
             )
         )
@@ -63,21 +80,24 @@ class OptimiseFixedHeatKernels:
             torch.tensor([0.001, 0.1, 0.01]),
         )
 
+        print(
+            f"GT -> ",
+            colored(f"Angles: {[45.0, 18.3, 10.0]}, ", "yellow"),
+            colored(f"Anisotropies: {[33.0, 60, 5.2]}, ", "green"),
+            colored(f"Diff times: {[0.001, 0.1, 0.01]}, ", "blue"),
+            colored(f"Kernel colours: {[1, 0, 0, 0, 1, 0, 0, 0, 1]}", "red"),
+        )
+
         gt_colours = gt_colours.sum(dim=0)
         return gt_colours
 
     def optimise(self, n_iter=100):
         v_colours_buffer = torch.zeros([self._n_sources, *self._verts.shape])
-        print(f"INITIAL -> ", self._colored_print_opt_params)
-
         gt_colours = self._make_gt_colours()
 
-        errors_list = {
-            "angles_error": [],
-            "anisotropies_error": [],
-            "diff_times_error": [],
-            "kernel_colours_error": [],
-        }
+        print(f"INITIAL -> ", self._colored_print_opt_params)
+
+        errors_lists = {k: [] for k in self._splats.keys()}
 
         for i in range(n_iter):
             v_colours = v_colours_buffer.clone().detach().requires_grad_(True)
@@ -85,13 +105,14 @@ class OptimiseFixedHeatKernels:
             #     self._kernel_colours
             # )
             v_colours = v_colours.index_put(
-                (self._idx_range, self._source_idxs), self._kernel_colours
+                (self._idx_range, self._source_idxs),
+                self._splats["kernel_colours"],
             )
 
             albo_evals, albo_evecs, mass = (
                 self._eigalbo_interp.get_albo_eigenquantities(
-                    angles=self._angles * self._angle_conversion_coeff,
-                    scales=self._anisotropies * self._anis_scaler,
+                    angles=self._splats["angles"],
+                    scales=self._splats["anisotropies"] * self._anis_scaler,
                 )
             )
 
@@ -100,84 +121,49 @@ class OptimiseFixedHeatKernels:
                 mass,
                 albo_evals,
                 albo_evecs,
-                self._diff_times * self._diff_time_scaler,
+                self._diff_time_scaler_func(self._splats["diff_times"]),
             )
+
+            if i == 0:
+                init_colours = v_colours.clone().sum(dim=0).detach()
 
             loss = (v_colours.sum(dim=0) - gt_colours).pow(2).sum()
 
             loss.backward()
-            self._optim.step()
-            self._optim.zero_grad()
+            for optimizer in self._optims.values():
+                optimizer.step()
+                optimizer.zero_grad()
 
-            if (i + 1) % 20 == 0:
-                print(
-                    f"Iteration: {i + 1} -> Loss: {loss.item()}.",
-                    self._errors["printables"],
-                    f"vcolour_min: {v_colours.min()} ",
-                    f"vcolour_max: {v_colours.max()}",
-                )
+            # if (i + 1) % 100 == 0:
+            #     print(
+            #         f"Iteration: {i + 1} -> Loss: {loss.item()}.",
+            #         self._errors["printables"],
+            #     )
 
-            errors_list["angles_error"].append(
-                self._errors["angles_error"].item()
-            )
-            errors_list["anisotropies_error"].append(
-                self._errors["anisotropies_error"].item()
-            )
-            errors_list["diff_times_error"].append(
-                self._errors["diff_times_error"].item()
-            )
-            errors_list["kernel_colours_error"].append(
-                self._errors["kernel_colours_error"].item()
-            )
+            errors = self._errors
+            for k in self._splats.keys():
+                errors_lists[k].append(errors[k].item())
 
-        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        print(f"FINAL -> ", self._colored_print_opt_params)
 
-        axs[0, 0].plot(errors_list["angles_error"], label="Angles Error")
-        axs[0, 0].set_title("Angles Error")
-        axs[0, 0].set_xlabel("Iteration")
-        axs[0, 0].set_ylabel("Error")
+        self.plot_errors(errors_lists)
 
-        axs[0, 1].plot(
-            errors_list["anisotropies_error"], label="Anisotropies Error"
-        )
-        axs[0, 1].set_title("Anisotropies Error")
-        axs[0, 1].set_xlabel("Iteration")
-        axs[0, 1].set_ylabel("Error")
-
-        axs[1, 0].plot(
-            errors_list["diff_times_error"], label="Diff Times Error"
-        )
-        axs[1, 0].set_title("Diff Times Error")
-        axs[1, 0].set_xlabel("Iteration")
-        axs[1, 0].set_ylabel("Error")
-
-        axs[1, 1].plot(
-            errors_list["kernel_colours_error"], label="Kernel Colours Error"
-        )
-        axs[1, 1].set_title("Kernel Colours Error")
-        axs[1, 1].set_xlabel("Iteration")
-        axs[1, 1].set_ylabel("Error")
-
-        for ax in axs.flat:
-            ax.legend()
-
-        plt.tight_layout()
-        plt.show()
-
-        print(
-            f"FINAL -> ",
-            self._errors["printables"],
-            self._colored_print_opt_params,
-        )
-
-        return v_colours.sum(dim=0), gt_colours
+        return v_colours.sum(dim=0), gt_colours, init_colours
 
     @property
     def _colored_print_opt_params(self):
-        angles = self._angles.detach().numpy() * self._angle_conversion_coeff
-        anisotropies = self._anisotropies.detach().numpy() * self._anis_scaler
-        diff_times = self._diff_times.detach().numpy() * self._diff_time_scaler
-        kernel_colours = self._kernel_colours.view(-1).detach().numpy()
+        angles = torch.rad2deg(self._splats["angles"]).detach().numpy()
+        anisotropies = (
+            self._splats["anisotropies"].detach().numpy() * self._anis_scaler
+        )
+        diff_times = (
+            self._diff_time_scaler_func(self._splats["diff_times"])
+            .detach()
+            .numpy()
+        )
+        kernel_colours = (
+            self._splats["kernel_colours"].view(-1).detach().numpy()
+        )
         return (
             colored(f"Angles: {angles}, ", "yellow")
             + colored(f"Anisotropies: {anisotropies}, ", "green")
@@ -187,15 +173,18 @@ class OptimiseFixedHeatKernels:
 
     @property
     def _errors(self):
-        angles = self._angles * self._angle_conversion_coeff
+        angles = self._splats["angles"] % (torch.pi)
         angles_error = (
-            (angles - torch.tensor([45.0, 18.3, 10.0])).pow(2).sum().pow(0.5)
+            (angles - torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])))
+            .pow(2)
+            .sum()
+            .pow(0.5)
         )
-        anisotropies = self._anisotropies * self._anis_scaler
+        anisotropies = self._splats["anisotropies"] * self._anis_scaler
         anisotropies_error = (
             (anisotropies - torch.tensor([33.0, 60, 5.2])).pow(2).sum().pow(0.5)
         )
-        diff_times = self._diff_times * self._diff_time_scaler
+        diff_times = self._diff_time_scaler_func(self._splats["diff_times"])
         diff_times_error = (
             (diff_times - torch.tensor([0.001, 0.1, 0.01]))
             .pow(2)
@@ -206,21 +195,56 @@ class OptimiseFixedHeatKernels:
             [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]], dtype=torch.float
         )
         kernel_colours_error = (
-            (self._kernel_colours - gt_kernel_colors).pow(2).sum().pow(0.5)
+            (self._splats["kernel_colours"] - gt_kernel_colors)
+            .pow(2)
+            .sum()
+            .pow(0.5)
         )
         return {
             "printables": (
-                "ERRORS:"
+                "ERRORS: "
                 + colored(f"Angles: {angles_error}, ", "yellow")
                 + colored(f"Anisotropies: {anisotropies_error}, ", "green")
                 + colored(f"Diff times: {diff_times_error}, ", "blue")
                 + colored(f"Kernel colours: {kernel_colours_error}", "red")
             ),
-            "angles_error": angles_error,
-            "anisotropies_error": anisotropies_error,
-            "diff_times_error": diff_times_error,
-            "kernel_colours_error": kernel_colours_error,
+            "angles": angles_error,
+            "anisotropies": anisotropies_error,
+            "diff_times": diff_times_error,
+            "kernel_colours": kernel_colours_error,
         }
+
+    @staticmethod
+    def plot_errors(errors_lists):
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+
+        axs[0, 0].plot(errors_lists["angles"], label="Angles Error")
+        axs[0, 0].set_title("Angles Error")
+        axs[0, 0].set_xlabel("Iteration")
+        axs[0, 0].set_ylabel("Error")
+
+        axs[0, 1].plot(errors_lists["anisotropies"], label="Anisotropies Error")
+        axs[0, 1].set_title("Anisotropies Error")
+        axs[0, 1].set_xlabel("Iteration")
+        axs[0, 1].set_ylabel("Error")
+
+        axs[1, 0].plot(errors_lists["diff_times"], label="Diff Times Error")
+        axs[1, 0].set_title("Diff Times Error")
+        axs[1, 0].set_xlabel("Iteration")
+        axs[1, 0].set_ylabel("Error")
+
+        axs[1, 1].plot(
+            errors_lists["kernel_colours"], label="Kernel Colours Error"
+        )
+        axs[1, 1].set_title("Kernel Colours Error")
+        axs[1, 1].set_xlabel("Iteration")
+        axs[1, 1].set_ylabel("Error")
+
+        for ax in axs.flat:
+            ax.legend()
+
+        plt.tight_layout()
+        plt.show()
 
 
 if __name__ == "__main__":
@@ -237,10 +261,10 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
-    optimisiation = OptimiseFixedHeatKernels(
-        verts, faces, fnorm, n_sources=3, lr=5e-2, k_eig=256, fpath=mesh_path
+    optimisation = OptimiseFixedHeatKernels(
+        verts, faces, fnorm, n_sources=3, k_eig=256, fpath=mesh_path
     )
-    v_colours, gt_colours = optimisiation.optimise(n_iter=200)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)
 
     v_colours = (v_colours - v_colours.min()) / (
         v_colours.max() - v_colours.min()
@@ -254,8 +278,19 @@ if __name__ == "__main__":
     gt_colours *= 255
     gt_colours = gt_colours.squeeze().detach().numpy()
 
+    init_colours = (init_colours - init_colours.min()) / (
+        init_colours.max() - init_colours.min()
+    )
+    init_colours *= 255
+    init_colours = init_colours.squeeze().detach().numpy()
+
     gt_mesh = mesh.copy()
     gt_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=gt_colours)
 
     v_mesh = mesh.copy()
     v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
+
+    init_mesh = mesh.copy()
+    init_mesh.visual = trimesh.visual.ColorVisuals(
+        mesh, vertex_colors=init_colours
+    )
