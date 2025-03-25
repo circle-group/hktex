@@ -3,6 +3,8 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from termcolor import colored
+from abc import abstractmethod
+
 
 import eigen_albo_interpolation
 import utils
@@ -26,10 +28,11 @@ class OptimiseFixedHeatKernels:
             verts, faces, fnorms, k_eig=k_eig, fpath=fpath, device=device
         )
 
-        self._source_idxs = torch.tensor([3804, 0, 4274])
-        # self._source_idxs = torch.tensor([380, 0, 42])
-        self._idx_range = torch.arange(n_sources, device=device)
         self._n_sources = n_sources
+        self._source_idxs = torch.randint(
+            0, len(verts), (n_sources,), device=device
+        )
+        self._idx_range = torch.arange(n_sources, device=device)
 
         self._verts = torch.tensor(verts, device=device)
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
@@ -64,41 +67,6 @@ class OptimiseFixedHeatKernels:
         }
         return splats, optimisers
 
-    def _make_gt_colours(self):
-        gt_colours = torch.zeros([self._n_sources, *self._verts.shape], device=self.device)
-        gt_colours[self._idx_range, self._source_idxs, :] = torch.tensor(
-            [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]], dtype=torch.float, device=self.device
-        )
-
-        albo_evals, albo_evecs, mass = (
-            self._eigalbo_interp.get_albo_eigenquantities(
-                angles=torch.deg2rad(torch.tensor([45.0, 18.3, 10.0], device=self.device)),
-                scales=torch.tensor([33.0, 60, 5.2], device=self.device),
-            )
-        )
-
-        gt_colours = utils.heat_diffusion(
-            gt_colours,
-            mass,
-            albo_evals,
-            albo_evecs,
-            torch.tensor([0.001, 0.1, 0.01], device=self.device),
-        )
-
-        print(
-            f"GT -> ",
-            colored(f"Angles: {[45.0, 18.3, 10.0]}, ", "yellow"),
-            colored(f"Anisotropies: {[33.0, 60, 5.2]}, ", "green"),
-            colored(f"Diff times: {[0.001, 0.1, 0.01]}, ", "blue"),
-            colored(f"Kernel colours: {[1, 0, 0, 0, 1, 0, 0, 0, 1]}", "red"),
-        )
-
-        gt_colours = gt_colours.sum(dim=0)
-        gt_colours = self._normalize(gt_colours)
-        # print(gt_colours.mean(), gt_colours.std(), gt_colours.min(), gt_colours.max())
-
-        return gt_colours
-
     def optimise(self, n_iter=100):
         v_colours_buffer = torch.zeros([self._n_sources, *self._verts.shape], device=self.device)
         gt_colours = self._make_gt_colours()
@@ -109,9 +77,6 @@ class OptimiseFixedHeatKernels:
 
         for i in range(n_iter):
             v_colours = v_colours_buffer.clone().detach().requires_grad_(True)
-            # v_colours[self._idx_range, self._source_idxs, :] = (
-            #     self._kernel_colours
-            # )
             v_colours = v_colours.index_put(
                 (self._idx_range, self._source_idxs),
                 self._splats["kernel_colours"],
@@ -198,31 +163,127 @@ class OptimiseFixedHeatKernels:
             + colored(f"Kernel colours: {kernel_colours}", "red")
         )
 
+    @abstractmethod
+    def _make_gt_colours(self):
+        pass
+
+    @abstractmethod
+    def _errors(self):
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def plot_errors(errors_lists):
+        pass
+
+
+class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
+    def __init__(
+        self,
+        verts: np.ndarray,
+        faces: np.ndarray,
+        fnorms: np.ndarray,
+        n_sources: int,
+        k_eig: int = 256,
+        fpath: str = None,
+        device: str = "cpu",
+    ):
+        super().__init__(verts, faces, fnorms, n_sources, k_eig, fpath, device)
+        self._gt_splats = None
+
+    def _make_gt_colours(self):
+        if self._n_sources == 3:
+            self._source_idxs = torch.tensor([3804, 0, 4274])
+
+            self._gt_splats = {
+                "angles": torch.tensor([45.0, 18.3, 10.0], device=self.device),
+                "anisotropies": torch.tensor(
+                    [33.0, 60, 5.2], device=self.device
+                ),
+                "diff_times": torch.tensor(
+                    [0.001, 0.1, 0.01], device=self.device
+                ),
+                "kernel_colours": torch.tensor(
+                    [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]],
+                    dtype=torch.float,
+                    device=self.device,
+                ),
+            }
+        else:
+            self._gt_splats = {
+                "angles": torch.rand(self._n_sources, device=self.device) * 180,
+                "anisotropies": (
+                    100 * torch.rand(self._n_sources, device=self.device)
+                ),
+                "diff_times": self._diff_time_scaler_func(
+                    torch.rand(self._n_sources, device=self.device)
+                ),
+                "kernel_colours": torch.rand(
+                    (self._n_sources, 3),
+                    dtype=torch.float,
+                    device=self.device,
+                ),
+            }
+
+        gt_colours = torch.zeros(
+            [self._n_sources, *self._verts.shape], device=self.device
+        )
+        gt_colours[self._idx_range, self._source_idxs, :] = self._gt_splats[
+            "kernel_colours"
+        ]
+
+        albo_evals, albo_evecs, mass = (
+            self._eigalbo_interp.get_albo_eigenquantities(
+                angles=torch.deg2rad(self._gt_splats["angles"]),
+                scales=torch.tensor(self._gt_splats["anisotropies"]),
+            )
+        )
+
+        gt_colours = utils.heat_diffusion(
+            gt_colours.to(self.device),
+            mass,
+            albo_evals,
+            albo_evecs,
+            self._gt_splats["diff_times"],
+        )
+
+        gta = self._gt_splats["angles"].detach().cpu().numpy()
+        gts = self._gt_splats["anisotropies"].detach().cpu().numpy()
+        gtt = self._gt_splats["diff_times"].detach().cpu().numpy()
+        gtc = self._gt_splats["kernel_colours"].detach().cpu().numpy()
+        print(
+            f"GT -> ",
+            colored(f"Angles: {gta}, ", "yellow"),
+            colored(f"Anisotropies: {gts}, ", "green"),
+            colored(f"Diff times: {gtt}, ", "blue"),
+            colored(f"Kernel colours: {gtc}", "red"),
+        )
+
+        gt_colours = gt_colours.sum(dim=0)
+        return gt_colours.to(self.device)
+
     @property
     def _errors(self):
         angles = self._splats["angles"] % (torch.pi)
         angles_error = (
-            (angles - torch.deg2rad(torch.tensor([45.0, 18.3, 10.0], device=self.device)))
+            (angles - torch.deg2rad(self._gt_splats["angles"]))
             .pow(2)
             .sum()
             .pow(0.5)
         ).cpu()
         anisotropies = self._anis_act(self._splats["anisotropies"]) * self._anis_scaler
         anisotropies_error = (
-            (anisotropies - torch.tensor([33.0, 60, 5.2], device=self.device)).pow(2).sum().pow(0.5)
-        ).cpu()
-        diff_times = self._diff_time_scaler_func(self._splats["diff_times"])
-        diff_times_error = (
-            (diff_times - torch.tensor([0.001, 0.1, 0.01], device=self.device))
+            (anisotropies - self._gt_splats["anisotropies"])
             .pow(2)
             .sum()
             .pow(0.5)
-        ).cpu()
-        gt_kernel_colors = torch.tensor(
-            [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]], dtype=torch.float, device=self.device
+        )
+        diff_times = self._diff_time_scaler_func(self._splats["diff_times"])
+        diff_times_error = (
+            (diff_times - self._gt_splats["diff_times"]).pow(2).sum().pow(0.5)
         )
         kernel_colours_error = (
-            (self._splats["kernel_colours"] - gt_kernel_colors)
+            (self._splats["kernel_colours"] - self._gt_splats["kernel_colours"])
             .pow(2)
             .sum()
             .pow(0.5)
@@ -288,11 +349,11 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
-    optimisation = OptimiseFixedHeatKernels(
+    optimisation = OptimiseKnownFixedHeatKernels(
         verts,
         faces,
         fnorm,
-        n_sources=3,
+        n_sources=30,
         k_eig=256,
         fpath=mesh_path,
         device="cuda",
