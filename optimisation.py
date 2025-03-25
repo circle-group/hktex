@@ -22,14 +22,15 @@ class OptimiseFixedHeatKernels:
         self.device = device
 
         self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
-            verts, faces, fnorms, k_eig=k_eig, fpath=fpath
+            verts, faces, fnorms, k_eig=k_eig, fpath=fpath, device=device
         )
 
         self._source_idxs = torch.tensor([3804, 0, 4274])
-        self._idx_range = torch.arange(n_sources)
+        # self._source_idxs = torch.tensor([380, 0, 42])
+        self._idx_range = torch.arange(n_sources, device=device)
         self._n_sources = n_sources
 
-        self._verts = torch.tensor(verts)
+        self._verts = torch.tensor(verts, device=device)
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
         self._anis_scaler = 1
 
@@ -73,11 +74,11 @@ class OptimiseFixedHeatKernels:
         )
 
         gt_colours = utils.heat_diffusion(
-            gt_colours,
+            gt_colours.to(self.device),
             mass,
             albo_evals,
             albo_evecs,
-            torch.tensor([0.001, 0.1, 0.01]),
+            torch.tensor([0.001, 0.1, 0.01], device=self.device),
         )
 
         print(
@@ -89,10 +90,12 @@ class OptimiseFixedHeatKernels:
         )
 
         gt_colours = gt_colours.sum(dim=0)
-        return gt_colours
+        return gt_colours.to(self.device)
 
     def optimise(self, n_iter=100):
-        v_colours_buffer = torch.zeros([self._n_sources, *self._verts.shape])
+        v_colours_buffer = torch.zeros(
+            [self._n_sources, *self._verts.shape], device=self.device
+        )
         gt_colours = self._make_gt_colours()
 
         print(f"INITIAL -> ", self._colored_print_opt_params)
@@ -134,11 +137,11 @@ class OptimiseFixedHeatKernels:
                 optimizer.step()
                 optimizer.zero_grad()
 
-            # if (i + 1) % 100 == 0:
-            #     print(
-            #         f"Iteration: {i + 1} -> Loss: {loss.item()}.",
-            #         self._errors["printables"],
-            #     )
+            if (i + 1) % 100 == 0:
+                print(
+                    f"Iteration: {i + 1} -> Loss: {loss.item()}.",
+                    self._errors["printables"],
+                )
 
             errors = self._errors
             for k in self._splats.keys():
@@ -152,17 +155,19 @@ class OptimiseFixedHeatKernels:
 
     @property
     def _colored_print_opt_params(self):
-        angles = torch.rad2deg(self._splats["angles"]).detach().numpy()
+        angles = torch.rad2deg(self._splats["angles"]).cpu().detach().numpy()
         anisotropies = (
-            self._splats["anisotropies"].detach().numpy() * self._anis_scaler
+            self._splats["anisotropies"].detach().cpu().numpy()
+            * self._anis_scaler
         )
         diff_times = (
             self._diff_time_scaler_func(self._splats["diff_times"])
             .detach()
+            .cpu()
             .numpy()
         )
         kernel_colours = (
-            self._splats["kernel_colours"].view(-1).detach().numpy()
+            self._splats["kernel_colours"].view(-1).detach().cpu().numpy()
         )
         return (
             colored(f"Angles: {angles}, ", "yellow")
@@ -175,18 +180,21 @@ class OptimiseFixedHeatKernels:
     def _errors(self):
         angles = self._splats["angles"] % (torch.pi)
         angles_error = (
-            (angles - torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])))
+            (angles.cpu() - torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])))
             .pow(2)
             .sum()
             .pow(0.5)
         )
         anisotropies = self._splats["anisotropies"] * self._anis_scaler
         anisotropies_error = (
-            (anisotropies - torch.tensor([33.0, 60, 5.2])).pow(2).sum().pow(0.5)
+            (anisotropies.cpu() - torch.tensor([33.0, 60, 5.2]))
+            .pow(2)
+            .sum()
+            .pow(0.5)
         )
         diff_times = self._diff_time_scaler_func(self._splats["diff_times"])
         diff_times_error = (
-            (diff_times - torch.tensor([0.001, 0.1, 0.01]))
+            (diff_times.cpu() - torch.tensor([0.001, 0.1, 0.01]))
             .pow(2)
             .sum()
             .pow(0.5)
@@ -195,7 +203,7 @@ class OptimiseFixedHeatKernels:
             [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]], dtype=torch.float
         )
         kernel_colours_error = (
-            (self._splats["kernel_colours"] - gt_kernel_colors)
+            (self._splats["kernel_colours"].cpu() - gt_kernel_colors)
             .pow(2)
             .sum()
             .pow(0.5)
@@ -262,27 +270,34 @@ if __name__ == "__main__":
     fnorm = np.array(mesh.face_normals)
 
     optimisation = OptimiseFixedHeatKernels(
-        verts, faces, fnorm, n_sources=3, k_eig=256, fpath=mesh_path
+        verts,
+        faces,
+        fnorm,
+        n_sources=3,
+        k_eig=256,
+        fpath=mesh_path,
+        device="cuda",
     )
+
     v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)
 
     v_colours = (v_colours - v_colours.min()) / (
         v_colours.max() - v_colours.min()
     )
     v_colours *= 255
-    v_colours = v_colours.squeeze().detach().numpy()
+    v_colours = v_colours.squeeze().detach().cpu().numpy()
 
     gt_colours = (gt_colours - gt_colours.min()) / (
         gt_colours.max() - gt_colours.min()
     )
     gt_colours *= 255
-    gt_colours = gt_colours.squeeze().detach().numpy()
+    gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
     init_colours = (init_colours - init_colours.min()) / (
         init_colours.max() - init_colours.min()
     )
     init_colours *= 255
-    init_colours = init_colours.squeeze().detach().numpy()
+    init_colours = init_colours.squeeze().detach().cpu().numpy()
 
     gt_mesh = mesh.copy()
     gt_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=gt_colours)

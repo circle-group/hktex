@@ -10,10 +10,13 @@ import utils
 
 
 class EigenAlboInterpolation:
-    def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None):
+    def __init__(
+        self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"
+    ):
         self._verts = verts
         self._faces = faces
         self._fnorm = fnorm
+        self._device = device
 
         self._k_eig = k_eig
         self._all_eigen, self._smp_coords, self._mass = (
@@ -28,7 +31,7 @@ class EigenAlboInterpolation:
         # that the precomputed values are saved and loaded if possible
 
         if fpath is None:
-            return self._precompute_all_eigen(fpath)
+            return self._precompute_all_eigen()
 
         else:
             eigen_path = fpath.replace(".obj", "_all_eigen.pt")
@@ -44,9 +47,9 @@ class EigenAlboInterpolation:
                 torch.save(sampling_coords, smp_coords_path)
                 torch.save(mass, mass_path)
         return (
-            all_eigen.to(torch.float32),
-            sampling_coords.to(torch.float32),
-            mass.to(torch.float32),
+            all_eigen.to(torch.float32).to(self._device),
+            sampling_coords.to(torch.float32).to(self._device),
+            mass.to(torch.float32).to(self._device),
         )
 
     def _precompute_all_eigen(
@@ -82,63 +85,11 @@ class EigenAlboInterpolation:
 
         return torch.stack(all_eigen), polar_smp_coords, mass
 
-    # def get_albo_eigenquantities(
-    #     self, angle, scale
-    # ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-    #     query = torch.tensor([angle, scale]).unsqueeze(0)
-
-    #     # albo_eigenquantities = torch_geometric.nn.knn_interpolate(
-    #     #     self._all_eigen, self._smp_coords, query, k=4
-    #     # )
-    #     with torch.no_grad():
-    #         assign_index = torch_geometric.nn.knn(self._smp_coords, query, k=4)
-    #         y_idx, x_idx = assign_index[0], assign_index[1]
-
-    #         closest_polar = self._smp_coords[x_idx]
-
-    #         closest_cartesian = torch.stack(
-    #             [
-    #                 torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
-    #                 torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
-    #             ],
-    #             dim=1,
-    #         )
-    #         query_cartesian = torch.stack(
-    #             [
-    #                 torch.cos(query[:, 0]) * query[:, 1],
-    #                 torch.sin(query[:, 0]) * query[:, 1],
-    #             ],
-    #             dim=1,
-    #         )
-    #         diff = query_cartesian - closest_cartesian
-    #         squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
-    #         weights = 1.0 / torch.clamp(squared_distance, min=1e-16)
-
-    #     y = scatter(
-    #         self._all_eigen[x_idx] * weights,
-    #         y_idx,
-    #         0,
-    #         query.size(0),
-    #         reduce="sum",
-    #     )
-    #     y = y / scatter(weights, y_idx, 0, query.size(0), reduce="sum")
-
-    #     albo_eigenquantities = y.squeeze(0)
-    #     evals = albo_eigenquantities[: self._k_eig].unsqueeze(0).contiguous()
-    #     evecs = albo_eigenquantities[self._k_eig :].reshape(
-    #         self._verts.shape[0], self._k_eig
-    #     )
-    #     evecs = evecs.unsqueeze(0).contiguous()
-    #     # evecs = self.gram_schmidt(evecs).unsqueeze(0).contiguous()
-    #     evecs = self._stiefel_manifold.projx(evecs)
-    #     return evals, evecs, self._mass
-
     def get_albo_eigenquantities(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        query = torch.stack([angles, scales], dim=1)
+        query = torch.stack([angles, scales], dim=1).to(self._device)
         query_cartesian = torch.stack(
             [
                 torch.cos(query[:, 0]) * query[:, 1],
@@ -147,17 +98,12 @@ class EigenAlboInterpolation:
             dim=1,
         )
 
-        # albo_eigenquantities = torch_geometric.nn.knn_interpolate(
-        #     self._all_eigen, self._smp_coords, query, k=4
-        # )
-        # with torch.no_grad():
-        # assign_index = torch_geometric.nn.knn(self._smp_coords, query, k=4)
-        # y_idx, x_idx = assign_index[0], assign_index[1]
-
         diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
         squared_distance = (diff * diff).sum(-1, keepdim=True)
         idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-        y_idx = torch.arange(idx.size(1)).repeat_interleave(idx.size(0))
+        y_idx = torch.arange(idx.size(1), device=idx.device).repeat_interleave(
+            idx.size(0)
+        )
         x_idx = idx.squeeze().t().reshape(-1)
 
         closest_polar = self._smp_coords[x_idx]
