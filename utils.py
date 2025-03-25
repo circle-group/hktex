@@ -75,6 +75,10 @@ def sparse_torch_to_np(
 
     return mat
 
+def stiefel_projx(x: torch.Tensor, driver: Optional[str] = None) -> torch.Tensor:
+    assert driver is None or driver in ["gesvd", "gesvda", "gesvdj"]
+    U, _, V = torch.linalg.svd(x, full_matrices=False, driver=driver)
+    return torch.einsum("...ik,...kj->...ij", U, V)
 
 def get_anisotropic_lbo(
     pos: torch.Tensor,
@@ -292,6 +296,7 @@ def heat_diffusion(
 
     # Transform back to per-vertex
     x_diffuse = from_basis(x_diffuse_spec, evecs)
+    
     return x_diffuse
 
 

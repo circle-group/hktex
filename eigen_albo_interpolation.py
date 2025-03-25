@@ -1,7 +1,6 @@
 import math
 import torch
 import torch_geometric.nn
-import geoopt
 
 from typing import Optional, Tuple
 from torch_geometric.utils import scatter
@@ -10,6 +9,8 @@ import utils
 
 
 class EigenAlboInterpolation:
+    SVD_DRIVER = "gesvda"
+
     def __init__(
         self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"
     ):
@@ -22,7 +23,6 @@ class EigenAlboInterpolation:
         self._all_eigen, self._smp_coords, self._mass = (
             self.precompute_all_eigen(fpath)
         )
-        self._stiefel_manifold = geoopt.Stiefel()
 
         self._smp_coords_cartesian = torch.stack(
             [
@@ -150,9 +150,9 @@ class EigenAlboInterpolation:
             -1, self._verts.shape[0], self._k_eig
         )
         evecs = evecs.contiguous()
-        evecs = self._stiefel_manifold.projx(evecs)
+        evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
         return evals, evecs, self._mass
-
+    
 
 def differentiable_knn_interpolate(x, pos_x, pos_y, k=3):
     diff = pos_x.unsqueeze(1) - pos_y.unsqueeze(0)

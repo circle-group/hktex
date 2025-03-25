@@ -20,6 +20,7 @@ class OptimiseFixedHeatKernels:
         lr_mult: float = 1,
         k_eig: int = 256,
         fpath: str = None,
+        normalize_colours: bool = False,
         device: str = "cpu",
     ):
         self.device = device
@@ -40,6 +41,7 @@ class OptimiseFixedHeatKernels:
 
         self._anis_act = lambda x: x # torch.exp
         
+        self._normalize_colours = normalize_colours
         self._lr_mult = lr_mult
         self._splats, self._optims = self._make_splats_and_optimisers(n_sources)
 
@@ -62,7 +64,7 @@ class OptimiseFixedHeatKernels:
         )
 
         optimisers = {
-            name: torch.optim.SGD([{"params": splats[name], "lr": self._lr_mult * lr}])
+            name: torch.optim.Adam([{"params": splats[name], "lr": self._lr_mult * lr}])
             for name, _, lr in params
         }
         return splats, optimisers
@@ -95,8 +97,9 @@ class OptimiseFixedHeatKernels:
                 albo_evals,
                 albo_evecs,
                 self._diff_time_scaler_func(self._splats["diff_times"]),
-            )
-            v_colours = self._normalize(v_colours.sum(dim=0))
+            ).sum(dim=0)
+            if self._normalize_colours:
+                v_colours = self._normalize(v_colours)
 
             if i == 0:
                 init_colours = v_colours.clone().detach()
@@ -184,11 +187,13 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         faces: np.ndarray,
         fnorms: np.ndarray,
         n_sources: int,
+        lr_mult: float = 1,
         k_eig: int = 256,
         fpath: str = None,
+        normalize_colours: bool = False,
         device: str = "cpu",
     ):
-        super().__init__(verts, faces, fnorms, n_sources, k_eig, fpath, device)
+        super().__init__(verts, faces, fnorms, n_sources, lr_mult, k_eig, fpath, normalize_colours, device)
         self._gt_splats = None
 
     def _make_gt_colours(self):
@@ -235,7 +240,7 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         albo_evals, albo_evecs, mass = (
             self._eigalbo_interp.get_albo_eigenquantities(
                 angles=torch.deg2rad(self._gt_splats["angles"]),
-                scales=torch.tensor(self._gt_splats["anisotropies"]),
+                scales=self._gt_splats["anisotropies"],
             )
         )
 
@@ -260,7 +265,9 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         )
 
         gt_colours = gt_colours.sum(dim=0)
-        return gt_colours.to(self.device)
+        if self._normalize_colours:
+            gt_colours = self._normalize(gt_colours)
+        return gt_colours
 
     @property
     def _errors(self):
@@ -349,6 +356,7 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
+    normalize_colours = True
     optimisation = OptimiseKnownFixedHeatKernels(
         verts,
         faces,
@@ -356,27 +364,30 @@ if __name__ == "__main__":
         n_sources=30,
         k_eig=256,
         fpath=mesh_path,
+        normalize_colours=normalize_colours,
         device="cuda",
     )
 
     v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)
 
-    # Already normalized
-    # v_colours = (v_colours - v_colours.min()) / (
-    #     v_colours.max() - v_colours.min()
-    # )
+    if not normalize_colours:
+        v_colours = (v_colours - v_colours.min()) / (
+            v_colours.max() - v_colours.min()
+        )
     v_colours *= 255
     v_colours = v_colours.squeeze().detach().cpu().numpy()
 
-    # gt_colours = (gt_colours - gt_colours.min()) / (
-    #     gt_colours.max() - gt_colours.min()
-    # )
+    if not normalize_colours:
+        gt_colours = (gt_colours - gt_colours.min()) / (
+            gt_colours.max() - gt_colours.min()
+        )
     gt_colours *= 255
     gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
-    # init_colours = (init_colours - init_colours.min()) / (
-    #     init_colours.max() - init_colours.min()
-    # )
+    if not normalize_colours:
+        init_colours = (init_colours - init_colours.min()) / (
+            init_colours.max() - init_colours.min()
+        )
     init_colours *= 255
     init_colours = init_colours.squeeze().detach().cpu().numpy()
 
