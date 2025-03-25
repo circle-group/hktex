@@ -73,15 +73,15 @@ class EigenAlboInterpolation:
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         for angle in range(0, 180, 30):
-            angle_rad = math.radians(angle)
+            angle = math.radians(angle)
             for scale in [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]:
-                sampling_coords.append(torch.tensor([angle_rad, scale]))
+                sampling_coords.append(torch.tensor([angle, scale]))
 
                 lapl, mass = utils.get_anisotropic_lbo(
                     torch.tensor(self._verts),
                     torch.tensor(self._faces).T,
                     torch.tensor(self._fnorm),
-                    rotation_angle=angle_rad,
+                    rotation_angle=angle,
                     anisotropy=float(scale),
                 )
 
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     # )
 
     albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
-        angles=torch.tensor([45.0, 18.3, 10.0]),
+        angles=torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])),
         scales=torch.tensor([33.0, 60, 5.2]),
     )
 
