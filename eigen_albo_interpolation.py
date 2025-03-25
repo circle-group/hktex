@@ -22,10 +22,6 @@ class EigenAlboInterpolation:
         self._all_eigen, self._smp_coords, self._mass = (
             self.precompute_all_eigen(fpath)
         )
-        if device is not None:
-            self._all_eigen = self._all_eigen.to(device)
-            self._smp_coords = self._smp_coords.to(device)
-            self._mass = self._mass.to(device)
         self._stiefel_manifold = geoopt.Stiefel()
 
         self._smp_coords_cartesian = torch.stack(
@@ -101,8 +97,7 @@ class EigenAlboInterpolation:
     def get_albo_eigenquantities(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        query = torch.stack([angles, scales], dim=1).to(self._device)
+        query = torch.stack([angles, scales], dim=1) # Should be on current device already .to(self._device)
         query_cartesian = torch.stack(
             [
                 torch.cos(query[:, 0]) * query[:, 1],
@@ -137,7 +132,7 @@ class EigenAlboInterpolation:
             closest_cartesian = self._smp_coords_cartesian[x_idx]
         
         diff = query_cartesian[y_idx] - closest_cartesian
-        squared_distance = (diff * diff).sum(dim=-1, keepdim=True).sqrt()
+        squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
         weights = 1.0 / torch.clamp(squared_distance, min=1e-16)
 
         y = scatter(

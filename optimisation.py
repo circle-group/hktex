@@ -300,21 +300,22 @@ if __name__ == "__main__":
 
     v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)
 
-    v_colours = (v_colours - v_colours.min()) / (
-        v_colours.max() - v_colours.min()
-    )
+    # Already normalized
+    # v_colours = (v_colours - v_colours.min()) / (
+    #     v_colours.max() - v_colours.min()
+    # )
     v_colours *= 255
     v_colours = v_colours.squeeze().detach().cpu().numpy()
 
-    gt_colours = (gt_colours - gt_colours.min()) / (
-        gt_colours.max() - gt_colours.min()
-    )
+    # gt_colours = (gt_colours - gt_colours.min()) / (
+    #     gt_colours.max() - gt_colours.min()
+    # )
     gt_colours *= 255
     gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
-    init_colours = (init_colours - init_colours.min()) / (
-        init_colours.max() - init_colours.min()
-    )
+    # init_colours = (init_colours - init_colours.min()) / (
+    #     init_colours.max() - init_colours.min()
+    # )
     init_colours *= 255
     init_colours = init_colours.squeeze().detach().cpu().numpy()
 
