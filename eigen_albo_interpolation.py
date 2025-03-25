@@ -10,7 +10,7 @@ import utils
 
 
 class EigenAlboInterpolation:
-    def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None):
+    def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None, device=None):
         self._verts = verts
         self._faces = faces
         self._fnorm = fnorm
@@ -19,7 +19,19 @@ class EigenAlboInterpolation:
         self._all_eigen, self._smp_coords, self._mass = (
             self.precompute_all_eigen(fpath)
         )
+        if device is not None:
+            self._all_eigen = self._all_eigen.to(device)
+            self._smp_coords = self._smp_coords.to(device)
+            self._mass = self._mass.to(device)
         self._stiefel_manifold = geoopt.Stiefel()
+
+        self._smp_coords_cartesian = torch.stack(
+            [
+                torch.cos(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
+                torch.sin(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
+            ],
+            dim=1,
+        )
 
     def precompute_all_eigen(
         self, fpath: Optional[str] = None
@@ -58,14 +70,15 @@ class EigenAlboInterpolation:
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         for angle in range(0, 180, 30):
+            angle_rad = math.radians(angle)
             for scale in [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]:
-                sampling_coords.append(torch.tensor([angle, scale]))
+                sampling_coords.append(torch.tensor([angle_rad, scale]))
 
                 lapl, mass = utils.get_anisotropic_lbo(
                     torch.tensor(self._verts),
                     torch.tensor(self._faces).T,
                     torch.tensor(self._fnorm),
-                    rotation_angle=math.radians(angle),
+                    rotation_angle=angle_rad,
                     anisotropy=float(scale),
                 )
 
@@ -154,24 +167,33 @@ class EigenAlboInterpolation:
         # assign_index = torch_geometric.nn.knn(self._smp_coords, query, k=4)
         # y_idx, x_idx = assign_index[0], assign_index[1]
 
-        diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
-        squared_distance = (diff * diff).sum(-1, keepdim=True)
-        idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-        y_idx = torch.arange(idx.size(1)).repeat_interleave(idx.size(0))
-        x_idx = idx.squeeze().t().reshape(-1)
+        # diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
+        # squared_distance = (diff * diff).sum(-1, keepdim=True)
+        # idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
+        # y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+        # x_idx = idx.squeeze().t().reshape(-1)
 
-        closest_polar = self._smp_coords[x_idx]
+        # closest_polar = self._smp_coords[x_idx]
 
-        closest_cartesian = torch.stack(
-            [
-                torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
-                torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
-            ],
-            dim=1,
-        )
+        # closest_cartesian = torch.stack(
+        #     [
+        #         torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
+        #         torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
+        #     ],
+        #     dim=1,
+        # )
 
+        with torch.no_grad():
+            diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
+            squared_distance = (diff * diff).sum(-1, keepdim=True)
+            idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
+            y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+            x_idx = idx.squeeze().t().reshape(-1)
+
+            closest_cartesian = self._smp_coords_cartesian[x_idx]
+        
         diff = query_cartesian[y_idx] - closest_cartesian
-        squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
+        squared_distance = (diff * diff).sum(dim=-1, keepdim=True).sqrt()
         weights = 1.0 / torch.clamp(squared_distance, min=1e-16)
 
         y = scatter(
@@ -225,7 +247,7 @@ if __name__ == "__main__":
     fnorm = np.array(mesh.face_normals)
 
     pca_eigen_albo = EigenAlboInterpolation(
-        verts, faces, fnorm, k_eig=256, fpath=mesh_path
+        verts, faces, fnorm, k_eig=256, fpath=mesh_path, device="cuda"
     )
 
     # albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
