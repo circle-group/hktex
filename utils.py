@@ -287,7 +287,7 @@ def heat_diffusion(
     x_spec = to_basis(x, evecs, mass)
 
     # Diffuse
-    diffusion_coefs = torch.exp(-evals.unsqueeze(-1) * time.unsqueeze(0))
+    diffusion_coefs = torch.exp(-evals * time.unsqueeze(-1)).unsqueeze(-1)
     x_diffuse_spec = diffusion_coefs * x_spec
 
     # Transform back to per-vertex
