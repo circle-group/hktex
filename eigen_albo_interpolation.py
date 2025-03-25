@@ -1,7 +1,6 @@
 import math
 import torch
 import torch_geometric.nn
-import geoopt
 
 from typing import Optional, Tuple
 from torch_geometric.utils import scatter
@@ -10,6 +9,8 @@ import utils
 
 
 class EigenAlboInterpolation:
+    SVD_DRIVER = "gesvda"
+
     def __init__(
         self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"
     ):
@@ -22,7 +23,14 @@ class EigenAlboInterpolation:
         self._all_eigen, self._smp_coords, self._mass = (
             self.precompute_all_eigen(fpath)
         )
-        self._stiefel_manifold = geoopt.Stiefel()
+
+        self._smp_coords_cartesian = torch.stack(
+            [
+                torch.cos(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
+                torch.sin(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
+            ],
+            dim=1,
+        )
 
     def precompute_all_eigen(
         self, fpath: Optional[str] = None
@@ -89,8 +97,8 @@ class EigenAlboInterpolation:
     def get_albo_eigenquantities(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        query = torch.stack([angles, scales], dim=1).to(self._device)
+        # Should be on current device already .to(self._device)
+        query = torch.stack([angles, scales], dim=1)
         query_cartesian = torch.stack(
             [
                 torch.cos(query[:, 0]) * query[:, 1],
@@ -99,23 +107,32 @@ class EigenAlboInterpolation:
             dim=1,
         )
 
-        diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
-        squared_distance = (diff * diff).sum(-1, keepdim=True)
-        idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-        y_idx = torch.arange(idx.size(1), device=idx.device).repeat_interleave(
-            idx.size(0)
-        )
-        x_idx = idx.squeeze().t().reshape(-1)
+        # diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
+        # squared_distance = (diff * diff).sum(-1, keepdim=True)
+        # idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
+        # y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+        # x_idx = idx.squeeze().t().reshape(-1)
 
-        closest_polar = self._smp_coords[x_idx]
+        # closest_polar = self._smp_coords[x_idx]
 
-        closest_cartesian = torch.stack(
-            [
-                torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
-                torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
-            ],
-            dim=1,
-        )
+        # closest_cartesian = torch.stack(
+        #     [
+        #         torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
+        #         torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
+        #     ],
+        #     dim=1,
+        # )
+
+        with torch.no_grad():
+            diff = self._smp_coords_cartesian.unsqueeze(
+                1) - query_cartesian.unsqueeze(0)
+            squared_distance = (diff * diff).sum(-1, keepdim=True)
+            idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
+            y_idx = torch.arange(
+                idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+            x_idx = idx.squeeze().t().reshape(-1)
+
+            closest_cartesian = self._smp_coords_cartesian[x_idx]
 
         diff = query_cartesian[y_idx] - closest_cartesian
         squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
@@ -132,11 +149,11 @@ class EigenAlboInterpolation:
 
         albo_eigenquantities = y
         evals = albo_eigenquantities[:, : self._k_eig].contiguous()
-        evecs = albo_eigenquantities[:, self._k_eig :].view(
+        evecs = albo_eigenquantities[:, self._k_eig:].view(
             -1, self._verts.shape[0], self._k_eig
         )
         evecs = evecs.contiguous()
-        evecs = self._stiefel_manifold.projx(evecs)
+        evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
         return evals, evecs, self._mass
 
 
@@ -172,7 +189,7 @@ if __name__ == "__main__":
     fnorm = np.array(mesh.face_normals)
 
     pca_eigen_albo = EigenAlboInterpolation(
-        verts, faces, fnorm, k_eig=256, fpath=mesh_path
+        verts, faces, fnorm, k_eig=256, fpath=mesh_path, device="cuda"
     )
 
     # albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
