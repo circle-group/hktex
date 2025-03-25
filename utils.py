@@ -75,10 +75,12 @@ def sparse_torch_to_np(
 
     return mat
 
+
 def stiefel_projx(x: torch.Tensor, driver: Optional[str] = None) -> torch.Tensor:
     assert driver is None or driver in ["gesvd", "gesvda", "gesvdj"]
     U, _, V = torch.linalg.svd(x, full_matrices=False, driver=driver)
     return torch.einsum("...ik,...kj->...ij", U, V)
+
 
 def get_anisotropic_lbo(
     pos: torch.Tensor,
@@ -270,10 +272,10 @@ def from_basis(values: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
     """
     Transform data out of an orthonormal basis
     Inputs:
-      - values: (K,D)
-      - basis: (V,K)
+      - values: (B,K,D)
+      - basis: (B,V,K)
     Outputs:
-      - (V,D) reconstructed values
+      - (B,V,D) reconstructed values
     """
     if values.is_complex() or basis.is_complex():
         raise ValueError
@@ -296,7 +298,7 @@ def heat_diffusion(
 
     # Transform back to per-vertex
     x_diffuse = from_basis(x_diffuse_spec, evecs)
-    
+
     return x_diffuse
 
 

@@ -97,7 +97,8 @@ class EigenAlboInterpolation:
     def get_albo_eigenquantities(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        query = torch.stack([angles, scales], dim=1) # Should be on current device already .to(self._device)
+        # Should be on current device already .to(self._device)
+        query = torch.stack([angles, scales], dim=1)
         query_cartesian = torch.stack(
             [
                 torch.cos(query[:, 0]) * query[:, 1],
@@ -123,14 +124,16 @@ class EigenAlboInterpolation:
         # )
 
         with torch.no_grad():
-            diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
+            diff = self._smp_coords_cartesian.unsqueeze(
+                1) - query_cartesian.unsqueeze(0)
             squared_distance = (diff * diff).sum(-1, keepdim=True)
             idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-            y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+            y_idx = torch.arange(
+                idx.size(1), device=query.device).repeat_interleave(idx.size(0))
             x_idx = idx.squeeze().t().reshape(-1)
 
             closest_cartesian = self._smp_coords_cartesian[x_idx]
-        
+
         diff = query_cartesian[y_idx] - closest_cartesian
         squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
         weights = 1.0 / torch.clamp(squared_distance, min=1e-16)
@@ -146,13 +149,13 @@ class EigenAlboInterpolation:
 
         albo_eigenquantities = y
         evals = albo_eigenquantities[:, : self._k_eig].contiguous()
-        evecs = albo_eigenquantities[:, self._k_eig :].view(
+        evecs = albo_eigenquantities[:, self._k_eig:].view(
             -1, self._verts.shape[0], self._k_eig
         )
         evecs = evecs.contiguous()
         evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
         return evals, evecs, self._mass
-    
+
 
 def differentiable_knn_interpolate(x, pos_x, pos_y, k=3):
     diff = pos_x.unsqueeze(1) - pos_y.unsqueeze(0)
