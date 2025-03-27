@@ -11,18 +11,14 @@ import utils
 class EigenAlboInterpolation:
     SVD_DRIVER = "gesvda"
 
-    def __init__(
-        self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"
-    ):
+    def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"):
         self._verts = verts
         self._faces = faces
         self._fnorm = fnorm
         self._device = device
 
         self._k_eig = k_eig
-        self._all_eigen, self._smp_coords, self._mass = (
-            self.precompute_all_eigen(fpath)
-        )
+        self._all_eigen, self._smp_coords, self._mass = self.precompute_all_eigen(fpath)
 
         self._smp_coords_cartesian = torch.stack(
             [
@@ -39,12 +35,13 @@ class EigenAlboInterpolation:
         # that the precomputed values are saved and loaded if possible
 
         if fpath is None:
-            return self._precompute_all_eigen()
+            all_eigen, sampling_coords, mass = self._precompute_all_eigen()
 
         else:
-            eigen_path = fpath.replace(".obj", "_all_eigen.pt")
-            smp_coords_path = fpath.replace(".obj", "_smp_coords.pt")
-            mass_path = fpath.replace(".obj", "_mass.pt")
+            fformat = "." + fpath.split(".")[-1]
+            eigen_path = fpath.replace(fformat, "_all_eigen.pt")
+            smp_coords_path = fpath.replace(fformat, "_smp_coords.pt")
+            mass_path = fpath.replace(fformat, "_mass.pt")
             try:
                 all_eigen = torch.load(eigen_path)
                 sampling_coords = torch.load(smp_coords_path)
@@ -81,9 +78,7 @@ class EigenAlboInterpolation:
                     anisotropy=float(scale),
                 )
 
-                eval, evecs = utils.compute_eig_laplacian(
-                    lapl, mass, self._k_eig
-                )
+                eval, evecs = utils.compute_eig_laplacian(lapl, mass, self._k_eig)
 
                 flat_evecs = torch.tensor(evecs).flatten()
                 all_eigen.append(torch.cat([torch.tensor(eval), flat_evecs]))
@@ -124,12 +119,14 @@ class EigenAlboInterpolation:
         # )
 
         with torch.no_grad():
-            diff = self._smp_coords_cartesian.unsqueeze(
-                1) - query_cartesian.unsqueeze(0)
+            diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(
+                0
+            )
             squared_distance = (diff * diff).sum(-1, keepdim=True)
             idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-            y_idx = torch.arange(
-                idx.size(1), device=query.device).repeat_interleave(idx.size(0))
+            y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(
+                idx.size(0)
+            )
             x_idx = idx.squeeze().t().reshape(-1)
 
             closest_cartesian = self._smp_coords_cartesian[x_idx]
@@ -149,11 +146,11 @@ class EigenAlboInterpolation:
 
         albo_eigenquantities = y
         evals = albo_eigenquantities[:, : self._k_eig].contiguous()
-        evecs = albo_eigenquantities[:, self._k_eig:].view(
+        evecs = albo_eigenquantities[:, self._k_eig :].view(
             -1, self._verts.shape[0], self._k_eig
         )
         evecs = evecs.contiguous()
-        evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
+        # evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
         return evals, evecs, self._mass
 
 
