@@ -48,18 +48,17 @@ class OptimiseFixedHeatKernels:
         self._anis_act = lambda x: self._anis_scaler * F.hardsigmoid(x)
         # self._anis_act = torch.exp
 
-        # -> [0, 1]
-        self._colour_act = lambda x: F.hardsigmoid(x)
+        self._colour_act = lambda x: x
 
         self._normalize_colours = normalize_colours
         self._lr_mult = lr_mult
         self._splats, self._optims = self._make_splats_and_optimisers(n_sources)
 
     def _make_splats_and_optimisers(self, n_sources: int):
-        # kernel_colours = torch.rand((n_sources, 3), dtype=torch.float)
+        kernel_colours = torch.rand((n_sources, 3), dtype=torch.float)
         # angles = (torch.rand(n_sources) + torch.pi / 4) * 0.1
         # anisotropies = torch.rand(n_sources)
-        kernel_colours = torch.randn((n_sources, 3), dtype=torch.float)
+        # kernel_colours = torch.randn((n_sources, 3), dtype=torch.float)
         angles = torch.randn(n_sources)
         anisotropies = torch.randn(n_sources)
         diff_times = torch.rand(n_sources)
@@ -119,6 +118,19 @@ class OptimiseFixedHeatKernels:
                 )
             )
 
+            # with torch.no_grad():
+            #     albo_evals_old, albo_evecs_old, mass_old = (
+            #         self._eigalbo_interp.get_albo_eigenquantities_old(
+            #             angles=self.angles, scales=self.anisotropies
+            #         )
+            #     )
+
+            #     abs_max_error = lambda x, y: (x-y).abs().max()
+
+            #     print(f"Evals: {abs_max_error(albo_evals, albo_evals_old)}")
+            #     print(f"Evecs: {abs_max_error(albo_evecs, albo_evecs_old)}")
+            #     print(f"Mass: {abs_max_error(mass, mass_old)}")
+
             v_colours = utils.heat_diffusion(
                 v_colours,
                 mass,
@@ -132,12 +144,7 @@ class OptimiseFixedHeatKernels:
             if i == 0:
                 init_colours = v_colours.clone().detach()
 
-            # loss = 1e-2 * (v_colours - gt_colours).pow(2).sum()
-            loss = (
-                100
-                * F.mse_loss(v_colours, gt_colours, reduction="sum")
-                / gt_colours.shape[0]
-            )
+            loss = 1e-2 * (v_colours - gt_colours).pow(2).sum()
             # with torch.no_grad():
             #     diff = (v_colours - gt_colours).pow(2).sum(dim=-1)
             #     print(diff.shape, diff.mean(), diff.std(), diff.min(), diff.max())
@@ -434,40 +441,32 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=100,
+        n_sources=500,
         k_eig=256,
-        fpath=None,  # mesh_path,
+        fpath=mesh_path,  # mesh_path,
         normalize_colours=normalize_colours,
         device="cuda",
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=2000)
 
-    if not normalize_colours:
-        v_colours = (v_colours - v_colours.min()) / (v_colours.max() - v_colours.min())
-    v_colours *= 255
+    v_colours = (v_colours * 255).to(dtype=torch.uint8)
     v_colours = v_colours.squeeze().detach().cpu().numpy()
 
-    if not normalize_colours:
-        gt_colours = (gt_colours - gt_colours.min()) / (
-            gt_colours.max() - gt_colours.min()
-        )
-    gt_colours *= 255
+    gt_colours = (gt_colours * 255).to(dtype=torch.uint8)
     gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
-    if not normalize_colours:
-        init_colours = (init_colours - init_colours.min()) / (
-            init_colours.max() - init_colours.min()
-        )
-    init_colours *= 255
+    init_colours = (init_colours * 255).to(dtype=torch.uint8)
     init_colours = init_colours.squeeze().detach().cpu().numpy()
 
     gt_mesh = mesh.copy()
-    gt_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=gt_colours)
+    gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
 
     v_mesh = mesh.copy()
-    v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
+    v_mesh.visual = trimesh.visual.ColorVisuals(v_mesh, vertex_colors=v_colours)
 
     init_mesh = mesh.copy()
-    init_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=init_colours)
+    init_mesh.visual = trimesh.visual.ColorVisuals(
+        init_mesh, vertex_colors=init_colours
+    )
