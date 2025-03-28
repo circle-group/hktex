@@ -25,6 +25,7 @@ class OptimiseFixedHeatKernels:
         fpath: str = None,
         normalize_colours: bool = False,
         device: str = "cpu",
+        **kwargs,
     ):
         self.device = device
 
@@ -192,6 +193,7 @@ class OptimiseFixedHeatKernels:
     def _make_gt_colours(self):
         pass
 
+    @property
     @abstractmethod
     def _errors(self):
         pass
@@ -214,6 +216,7 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         fpath: str = None,
         normalize_colours: bool = False,
         device: str = "cpu",
+        **kwargs,
     ):
         super().__init__(
             verts,
@@ -225,6 +228,7 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
             fpath,
             normalize_colours,
             device,
+            **kwargs,
         )
         self._gt_splats = None
 
@@ -358,30 +362,84 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         plt.show()
 
 
+class OptimiseVertColTextureWthFixedHeatKernels(OptimiseFixedHeatKernels):
+    def __init__(
+        self,
+        verts,
+        faces,
+        fnorms,
+        n_sources,
+        lr_mult=1,
+        k_eig=256,
+        fpath=None,
+        normalize_colours=False,
+        device="cpu",
+        vcols=None,
+    ):
+        super().__init__(
+            verts,
+            faces,
+            fnorms,
+            n_sources,
+            lr_mult,
+            k_eig,
+            fpath,
+            normalize_colours,
+            device,
+        )
+        self._fpath = fpath
+        assert vcols is not None
+        self._vcols = torch.tensor(vcols, device=self.device)
+
+    def _make_gt_colours(self):
+        gt_colours = self._vcols
+        return gt_colours[:, :3] / 255
+
+    @property
+    def _errors(self):
+        return {
+            "printables": None,
+            "angles": torch.tensor(0),
+            "anisotropies": torch.tensor(0),
+            "diff_times": torch.tensor(0),
+            "kernel_colours": torch.tensor(0),
+        }
+
+
 if __name__ == "__main__":
     import trimesh
     import numpy as np
 
-    mesh_path = "../objects/spot_triangulated.obj"
+    mesh_path = "../objects/spot_triangulated.ply"
     mesh = utils.load_mesh(mesh_path, show=False)
 
-    v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
-    mesh = trimesh.Trimesh(v, f)
+    try:
+        # va = {"vert_col": mesh.visual.vertex_colors}
+        # v, f, c = trimesh.remesh.subdivide(
+        #     mesh.vertices, mesh.faces, vertex_attributes=va
+        # )
+        # mesh = trimesh.Trimesh(v, f, vertex_colors=c["vert_col"])
+        vcols = mesh.visual.vertex_colors
+    except AttributeError:
+        v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
+        mesh = trimesh.Trimesh(v, f)
+        vcols = None
 
     verts = np.array(mesh.vertices)
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
     normalize_colours = True
-    optimisation = OptimiseKnownFixedHeatKernels(
+    optimisation = OptimiseVertColTextureWthFixedHeatKernels(
         verts,
         faces,
         fnorm,
-        n_sources=30,
+        n_sources=100,
         k_eig=256,
-        fpath=mesh_path,
+        fpath=None,  # mesh_path,
         normalize_colours=normalize_colours,
         device="cuda",
+        vcols=vcols,
     )
 
     v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=500)

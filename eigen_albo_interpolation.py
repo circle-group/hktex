@@ -35,11 +35,13 @@ class EigenAlboInterpolation:
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
         if fpath is None:
-            return self._precompute_all_eigen()
+            all_eigen, sampling_coords, mass = self._precompute_all_eigen()
+
         else:
-            eigen_path = fpath.replace(".obj", "_all_eigen.pt")
-            smp_coords_path = fpath.replace(".obj", "_smp_coords.pt")
-            mass_path = fpath.replace(".obj", "_mass.pt")
+            fformat = "." + fpath.split(".")[-1]
+            eigen_path = fpath.replace(fformat, "_all_eigen.pt")
+            smp_coords_path = fpath.replace(fformat, "_smp_coords.pt")
+            mass_path = fpath.replace(fformat, "_mass.pt")
             try:
                 all_eigen = torch.load(eigen_path)
                 sampling_coords = torch.load(smp_coords_path)
