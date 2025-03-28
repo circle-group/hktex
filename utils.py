@@ -64,9 +64,7 @@ def sparse_torch_to_np(
     mat: torch.sparse.FloatTensor,
 ) -> scipy.sparse.csc_matrix:
     if len(mat.shape) != 2:
-        raise RuntimeError(
-            "should be a matrix-shaped type; dim is : " + str(mat.shape)
-        )
+        raise RuntimeError("should be a matrix-shaped type; dim is : " + str(mat.shape))
     mat = mat.coalesce()
     indices = to_np(mat.indices())
     values = to_np(mat.values())
@@ -122,9 +120,9 @@ def get_anisotropic_lbo(
         fpd2 = torch.tensor(igl.average_onto_faces(np_faces_t, pd2))
         f_reference = torch.stack([fpd1, fpd2, face_normals], dim=2)
         f_reference_t = torch.transpose(f_reference, 1, 2)
-        an_scale_mat = torch.diag(
-            torch.tensor([1 / (1 + anisotropy), 1.0, 1.0])
-        ).to(torch.float64)
+        an_scale_mat = torch.diag(torch.tensor([1 / (1 + anisotropy), 1.0, 1.0])).to(
+            torch.float64
+        )
         scales_mat = torch.matmul(
             torch.matmul(f_reference, an_scale_mat), f_reference_t
         )
@@ -300,6 +298,22 @@ def heat_diffusion(
     x_diffuse = from_basis(x_diffuse_spec, evecs)
 
     return x_diffuse
+
+
+def big_trimesh_pcl(points, colours=None, radius=0.015):
+    if isinstance(points, torch.Tensor):
+        points = to_np(points)
+    if isinstance(colours, torch.Tensor):
+        colours = to_np(colours)
+    pcl = [trimesh.creation.uv_sphere(radius=radius) for i in range(points.shape[0])]
+
+    for i, p in enumerate(pcl):
+        p.apply_translation(points[i])
+        if colours is not None:
+            p.visual.vertex_colors = np.zeros_like(p.vertices) + colours[i]
+        else:
+            p.visual.vertex_colors = np.zeros_like(p.vertices) + np.array([255, 0, 0])
+    return pcl
 
 
 if __name__ == "__main__":

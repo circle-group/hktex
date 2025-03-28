@@ -196,6 +196,10 @@ class OptimiseFixedHeatKernels:
             + colored(f"Kernel colours: {kernel_colours}", "red")
         )
 
+    @property
+    def kernel_centres(self):
+        return self._verts[self._source_idxs]
+
     @abstractmethod
     def _make_gt_colours(self):
         pass
@@ -441,9 +445,9 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=500,
+        n_sources=10,
         k_eig=256,
-        fpath=mesh_path,  # mesh_path,
+        fpath=mesh_path,
         normalize_colours=normalize_colours,
         device="cuda",
         vcols=vcols,
@@ -464,7 +468,10 @@ if __name__ == "__main__":
     gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
 
     v_mesh = mesh.copy()
-    v_mesh.visual = trimesh.visual.ColorVisuals(v_mesh, vertex_colors=v_colours)
+    v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
+    v_scene = trimesh.Scene(
+        [v_mesh, utils.big_trimesh_pcl(optimisation.kernel_centres)]
+    )
 
     init_mesh = mesh.copy()
     init_mesh.visual = trimesh.visual.ColorVisuals(
