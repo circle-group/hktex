@@ -1,9 +1,11 @@
 import math
 import torch
 import torch_geometric.nn
+import numpy as np
 
 from typing import Optional, Tuple
 from torch_geometric.utils import scatter
+from tqdm import tqdm
 
 import utils
 
@@ -18,14 +20,23 @@ class EigenAlboInterpolation:
         self._device = device
 
         self._k_eig = k_eig
-        self._all_eigen, self._smp_coords, self._mass = self.precompute_all_eigen(fpath)
+        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen(fpath)
 
+        # self._all_eigen = _all_eigen
+        self._mass = _mass
         self._smp_coords_cartesian = torch.stack(
             [
-                torch.cos(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
-                torch.sin(self._smp_coords[:, 0]) * self._smp_coords[:, 1],
+                torch.cos(_smp_coords[:, 0]) * _smp_coords[:, 1],
+                torch.sin(_smp_coords[:, 0]) * _smp_coords[:, 1],
             ],
             dim=1,
+        )
+
+        self._eigen_val = _all_eigen[:, :k_eig].contiguous()
+        self._eigen_vec = (
+            _all_eigen[:, k_eig:]
+            .view(-1, self._verts.shape[0], self._k_eig)
+            .contiguous()
         )
 
     def precompute_all_eigen(
@@ -33,10 +44,8 @@ class EigenAlboInterpolation:
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
-
         if fpath is None:
             all_eigen, sampling_coords, mass = self._precompute_all_eigen()
-
         else:
             fformat = "." + fpath.split(".")[-1]
             eigen_path = fpath.replace(fformat, "_all_eigen.pt")
@@ -65,7 +74,8 @@ class EigenAlboInterpolation:
 
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
-        for angle in range(0, 180, 30):
+        print("> Precomputing all eigendecompositions")
+        for angle in tqdm(range(0, 180, 30)):
             angle = math.radians(angle)
             for scale in [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]:
                 sampling_coords.append(torch.tensor([angle, scale]))
@@ -89,7 +99,7 @@ class EigenAlboInterpolation:
 
         return torch.stack(all_eigen), polar_smp_coords, mass
 
-    def get_albo_eigenquantities(
+    def get_albo_eigenquantities_old(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # Should be on current device already .to(self._device)
@@ -101,22 +111,6 @@ class EigenAlboInterpolation:
             ],
             dim=1,
         )
-
-        # diff = self._smp_coords.unsqueeze(1) - query.unsqueeze(0)
-        # squared_distance = (diff * diff).sum(-1, keepdim=True)
-        # idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-        # y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(idx.size(0))
-        # x_idx = idx.squeeze().t().reshape(-1)
-
-        # closest_polar = self._smp_coords[x_idx]
-
-        # closest_cartesian = torch.stack(
-        #     [
-        #         torch.cos(closest_polar[:, 0]) * closest_polar[:, 1],
-        #         torch.sin(closest_polar[:, 0]) * closest_polar[:, 1],
-        #     ],
-        #     dim=1,
-        # )
 
         with torch.no_grad():
             diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(
@@ -153,21 +147,46 @@ class EigenAlboInterpolation:
         # evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
         return evals, evecs, self._mass
 
+    def get_albo_eigenquantities(
+        self, angles: torch.Tensor, scales: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        query_cartesian = torch.stack(
+            [
+                torch.cos(angles) * scales,
+                torch.sin(angles) * scales,
+            ],
+            dim=1,
+        )
 
-def differentiable_knn_interpolate(x, pos_x, pos_y, k=3):
-    diff = pos_x.unsqueeze(1) - pos_y.unsqueeze(0)
-    squared_distance = (diff * diff).sum(-1, keepdim=True)
-    idx = squared_distance.topk(k, largest=False, dim=0)[1]
-    y_idx = torch.arange(idx.size(1)).repeat_interleave(idx.size(0))
-    x_idx = idx.squeeze().t().reshape(-1)
+        diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
+        squared_distance = (diff * diff).sum(-1, keepdim=True)
+        dist, idx = squared_distance.topk(k=4, largest=False, dim=0)
+        x_idx = idx.squeeze().t()  # B, 4
+        dist = dist.squeeze().t()  # B, 4
 
-    selected_squared_dist = squared_distance[x_idx, y_idx]
+        weights = 1.0 / torch.clamp(dist, min=1e-16)
+        weights = weights / weights.sum(dim=1, keepdim=True)
 
-    weights = 1.0 / torch.clamp(selected_squared_dist, min=1e-16)
+        weights = weights.unsqueeze(-1)
+        evals = (
+            weights
+            * self._eigen_val[x_idx.flatten()].view(
+                *x_idx.shape, *self._eigen_val.shape[1:]
+            )
+        ).sum(dim=1, keepdim=False)
+        evecs = (
+            weights.unsqueeze(-1)
+            * self._eigen_vec[x_idx.flatten()].view(
+                *x_idx.shape, *self._eigen_vec.shape[1:]
+            )
+        ).sum(dim=1, keepdim=False)
 
-    y2 = scatter(x[x_idx] * weights, y_idx, 0, pos_y.size(0), reduce="sum")
-    y2 = y2 / scatter(weights, y_idx, 0, pos_y.size(0), reduce="sum")
-    return y2
+        # x_idx = x_idx.flatten()
+        # weights = weights.reshape(-1, 1)
+        # evals = scatter(self._eigen_val[x_idx] * weights, y_idx, 0, B, reduce="sum")
+        # evecs = scatter(self._eigen_vec[x_idx] * weights.unsqueeze(-1), y_idx, 0, B, reduce="sum")
+
+        return evals, evecs, self._mass
 
 
 if __name__ == "__main__":
