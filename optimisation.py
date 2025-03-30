@@ -118,26 +118,13 @@ class OptimiseFixedHeatKernels:
                 )
             )
 
-            # with torch.no_grad():
-            #     albo_evals_old, albo_evecs_old, mass_old = (
-            #         self._eigalbo_interp.get_albo_eigenquantities_old(
-            #             angles=self.angles, scales=self.anisotropies
-            #         )
-            #     )
-
-            #     abs_max_error = lambda x, y: (x-y).abs().max()
-
-            #     print(f"Evals: {abs_max_error(albo_evals, albo_evals_old)}")
-            #     print(f"Evecs: {abs_max_error(albo_evecs, albo_evecs_old)}")
-            #     print(f"Mass: {abs_max_error(mass, mass_old)}")
-
-            v_colours = utils.heat_diffusion(
+            v_colours = utils.heat_diffusion_reduce(
                 v_colours,
                 mass,
                 albo_evals,
                 albo_evecs,
                 self.diff_times,
-            ).sum(dim=0)
+            )
             if self._normalize_colours:
                 v_colours = self._normalize(v_colours)
 
@@ -440,6 +427,9 @@ if __name__ == "__main__":
     verts = np.array(mesh.vertices)
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
+
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.set_float32_matmul_precision("high")
 
     # torch.cuda.memory._record_memory_history()
     normalize_colours = True

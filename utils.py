@@ -299,6 +299,26 @@ def heat_diffusion(
 
     return x_diffuse
 
+@torch.compile
+def heat_diffusion_reduce(
+    x: torch.Tensor,
+    mass: torch.Tensor,
+    evals: torch.Tensor,
+    evecs: torch.Tensor,
+    time: torch.Tensor,
+):
+    # Transform to spectral
+    x_spec = to_basis(x, evecs, mass)
+
+    # Diffuse
+    diffusion_coefs = torch.exp(-evals * time.unsqueeze(-1)).unsqueeze(-1)
+    x_diffuse_spec = diffusion_coefs * x_spec
+
+    # Transform back to per-vertex
+    x_diffuse = from_basis(x_diffuse_spec, evecs)
+
+    # reduce
+    return x_diffuse.sum(dim=0)
 
 def big_trimesh_pcl(points, colours=None, radius=0.015):
     if isinstance(points, torch.Tensor):

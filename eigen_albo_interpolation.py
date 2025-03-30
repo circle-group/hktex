@@ -9,8 +9,6 @@ import utils
 
 
 class EigenAlboInterpolation:
-    SVD_DRIVER = "gesvda"
-
     def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"):
         self._verts = verts
         self._faces = faces
@@ -119,7 +117,6 @@ class EigenAlboInterpolation:
 
         weights2 = weights.new_zeros((weights.shape[0], self._eigen_val.shape[0])).scatter_(1, index=x_idx, src=weights)
         evals = weights2 @ self._eigen_val
-        # evecs2 = weights2 @ self._eigen_vec
         evecs = torch.einsum("ij,jkl->ikl", weights2, self._eigen_vec)
 
         return evals, evecs, self._mass
