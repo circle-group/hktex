@@ -1,10 +1,8 @@
 import math
 import torch
-import torch_geometric.nn
 import numpy as np
 
 from typing import Optional, Tuple
-from torch_geometric.utils import scatter
 from tqdm import tqdm
 
 import utils
@@ -99,54 +97,6 @@ class EigenAlboInterpolation:
 
         return torch.stack(all_eigen), polar_smp_coords, mass
 
-    def get_albo_eigenquantities_old(
-        self, angles: torch.Tensor, scales: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Should be on current device already .to(self._device)
-        query = torch.stack([angles, scales], dim=1)
-        query_cartesian = torch.stack(
-            [
-                torch.cos(query[:, 0]) * query[:, 1],
-                torch.sin(query[:, 0]) * query[:, 1],
-            ],
-            dim=1,
-        )
-
-        with torch.no_grad():
-            diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(
-                0
-            )
-            squared_distance = (diff * diff).sum(-1, keepdim=True)
-            idx = squared_distance.topk(k=4, largest=False, dim=0)[1]
-            y_idx = torch.arange(idx.size(1), device=query.device).repeat_interleave(
-                idx.size(0)
-            )
-            x_idx = idx.squeeze().t().reshape(-1)
-
-            closest_cartesian = self._smp_coords_cartesian[x_idx]
-
-        diff = query_cartesian[y_idx] - closest_cartesian
-        squared_distance = (diff * diff).sum(dim=-1, keepdim=True)
-        weights = 1.0 / torch.clamp(squared_distance, min=1e-16)
-
-        y = scatter(
-            self._all_eigen[x_idx] * weights,
-            y_idx,
-            0,
-            query.size(0),
-            reduce="sum",
-        )
-        y = y / scatter(weights, y_idx, 0, query.size(0), reduce="sum")
-
-        albo_eigenquantities = y
-        evals = albo_eigenquantities[:, : self._k_eig].contiguous()
-        evecs = albo_eigenquantities[:, self._k_eig :].view(
-            -1, self._verts.shape[0], self._k_eig
-        )
-        evecs = evecs.contiguous()
-        # evecs = utils.stiefel_projx(evecs, driver=self.SVD_DRIVER)
-        return evals, evecs, self._mass
-
     def get_albo_eigenquantities(
         self, angles: torch.Tensor, scales: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -167,24 +117,10 @@ class EigenAlboInterpolation:
         weights = 1.0 / torch.clamp(dist, min=1e-16)
         weights = weights / weights.sum(dim=1, keepdim=True)
 
-        weights = weights.unsqueeze(-1)
-        evals = (
-            weights
-            * self._eigen_val[x_idx.flatten()].view(
-                *x_idx.shape, *self._eigen_val.shape[1:]
-            )
-        ).sum(dim=1, keepdim=False)
-        evecs = (
-            weights.unsqueeze(-1)
-            * self._eigen_vec[x_idx.flatten()].view(
-                *x_idx.shape, *self._eigen_vec.shape[1:]
-            )
-        ).sum(dim=1, keepdim=False)
-
-        # x_idx = x_idx.flatten()
-        # weights = weights.reshape(-1, 1)
-        # evals = scatter(self._eigen_val[x_idx] * weights, y_idx, 0, B, reduce="sum")
-        # evecs = scatter(self._eigen_vec[x_idx] * weights.unsqueeze(-1), y_idx, 0, B, reduce="sum")
+        weights2 = weights.new_zeros((weights.shape[0], self._eigen_val.shape[0])).scatter_(1, index=x_idx, src=weights)
+        evals = weights2 @ self._eigen_val
+        # evecs2 = weights2 @ self._eigen_vec
+        evecs = torch.einsum("ij,jkl->ikl", weights2, self._eigen_vec)
 
         return evals, evecs, self._mass
 

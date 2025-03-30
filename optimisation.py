@@ -65,10 +65,10 @@ class OptimiseFixedHeatKernels:
 
         params = [
             # name, value, lr
-            ("kernel_colours", torch.nn.Parameter(kernel_colours), 1e-2),
-            ("angles", torch.nn.Parameter(angles), 1e-4),
+            ("kernel_colours", torch.nn.Parameter(kernel_colours), 1e-3),
+            ("angles", torch.nn.Parameter(angles), 1e-3),
             ("anisotropies", torch.nn.Parameter(anisotropies), 1e-3),
-            ("diff_times", torch.nn.Parameter(diff_times), 1e-2),
+            ("diff_times", torch.nn.Parameter(diff_times), 1e-3),
         ]
 
         splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(self.device)
@@ -144,7 +144,8 @@ class OptimiseFixedHeatKernels:
             if i == 0:
                 init_colours = v_colours.clone().detach()
 
-            loss = 1e-2 * (v_colours - gt_colours).pow(2).sum()
+            # loss = (v_colours - gt_colours).pow(2).sum()
+            loss = F.mse_loss(v_colours, gt_colours, reduction="sum") / v_colours.shape[0]
             # with torch.no_grad():
             #     diff = (v_colours - gt_colours).pow(2).sum(dim=-1)
             #     print(diff.shape, diff.mean(), diff.std(), diff.min(), diff.max())
@@ -440,12 +441,13 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
+    # torch.cuda.memory._record_memory_history()
     normalize_colours = True
     optimisation = OptimiseVertColTextureWthFixedHeatKernels(
         verts,
         faces,
         fnorm,
-        n_sources=10,
+        n_sources=1000,
         k_eig=256,
         fpath=mesh_path,
         normalize_colours=normalize_colours,
@@ -453,7 +455,8 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=2000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
+    # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
     v_colours = v_colours.squeeze().detach().cpu().numpy()
