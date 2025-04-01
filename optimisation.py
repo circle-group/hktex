@@ -430,7 +430,7 @@ if __name__ == "__main__":
 
     # mesh_path = "../objects/spot/spot_triangulated.ply"
     mesh_path = "../objects/justalien/justalien.glb"
-    mesh = utils.load_mesh(mesh_path, show=False, visual_to_color=True)
+    mesh = utils.load_mesh(mesh_path, show=False, bake_vert_colors=True)
 
     try:
         # va = {"vert_col": mesh.visual.vertex_colors}
