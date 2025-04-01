@@ -12,7 +12,10 @@ from torch_geometric.utils import add_self_loops, scatter, to_undirected
 
 
 def load_mesh(
-    file_path: str, show: bool = False, merge_tex: bool = True
+    file_path: str,
+    show: bool = False,
+    merge_tex: bool = True,
+    visual_to_color: bool = False,
 ) -> trimesh.Trimesh:
     scene = trimesh.load(file_path, process=False)
 
@@ -51,6 +54,8 @@ def load_mesh(
 
     trimesh.grouping.merge_vertices(mesh, merge_tex=merge_tex, merge_norm=True)
 
+    if visual_to_color:
+        mesh.visual = mesh.visual.to_color()
     if show:
         mesh.show()
     return mesh
@@ -299,6 +304,7 @@ def heat_diffusion(
 
     return x_diffuse
 
+
 @torch.compile
 def heat_diffusion_reduce(
     x: torch.Tensor,
@@ -319,6 +325,7 @@ def heat_diffusion_reduce(
 
     # reduce
     return x_diffuse.sum(dim=0)
+
 
 def big_trimesh_pcl(points, colours=None, radius=0.015):
     if isinstance(points, torch.Tensor):

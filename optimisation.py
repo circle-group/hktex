@@ -50,9 +50,11 @@ class OptimiseFixedHeatKernels:
 
         self.kernel_dim = kwargs.get("kernel_dim", 16)
         self.out_net = nn.Sequential(
-            nn.ReLU(), nn.Linear(self.kernel_dim, 2 * self.kernel_dim), 
-            nn.ReLU(), nn.Linear(2 * self.kernel_dim, 3), 
-            nn.Sigmoid()
+            nn.ReLU(),
+            nn.Linear(self.kernel_dim, 2 * self.kernel_dim),
+            nn.ReLU(),
+            nn.Linear(2 * self.kernel_dim, 3),
+            nn.Sigmoid(),
         ).to(device)
 
         self._normalize_colours = normalize_colours
@@ -426,8 +428,9 @@ if __name__ == "__main__":
     import trimesh
     import numpy as np
 
-    mesh_path = "../objects/spot_triangulated.ply"
-    mesh = utils.load_mesh(mesh_path, show=False)
+    # mesh_path = "../objects/spot/spot_triangulated.ply"
+    mesh_path = "../objects/mech_drone/mech_drone.glb"
+    mesh = utils.load_mesh(mesh_path, show=False, visual_to_color=True)
 
     try:
         # va = {"vert_col": mesh.visual.vertex_colors}
