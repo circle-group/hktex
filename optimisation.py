@@ -10,7 +10,9 @@ from abc import abstractmethod
 from tqdm import tqdm
 
 import eigen_albo_interpolation
+
 import utils
+from utils.typing import *
 
 
 class OptimiseFixedHeatKernels:
@@ -428,9 +430,9 @@ if __name__ == "__main__":
     import trimesh
     import numpy as np
 
-    # mesh_path = "../objects/spot/spot_triangulated.ply"
-    mesh_path = "../objects/justalien/justalien.glb"
-    mesh = utils.load_mesh(mesh_path, show=False, bake_vert_colors=True)
+    mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
+    # mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
+    mesh = utils.load_mesh(mesh_path, show=False, bake_vert_colors=bake)
 
     try:
         # va = {"vert_col": mesh.visual.vertex_colors}
@@ -457,7 +459,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=200,
+        n_sources=1000,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,
@@ -466,7 +468,7 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=10000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)

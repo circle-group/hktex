@@ -33,4 +33,4 @@ from typing import (
 from jaxtyping import Bool, Complex, Float, Inexact, Int, Integer, Num, Shaped, UInt
 
 # PyTorch Tensor type
-from torch import tensor
+from torch import Tensor

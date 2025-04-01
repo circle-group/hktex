@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 from tqdm import tqdm
 
 import utils
+from utils.typing import *
 
 
 class EigenAlboInterpolation:
@@ -96,8 +97,8 @@ class EigenAlboInterpolation:
         return torch.stack(all_eigen), polar_smp_coords, mass
 
     def get_albo_eigenquantities(
-        self, angles: torch.Tensor, scales: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        self, angles: Float[Tensor, "B"], scales: Float[Tensor, "B"]
+    ) -> Tuple[Float[Tensor, "B V"], Float[Tensor, "B V K"], Float[Tensor, "B V"]]:
         query_cartesian = torch.stack(
             [
                 torch.cos(angles) * scales,
