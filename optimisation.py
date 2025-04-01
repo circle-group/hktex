@@ -48,7 +48,7 @@ class OptimiseFixedHeatKernels:
 
         self._colour_act = lambda x: x
 
-        self.kernel_dim = 16
+        self.kernel_dim = kwargs.get("kernel_dim", 16)
         self.out_net = nn.Sequential(
             nn.ReLU(), nn.Linear(self.kernel_dim, 3), nn.Sigmoid()
         ).to(device)
@@ -387,6 +387,7 @@ class OptimiseVertColTextureWthFixedHeatKernels(OptimiseFixedHeatKernels):
         normalize_colours=False,
         device="cpu",
         vcols=None,
+        **kwargs,
     ):
         super().__init__(
             verts,
@@ -398,6 +399,7 @@ class OptimiseVertColTextureWthFixedHeatKernels(OptimiseFixedHeatKernels):
             fpath,
             normalize_colours,
             device,
+            **kwargs,
         )
         self._fpath = fpath
         assert vcols is not None
@@ -452,6 +454,7 @@ if __name__ == "__main__":
         fnorm,
         n_sources=1000,
         k_eig=256,
+        kernel_dim=32,
         fpath=mesh_path,
         normalize_colours=normalize_colours,
         device="cuda",
