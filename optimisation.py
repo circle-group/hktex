@@ -50,7 +50,9 @@ class OptimiseFixedHeatKernels:
 
         self.kernel_dim = kwargs.get("kernel_dim", 16)
         self.out_net = nn.Sequential(
-            nn.ReLU(), nn.Linear(self.kernel_dim, 3), nn.Sigmoid()
+            nn.ReLU(), nn.Linear(self.kernel_dim, 2 * self.kernel_dim), 
+            nn.ReLU(), nn.Linear(2 * self.kernel_dim, 3), 
+            nn.Sigmoid()
         ).to(device)
 
         self._normalize_colours = normalize_colours
@@ -461,7 +463,7 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=10000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
