@@ -429,7 +429,7 @@ if __name__ == "__main__":
     import numpy as np
 
     # mesh_path = "../objects/spot/spot_triangulated.ply"
-    mesh_path = "../objects/mech_drone/mech_drone.glb"
+    mesh_path = "../objects/justalien/justalien.glb"
     mesh = utils.load_mesh(mesh_path, show=False, visual_to_color=True)
 
     try:
@@ -457,7 +457,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=1000,
+        n_sources=200,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,

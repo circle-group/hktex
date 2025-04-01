@@ -17,5 +17,6 @@ mamba install cuda-compiler -c conda-forge
 pip install trimesh Pillow rtree "pyglet<2"
 pip install robust_laplacian point-cloud-utils libigl
 pip install termcolor tqdm matplotlib
+pip install jaxtyping
 ```
 

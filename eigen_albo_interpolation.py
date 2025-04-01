@@ -115,7 +115,9 @@ class EigenAlboInterpolation:
         weights = 1.0 / torch.clamp(dist, min=1e-16)
         weights = weights / weights.sum(dim=1, keepdim=True)
 
-        weights2 = weights.new_zeros((weights.shape[0], self._eigen_val.shape[0])).scatter_(1, index=x_idx, src=weights)
+        weights2 = weights.new_zeros(
+            (weights.shape[0], self._eigen_val.shape[0])
+        ).scatter_(1, index=x_idx, src=weights)
         evals = weights2 @ self._eigen_val
         evecs = torch.einsum("ij,jkl->ikl", weights2, self._eigen_vec)
 
