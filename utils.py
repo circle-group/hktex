@@ -12,7 +12,10 @@ from torch_geometric.utils import add_self_loops, scatter, to_undirected
 
 
 def load_mesh(
-    file_path: str, show: bool = False, merge_tex: bool = True
+    file_path: str,
+    show: bool = False,
+    merge_tex: bool = True,
+    bake_vert_colors: bool = False,
 ) -> trimesh.Trimesh:
     scene = trimesh.load(file_path, process=False)
 
@@ -50,6 +53,9 @@ def load_mesh(
         mesh = scene
 
     trimesh.grouping.merge_vertices(mesh, merge_tex=merge_tex, merge_norm=True)
+
+    if bake_vert_colors:
+        mesh.visual = mesh.visual.to_color()
 
     if show:
         mesh.show()
