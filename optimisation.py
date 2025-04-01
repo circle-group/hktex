@@ -36,7 +36,16 @@ class OptimiseFixedHeatKernels:
         )
 
         self._n_sources = n_sources
-        self._source_idxs = torch.randint(0, len(verts), (n_sources,), device=device)
+        sampling = kwargs.get("sampling", None)  # fps | None
+        if sampling == "fps":
+            source_idx = utils.farthest_point_sampling(
+                torch.from_numpy(verts).to(device), n_sources
+            )
+            self._source_idxs = source_idx.nonzero(as_tuple=True)[0]
+        else:
+            self._source_idxs = torch.randint(
+                0, len(verts), (n_sources,), device=device
+            )
         self._idx_range = torch.arange(n_sources, device=device)
 
         self._verts = torch.tensor(verts, device=device)
@@ -430,8 +439,8 @@ if __name__ == "__main__":
     import trimesh
     import numpy as np
 
-    mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
-    # mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
+    # mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
+    mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
     mesh = utils.load_mesh(mesh_path, show=False, bake_vert_colors=bake)
 
     try:
@@ -463,12 +472,13 @@ if __name__ == "__main__":
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,
+        sampling="fps",
         normalize_colours=normalize_colours,
         device="cuda",
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=10000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
