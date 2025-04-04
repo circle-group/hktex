@@ -52,7 +52,7 @@ class OptimiseFixedHeatKernels:
             )
         self._idx_range = torch.arange(n_sources, device=device)
 
-        self._verts = torch.tensor(verts, device=device)
+        self._verts = torch.tensor(verts, device=device, dtype=torch.float)
         self._faces = torch.tensor(faces, device=device)
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
 
@@ -248,6 +248,7 @@ class OptimiseFixedHeatKernels:
         return v_colours, gt_colours, init_colours
 
     def render(self):
+        # TODO: Fix
         v_colours_buffer = torch.zeros(
             [self._n_sources, *self._verts.shape[:-1], self.kernel_dim],
             device=self.device,
@@ -292,8 +293,11 @@ class OptimiseFixedHeatKernels:
 
     @property
     def kernel_centres(self):
-        # TODO: Update
-        return self._verts[self._source_idxs]
+        kernel_vert_idx = self._faces[self.kernel_face_ids]
+        B, T = kernel_vert_idx.shape
+        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+        barycentric_coords = self.kernel_locations
+        return utils.bary_to_cart_coords(barycentric_coords, kernel_vertx)
 
     @abstractmethod
     def _make_gt_colours(self):
@@ -548,7 +552,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=128,
+        n_sources=256,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,
@@ -558,7 +562,7 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1024)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
