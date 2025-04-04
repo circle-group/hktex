@@ -116,7 +116,7 @@ class OptimiseFixedHeatKernels:
             [
                 {
                     "params": [splats["kernel_locations"]],
-                    "lr": self._lr_mult * 1e-3,
+                    "lr": self._lr_mult * 1,
                     "face_ids": [self._kernel_face_ids],
                 }
             ],
@@ -562,7 +562,7 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1024)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)

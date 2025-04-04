@@ -58,12 +58,9 @@ class CPUGeodesicTracer(GeodesicTracer):
         for i in range(B):
             # TODO: do the tangent_euclid in torch cuda
             vert_ids = self._mesh.faces[face_id_np[i]]
-            coord_euclid = np.sum(
-                coord_np[i] * (self._mesh.vertices[vert_ids]), axis=0
-            ).reshape((1, 3))
-            tangent_euclid = np.sum(
-                tangent_np[i] * (coord_euclid - self._mesh.vertices[vert_ids]), axis=0
-            )
+            vertices = self._mesh.vertices[vert_ids]
+            coord_euclid = np.sum(coord_np[i] * (vertices), axis=0).reshape((1, 3))
+            tangent_euclid = np.sum(tangent_np[i] * (vertices - coord_euclid), axis=0)
             trace_pts = self.tracer.trace_geodesic_from_face(
                 face_id_np[i], coord_np[i], tangent_euclid, self.max_iterations
             )
