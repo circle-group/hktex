@@ -91,6 +91,47 @@ def cartesian_to_barycentric_coordinates(point, triangle):
     return np.array([u, v, w])
 
 
+def batched_cartesian_to_barycentric_coordinates(points, triangles):
+    """
+    Calculate the barycentric coordinates of multiple points in multiple triangles.
+
+    Parameters
+    ----------
+    points : np.ndarray
+        Array of shape (N, 3), where N is the number of points.
+    triangles : np.ndarray
+        Array of shape (N, 3, 3), where N is the number of triangles, and each triangle
+        is defined by three vertices in 3D space.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape (N, 3) containing the barycentric coordinates of each point
+        in its corresponding triangle.
+    """
+    v0 = triangles[:, 0]
+    v1 = triangles[:, 1]
+    v2 = triangles[:, 2]
+
+    v0v1 = v1 - v0
+    v0v2 = v2 - v0
+    v0p = points - v0
+
+    d00 = np.einsum("ij,ij->i", v0v1, v0v1)
+    d01 = np.einsum("ij,ij->i", v0v1, v0v2)
+    d11 = np.einsum("ij,ij->i", v0v2, v0v2)
+    d20 = np.einsum("ij,ij->i", v0p, v0v1)
+    d21 = np.einsum("ij,ij->i", v0p, v0v2)
+
+    denom = d00 * d11 - d01 * d01
+
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    u = 1 - v - w
+
+    return np.stack([u, v, w], axis=-1)
+
+
 def barycentryc_to_cartesian_coordinates(barycentric, triangle):
     """
     Calculate the cartesian coordinates of a point in a triangle.

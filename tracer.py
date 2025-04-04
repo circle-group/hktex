@@ -1,9 +1,11 @@
 from abc import abstractmethod
+import trimesh
 import numpy as np
 
 import potpourri3d as pp3d
 
 from utils.typing import *
+from utils.geodesics import *
 
 
 class GeodesicTracer:
@@ -36,6 +38,8 @@ class CPUGeodesicTracer(GeodesicTracer):
         self.tracer = pp3d.GeodesicTracer(vertices, faces)
         self.max_iterations = max_iterations
 
+        self._mesh = trimesh.Trimesh(vertices, faces)
+
     def trace(
         self,
         barycentric_coords: Float[Tensor, "B 3"],
@@ -49,6 +53,16 @@ class CPUGeodesicTracer(GeodesicTracer):
         B = coord_np.shape[0]
         assert face_id_np.shape[0] == B and tangent_np.shape[0] == B
 
+        new_coords = []
         for i in range(B):
-            # TODO
-            pass
+            trace_pts = self.tracer.trace_geodesic_from_face(
+                face_id_np[i], coord_np[i], tangent_np[i], self.max_iterations
+            )
+            new_coords.append(trace_pts[-1, :])
+        new_coords = np.stack(new_coords)
+        _, _, new_face_ids = trimesh.proximity.closest_point(self._mesh, new_coords)
+        new_barycentric_coords = batched_cartesian_to_barycentric_coordinates(
+            new_coords,
+            get_all_face_vertices(self._mesh.vertices, self._mesh.faces)[new_face_ids],
+        )
+        return new_barycentric_coords, new_face_ids

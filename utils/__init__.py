@@ -5,5 +5,6 @@ from .fps import *
 from .mesh import *
 from .lbo import *
 from .diffusion import *
+from .distances import *
 
 from . import geodesics as geodesics
