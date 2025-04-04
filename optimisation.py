@@ -27,6 +27,8 @@ class OptimiseFixedHeatKernels:
         fpath: str = None,
         normalize_colours: bool = False,
         device: str = "cpu",
+        kernel_dim: int = 16,
+        sampling: Optional[str] = None,
         **kwargs,
     ):
         self.device = device
@@ -36,7 +38,6 @@ class OptimiseFixedHeatKernels:
         )
 
         self._n_sources = n_sources
-        sampling = kwargs.get("sampling", None)  # fps | None
         if sampling == "fps":
             source_idx = utils.farthest_point_sampling(
                 torch.from_numpy(verts).to(device), n_sources
@@ -59,7 +60,7 @@ class OptimiseFixedHeatKernels:
 
         self._colour_act = lambda x: x
 
-        self.kernel_dim = kwargs.get("kernel_dim", 16)
+        self.kernel_dim = kernel_dim
         self.out_net = nn.Sequential(
             nn.ReLU(),
             nn.Linear(self.kernel_dim, 2 * self.kernel_dim),
@@ -123,6 +124,7 @@ class OptimiseFixedHeatKernels:
             [self._n_sources, *self._verts.shape[:-1], self.kernel_dim],
             device=self.device,
         )
+
         gt_colours = self._make_gt_colours()
 
         print(f"INITIAL -> ", self._colored_print_opt_params)
@@ -157,13 +159,9 @@ class OptimiseFixedHeatKernels:
             if i == 0:
                 init_colours = v_colours.clone().detach()
 
-            # loss = (v_colours - gt_colours).pow(2).sum()
             loss = (
                 F.mse_loss(v_colours, gt_colours, reduction="sum") / v_colours.shape[0]
             )
-            # with torch.no_grad():
-            #     diff = (v_colours - gt_colours).pow(2).sum(dim=-1)
-            #     print(diff.shape, diff.mean(), diff.std(), diff.min(), diff.max())
 
             loss.backward()
 
@@ -193,6 +191,31 @@ class OptimiseFixedHeatKernels:
         self.plot_errors(errors_lists)
 
         return v_colours, gt_colours, init_colours
+
+    def render(self):
+        v_colours_buffer = torch.zeros(
+            [self._n_sources, *self._verts.shape[:-1], self.kernel_dim],
+            device=self.device,
+        )
+        v_colours = v_colours_buffer.index_put(
+            (self._idx_range, self._source_idxs),
+            self.kernel_colours,
+        )
+        albo_evals, albo_evecs, mass = self._eigalbo_interp.get_albo_eigenquantities(
+            angles=self.angles, scales=self.anisotropies
+        )
+        v_colours = utils.heat_diffusion_reduce(
+            v_colours,
+            mass,
+            albo_evals,
+            albo_evecs,
+            self.diff_times,
+        )
+        if self.out_net is not None:
+            v_colours = self.out_net(v_colours)
+        if self._normalize_colours:
+            v_colours = self._normalize(v_colours)
+        return v_colours
 
     def _normalize(self, colours):
         cmin, cmax = colours.min(), colours.max()
@@ -439,8 +462,9 @@ if __name__ == "__main__":
     import trimesh
     import numpy as np
 
-    # mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
-    mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
+    mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
+    # mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
+    # mesh_path, bake = "../objects/justalien/justalien.glb", True
     mesh = utils.load_mesh(mesh_path, show=False, bake_vert_colors=bake)
 
     try:
@@ -468,7 +492,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=1000,
+        n_sources=1024,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,

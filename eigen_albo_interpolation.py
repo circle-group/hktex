@@ -49,9 +49,9 @@ class EigenAlboInterpolation:
             smp_coords_path = fpath.replace(fformat, "_smp_coords.pt")
             mass_path = fpath.replace(fformat, "_mass.pt")
             try:
-                all_eigen = torch.load(eigen_path)
-                sampling_coords = torch.load(smp_coords_path)
-                mass = torch.load(mass_path)
+                all_eigen = torch.load(eigen_path, weights_only=True)
+                sampling_coords = torch.load(smp_coords_path, weights_only=True)
+                mass = torch.load(mass_path, weights_only=True)
             except (FileNotFoundError, AssertionError):
                 all_eigen, sampling_coords, mass = self._precompute_all_eigen()
                 torch.save(all_eigen, eigen_path)
@@ -97,7 +97,10 @@ class EigenAlboInterpolation:
         return torch.stack(all_eigen), polar_smp_coords, mass
 
     def get_albo_eigenquantities(
-        self, angles: Float[Tensor, "B"], scales: Float[Tensor, "B"]
+        self,
+        angles: Float[Tensor, "B"],
+        scales: Float[Tensor, "B"],
+        vert_idx: Optional[Int[Tensor, "D"]] = None,
     ) -> Tuple[Float[Tensor, "B V"], Float[Tensor, "B V K"], Float[Tensor, "B V"]]:
         query_cartesian = torch.stack(
             [
@@ -116,13 +119,18 @@ class EigenAlboInterpolation:
         weights = 1.0 / torch.clamp(dist, min=1e-16)
         weights = weights / weights.sum(dim=1, keepdim=True)
 
+        eigen_vec, mass = self._eigen_vec, self._mass
+        if vert_idx is not None:
+            eigen_vec = eigen_vec[:, vert_idx]
+            mass = mass[:, vert_idx]
+
         weights2 = weights.new_zeros(
             (weights.shape[0], self._eigen_val.shape[0])
         ).scatter_(1, index=x_idx, src=weights)
         evals = weights2 @ self._eigen_val
-        evecs = torch.einsum("ij,jkl->ikl", weights2, self._eigen_vec)
+        evecs = torch.einsum("ij,jkl->ikl", weights2, eigen_vec)
 
-        return evals, evecs, self._mass
+        return evals, evecs, mass
 
 
 if __name__ == "__main__":
