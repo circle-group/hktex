@@ -8,3 +8,4 @@ from .diffusion import *
 from .distances import *
 
 from . import geodesics as geodesics
+from .torch_geodesics import *

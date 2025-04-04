@@ -132,6 +132,29 @@ class EigenAlboInterpolation:
 
         return evals, evecs, mass
 
+    def barycentric_eig_interpolation(
+        self,
+        eigen_vec: Float[Tensor, "B V K"],
+        mass: Float[Tensor, "1 V"],
+        barycentric_coords: Float[Tensor, "B 3"],
+        vert_idx: Int[Tensor, "B 3"],
+    ) -> tuple[Float[Tensor, "B K"], Float[Tensor, "B"]]:
+
+        target_eigen_vec = torch.take_along_dim(
+            eigen_vec, vert_idx.unsqueeze(-1), dim=1
+        )  # B 3 K
+        # target_mass = torch.gather(
+        #     mass.expand(eigen_vec.shape[0], -1), 1, index=vert_idx
+        # )  # B 3
+        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)
+
+        W = 1.0 / torch.clamp(barycentric_coords, min=1e-8)
+        W = W / W.sum(dim=1, keepdim=True)  # B 3
+
+        eigen_vec_interp = torch.einsum("ij,ijk->ik", W, target_eigen_vec)  # B K
+        mass_interp = torch.einsum("ij,ij->i", W, target_mass)  # B
+        return eigen_vec_interp, mass_interp
+
 
 if __name__ == "__main__":
     import trimesh

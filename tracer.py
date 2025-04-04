@@ -2,6 +2,7 @@ from abc import abstractmethod
 import trimesh
 import numpy as np
 
+import torch
 import potpourri3d as pp3d
 
 from utils.typing import *
@@ -46,9 +47,9 @@ class CPUGeodesicTracer(GeodesicTracer):
         face_ids: Int[Tensor, "B"],
         tangent_vector: Float[Tensor, "B 3"],
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
-        coord_np = barycentric_coords.numpy()
-        face_id_np = face_ids.numpy()
-        tangent_np = tangent_vector.numpy()
+        coord_np = barycentric_coords.cpu().numpy()
+        face_id_np = face_ids.cpu().numpy()
+        tangent_np = tangent_vector.cpu().numpy()
 
         B = coord_np.shape[0]
         assert face_id_np.shape[0] == B and tangent_np.shape[0] == B
@@ -65,4 +66,7 @@ class CPUGeodesicTracer(GeodesicTracer):
             new_coords,
             get_all_face_vertices(self._mesh.vertices, self._mesh.faces)[new_face_ids],
         )
+
+        new_barycentric_coords = barycentric_coords.new_tensor(new_barycentric_coords)
+        new_face_ids = face_ids.new_tensor(new_face_ids)
         return new_barycentric_coords, new_face_ids

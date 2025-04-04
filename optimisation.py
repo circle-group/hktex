@@ -13,6 +13,8 @@ import eigen_albo_interpolation
 
 import utils
 from utils.typing import *
+from geodesic_opt import GeodesicOpt
+from tracer import CPUGeodesicTracer
 
 
 class OptimiseFixedHeatKernels:
@@ -36,6 +38,7 @@ class OptimiseFixedHeatKernels:
         self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
             verts, faces, fnorms, k_eig=k_eig, fpath=fpath, device=device
         )
+        self.tracer = CPUGeodesicTracer(verts, faces)
 
         self._n_sources = n_sources
         if sampling == "fps":
@@ -50,6 +53,7 @@ class OptimiseFixedHeatKernels:
         self._idx_range = torch.arange(n_sources, device=device)
 
         self._verts = torch.tensor(verts, device=device)
+        self._faces = torch.tensor(faces, device=device)
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
 
         self._angle_scaler = torch.pi
@@ -84,6 +88,9 @@ class OptimiseFixedHeatKernels:
         anisotropies = torch.randn(n_sources)
         diff_times = torch.rand(n_sources)
 
+        kernel_face_ids = torch.randint(0, self._faces.shape[0], (n_sources,))
+        kernel_locations = utils.uniform_sample_triangle(torch.rand((n_sources, 2)))
+
         params = [
             # name, value, lr
             ("kernel_colours", torch.nn.Parameter(kernel_colours), 1e-3),
@@ -101,6 +108,21 @@ class OptimiseFixedHeatKernels:
             name: torch.optim.Adam([{"params": splats[name], "lr": self._lr_mult * lr}])
             for name, _, lr in params
         }
+
+        self._splat_param_keys.append("kernel_locations")
+        splats["kernel_locations"] = nn.Parameter(kernel_locations).to(self.device)
+        self._kernel_face_ids = kernel_face_ids.to(self.device)
+        optimisers["kernel_locations"] = GeodesicOpt(
+            [
+                {
+                    "params": [splats["kernel_locations"]],
+                    "lr": self._lr_mult * 1e-3,
+                    "face_ids": [self._kernel_face_ids],
+                }
+            ],
+            tracer=self.tracer,
+        )
+
         return splats, optimisers
 
     @property
@@ -119,9 +141,18 @@ class OptimiseFixedHeatKernels:
     def diff_times(self) -> torch.Tensor:
         return self._diff_time_scaler_func(self._splats["diff_times"])
 
+    @property
+    def kernel_locations(self) -> torch.Tensor:
+        return self._splats["kernel_locations"]
+
+    @property
+    def kernel_face_ids(self) -> torch.Tensor:
+        return self._kernel_face_ids
+
     def optimise(self, n_iter=100):
-        v_colours_buffer = torch.zeros(
-            [self._n_sources, *self._verts.shape[:-1], self.kernel_dim],
+        B, V = self._n_sources, self._verts.shape[0]
+        v_colours_buffer: Float[Tensor, "B V L"] = torch.zeros(
+            [B, V, self.kernel_dim],
             device=self.device,
         )
 
@@ -132,16 +163,38 @@ class OptimiseFixedHeatKernels:
         errors_lists = {k: [] for k in self._splats.keys()}
 
         for i in (pbar := tqdm(range(n_iter))):
-            v_colours = v_colours_buffer.clone().detach().requires_grad_(True)
-            v_colours = v_colours.index_put(
-                (self._idx_range, self._source_idxs),
-                self.kernel_colours,
+            v_colours: Float[Tensor, "B V L"] = (
+                v_colours_buffer.clone().detach().requires_grad_(True)
             )
+            # v_colours = v_colours.index_put(
+            #     (self._idx_range, self._source_idxs),
+            #     self.kernel_colours,
+            # )
 
             albo_evals, albo_evecs, mass = (
                 self._eigalbo_interp.get_albo_eigenquantities(
                     angles=self.angles, scales=self.anisotropies
                 )
+            )
+
+            kernel_vert_idx = self._faces[self.kernel_face_ids]
+            kernel_evecs, kernel_mass = (
+                self._eigalbo_interp.barycentric_eig_interpolation(
+                    eigen_vec=albo_evecs,
+                    mass=mass,
+                    barycentric_coords=self.kernel_locations,
+                    vert_idx=kernel_vert_idx,
+                )
+            )
+
+            v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
+                (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
+            )
+            albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
+                ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
+            )
+            mass: Float[Tensor, "B V+1"] = torch.cat(
+                (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
             )
 
             v_colours = utils.heat_diffusion_reduce(
@@ -151,6 +204,7 @@ class OptimiseFixedHeatKernels:
                 albo_evecs,
                 self.diff_times,
             )
+            v_colours = v_colours[:V]
             if self.out_net is not None:
                 v_colours = self.out_net(v_colours)
             if self._normalize_colours:
@@ -184,7 +238,8 @@ class OptimiseFixedHeatKernels:
 
                 errors = self._errors
                 for k in self._splat_param_keys:
-                    errors_lists[k].append(errors[k].item())
+                    if k in errors:
+                        errors_lists[k].append(errors[k].item())
 
         print(f"FINAL -> ", self._colored_print_opt_params)
 
@@ -237,6 +292,7 @@ class OptimiseFixedHeatKernels:
 
     @property
     def kernel_centres(self):
+        # TODO: Update
         return self._verts[self._source_idxs]
 
     @abstractmethod
@@ -492,7 +548,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=1024,
+        n_sources=128,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,
@@ -502,7 +558,7 @@ if __name__ == "__main__":
         vcols=vcols,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=10000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)

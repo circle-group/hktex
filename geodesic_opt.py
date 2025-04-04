@@ -2,7 +2,7 @@ import torch
 import torch.optim as optim
 from torch.optim.optimizer import Optimizer, ParamsT, required
 
-from .tracer import GeodesicTracer
+from tracer import GeodesicTracer
 from utils.typing import *
 
 
