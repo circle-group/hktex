@@ -10,13 +10,14 @@ Then run the the following commands to install the necessary dependencies:
 
 mamba install pip
 
-mamba install pytorch-gpu=2.5.1 torchvision torchaudio -c conda-forge
+mamba install pytorch-gpu=2.5.1 torchvision -c conda-forge
 mamba install pytorch_geometric -c conda-forge
 mamba install cuda-compiler -c conda-forge
 
 pip install trimesh Pillow rtree "pyglet<2"
-pip install robust_laplacian point-cloud-utils libigl
+pip install robust_laplacian point-cloud-utils libigl potpourri3d
 pip install termcolor tqdm matplotlib
 pip install jaxtyping
+pip install ipykerel
 ```
 

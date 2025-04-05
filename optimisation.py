@@ -31,9 +31,11 @@ class OptimiseFixedHeatKernels:
         device: str = "cpu",
         kernel_dim: int = 16,
         sampling: Optional[str] = None,
+        debug: bool = False,
         **kwargs,
     ):
         self.device = device
+        self.debug = debug
 
         self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
             verts, faces, fnorms, k_eig=k_eig, fpath=fpath, device=device
@@ -53,7 +55,9 @@ class OptimiseFixedHeatKernels:
 
         self._verts = torch.tensor(verts, device=device, dtype=torch.float)
         self._faces = torch.tensor(faces, device=device)
-        self.tracer = CPUGeodesicTracer(self._verts, self._faces)
+        self.tracer = CPUGeodesicTracer(
+            self._verts, self._faces, debug=debug, n_debug_traces=10
+        )
 
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
         self._angle_scaler = torch.pi
@@ -128,7 +132,7 @@ class OptimiseFixedHeatKernels:
             [
                 {
                     "params": [splats["kernel_locations"]],
-                    "lr": self._lr_mult * 1e-1,
+                    "lr": self._lr_mult * 1,
                     "face_ids": [self._kernel_face_ids],
                 }
             ],
@@ -333,6 +337,16 @@ class OptimiseFixedHeatKernels:
     def plot_errors(errors_lists):
         pass
 
+    @property
+    def debug_trimesh_traces(self):
+        traces_info = self.tracer.full_traces_info
+        sources = np.stack(traces_info["sources"])
+        traces = traces_info["traces"]
+        return [
+            utils.big_trimesh_pcl(sources, None, radius=0.005),
+            *[trimesh.load_path(t, colors=[[255, 0, 0, 255]]) for t in traces],
+        ]
+
 
 class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
     def __init__(
@@ -346,6 +360,7 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
         fpath: str = None,
         normalize_colours: bool = False,
         device: str = "cpu",
+        debug: bool = False,
         **kwargs,
     ):
         super().__init__(
@@ -358,6 +373,7 @@ class OptimiseKnownFixedHeatKernels(OptimiseFixedHeatKernels):
             fpath,
             normalize_colours,
             device,
+            debug,
             **kwargs,
         )
         self._gt_splats = None
@@ -542,6 +558,8 @@ if __name__ == "__main__":
     import trimesh
     import numpy as np
 
+    DEBUG = True
+
     mesh_path, bake = "../objects/spot/spot_triangulated.ply", False
     # mesh_path, bake = "../objects/mech_drone/mech_drone.glb", True
     # mesh_path, bake = "../objects/justalien/justalien.glb", True
@@ -580,9 +598,10 @@ if __name__ == "__main__":
         normalize_colours=normalize_colours,
         device="cuda",
         vcols=vcols,
+        debug=DEBUG,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
@@ -602,6 +621,8 @@ if __name__ == "__main__":
     v_scene = trimesh.Scene(
         [v_mesh, utils.big_trimesh_pcl(optimisation.kernel_centres)]
     )
+    if DEBUG:
+        v_scene_traces = trimesh.Scene([v_mesh, *optimisation.debug_trimesh_traces])
 
     init_mesh = mesh.copy()
     init_mesh.visual = trimesh.visual.ColorVisuals(
