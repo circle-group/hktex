@@ -148,8 +148,9 @@ class EigenAlboInterpolation:
         # )  # B 3
         target_mass = torch.take_along_dim(mass, vert_idx, dim=1)
 
-        W = 1.0 / torch.clamp(barycentric_coords, min=1e-8)
-        W = W / W.sum(dim=1, keepdim=True)  # B 3
+        # W = 1.0 / torch.clamp(barycentric_coords, min=1e-8)
+        # W = W / W.sum(dim=1, keepdim=True)  # B 3
+        W = barycentric_coords
 
         eigen_vec_interp = torch.einsum("ij,ijk->ik", W, target_eigen_vec)  # B K
         mass_interp = torch.einsum("ij,ij->i", W, target_mass)  # B

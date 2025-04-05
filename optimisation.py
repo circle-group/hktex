@@ -38,7 +38,6 @@ class OptimiseFixedHeatKernels:
         self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
             verts, faces, fnorms, k_eig=k_eig, fpath=fpath, device=device
         )
-        self.tracer = CPUGeodesicTracer(verts, faces)
 
         self._n_sources = n_sources
         if sampling == "fps":
@@ -54,8 +53,9 @@ class OptimiseFixedHeatKernels:
 
         self._verts = torch.tensor(verts, device=device, dtype=torch.float)
         self._faces = torch.tensor(faces, device=device)
-        self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
+        self.tracer = CPUGeodesicTracer(self._verts, self._faces)
 
+        self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
         self._angle_scaler = torch.pi
         self._angle_act = lambda x: self._angle_scaler * F.hardsigmoid(x)
         # self._anis_scaler = 100
@@ -83,13 +83,25 @@ class OptimiseFixedHeatKernels:
         # kernel_colours = torch.rand((n_sources, 3), dtype=torch.float)
         # angles = (torch.rand(n_sources) + torch.pi / 4) * 0.1
         # anisotropies = torch.rand(n_sources)
-        kernel_colours = torch.randn((n_sources, self.kernel_dim), dtype=torch.float)
-        angles = torch.randn(n_sources)
-        anisotropies = torch.randn(n_sources)
-        diff_times = torch.rand(n_sources)
+        kernel_colours = torch.randn(
+            (n_sources, self.kernel_dim), dtype=torch.float, device=self.device
+        )
+        angles = torch.randn(n_sources, device=self.device)
+        anisotropies = torch.randn(n_sources, device=self.device)
+        diff_times = torch.rand(n_sources, device=self.device)
 
-        kernel_face_ids = torch.randint(0, self._faces.shape[0], (n_sources,))
-        kernel_locations = utils.uniform_sample_triangle(torch.rand((n_sources, 2)))
+        # Sample face and barycentric location on face
+        kernel_face_ids = torch.randint(
+            0, self._faces.shape[0], (n_sources,), device=self.device
+        )
+        kernel_locations = utils.uniform_sample_triangle(
+            torch.rand((n_sources, 2), device=self.device)
+        )
+        # Convert to cartesian coordinates
+        kernel_vert_idx = self._faces[kernel_face_ids]
+        B, T = kernel_vert_idx.shape
+        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+        kernel_locations = utils.bary_to_cart_coords(kernel_locations, kernel_vertx)
 
         params = [
             # name, value, lr
@@ -110,13 +122,13 @@ class OptimiseFixedHeatKernels:
         }
 
         self._splat_param_keys.append("kernel_locations")
-        splats["kernel_locations"] = nn.Parameter(kernel_locations).to(self.device)
-        self._kernel_face_ids = kernel_face_ids.to(self.device)
+        splats["kernel_locations"] = nn.Parameter(kernel_locations)
+        self._kernel_face_ids = kernel_face_ids
         optimisers["kernel_locations"] = GeodesicOpt(
             [
                 {
                     "params": [splats["kernel_locations"]],
-                    "lr": self._lr_mult * 1,
+                    "lr": self._lr_mult * 1e-1,
                     "face_ids": [self._kernel_face_ids],
                 }
             ],
@@ -178,11 +190,18 @@ class OptimiseFixedHeatKernels:
             )
 
             kernel_vert_idx = self._faces[self.kernel_face_ids]
+            B, T = kernel_vert_idx.shape
+            kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+            # TODO: Save a detached version of this in optimizer to not recalculate, maybe
+            barycentric_coords = utils.cart_to_bary_coords(
+                self.kernel_locations, kernel_vertx
+            )
+
             kernel_evecs, kernel_mass = (
                 self._eigalbo_interp.barycentric_eig_interpolation(
                     eigen_vec=albo_evecs,
                     mass=mass,
-                    barycentric_coords=self.kernel_locations,
+                    barycentric_coords=barycentric_coords,
                     vert_idx=kernel_vert_idx,
                 )
             )
@@ -293,11 +312,12 @@ class OptimiseFixedHeatKernels:
 
     @property
     def kernel_centres(self):
-        kernel_vert_idx = self._faces[self.kernel_face_ids]
-        B, T = kernel_vert_idx.shape
-        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-        barycentric_coords = self.kernel_locations
-        return utils.bary_to_cart_coords(barycentric_coords, kernel_vertx)
+        # kernel_vert_idx = self._faces[self.kernel_face_ids]
+        # B, T = kernel_vert_idx.shape
+        # kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+        # barycentric_coords = self.kernel_locations
+        # return utils.bary_to_cart_coords(barycentric_coords, kernel_vertx)
+        return self.kernel_locations
 
     @abstractmethod
     def _make_gt_colours(self):
