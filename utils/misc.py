@@ -45,6 +45,27 @@ def compute_tot_area(pos, faces):
     return side_1.cross(side_2).norm(p=2, dim=1).abs().sum() / 2
 
 
+def get_all_face_vertices(verts, faces):
+    return verts[faces]
+
+
+def interpolate_barycentric_coords(f, fi, bc, attribute):
+    """
+    Interpolate an attribute stored at each vertex of a mesh across the faces of a
+    triangle mesh using barycentric coordinates
+
+    Args:
+        f : [#faces, 3]-shaped mesh faces (indexing into some vertex array).
+        fi: [#attribs,)-shaped]indexes into f indicating which face each attribute lies
+        bc: [#attribs, 3]-shaped barycentric coordinates for each attribute
+        attribute: [#vertices, dim]-shaped attributes at each of the mesh vertices
+
+    Returns:
+        [#attribs, dim]-shaped tensor of interpolated attributes.
+    """
+    return (attribute[f[fi]] * bc[:, :, None]).sum(1)
+
+
 def big_trimesh_pcl(points, colours=None, radius=0.015):
     if isinstance(points, torch.Tensor):
         points = to_np(points)
