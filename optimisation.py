@@ -56,7 +56,7 @@ class OptimiseFixedHeatKernels:
         self._verts = torch.tensor(verts, device=device, dtype=torch.float)
         self._faces = torch.tensor(faces, device=device)
         self.tracer = CPUGeodesicTracer(
-            self._verts, self._faces, debug=debug, n_debug_traces=10
+            self._verts, self._faces, debug=debug, n_debug_traces=min(n_sources, 100)
         )
 
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
@@ -132,7 +132,7 @@ class OptimiseFixedHeatKernels:
             [
                 {
                     "params": [splats["kernel_locations"]],
-                    "lr": self._lr_mult * 1,
+                    "lr": self._lr_mult * 1e-1,
                     "face_ids": [self._kernel_face_ids],
                 }
             ],
@@ -340,10 +340,11 @@ class OptimiseFixedHeatKernels:
     @property
     def debug_trimesh_traces(self):
         traces_info = self.tracer.full_traces_info
-        sources = np.stack(traces_info["sources"])
+        # segment_starts = np.concatenate(traces_info["starts"], axis=0)
+        traces_starts = np.stack([s[0, ::] for s in traces_info["starts"]])
         traces = traces_info["traces"]
         return [
-            utils.big_trimesh_pcl(sources, None, radius=0.005),
+            utils.big_trimesh_pcl(traces_starts, None, radius=0.005),
             *[trimesh.load_path(t, colors=[[255, 0, 0, 255]]) for t in traces],
         ]
 
@@ -590,7 +591,7 @@ if __name__ == "__main__":
         verts,
         faces,
         fnorm,
-        n_sources=256,
+        n_sources=80,
         k_eig=256,
         kernel_dim=32,
         fpath=mesh_path,
@@ -601,7 +602,7 @@ if __name__ == "__main__":
         debug=DEBUG,
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=1000)
+    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=5_000)
     # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)

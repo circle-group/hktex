@@ -47,7 +47,14 @@ class CPUGeodesicTracer(GeodesicTracer):
         self.max_iterations = max_iterations
 
         self._mesh = trimesh.Trimesh(vertices_np, faces_np)
-        self._traces_info = {"traces": [], "sources": []} if debug else None
+        self._traces_info = (
+            {
+                "traces": [[] for _ in range(n_debug_traces)],
+                "starts": [[] for _ in range(n_debug_traces)],
+            }
+            if debug
+            else None
+        )
         self._n_debug_traces = n_debug_traces
 
     def trace(
@@ -77,8 +84,8 @@ class CPUGeodesicTracer(GeodesicTracer):
             )
             new_coords.append(trace_pts[-1, :])
             if self._traces_info is not None and i < self._n_debug_traces:
-                self._traces_info["traces"].append(trace_pts)
-                self._traces_info["sources"].append(trace_pts[0, :])
+                self._traces_info["traces"][i].append(trace_pts)
+                self._traces_info["starts"][i].append(trace_pts[0, :])
 
         new_coords = np.stack(new_coords)
         _, _, new_face_ids = trimesh.proximity.closest_point(self._mesh, new_coords)
@@ -95,11 +102,37 @@ class CPUGeodesicTracer(GeodesicTracer):
     @property
     def full_traces_info(self):
         assert self._traces_info is not None, "Tracing info is not enabled."
+
+        # Since trajectories have been separately stored for each heat source as
+        # separate lists of arrays now create only one array for each trajectory
+        # NB: To represent the trajectories don't need to repeat end of a segment
+        # and start of following.
+        self._traces_info["traces"] = [
+            np.stack([*s, self._traces_info["traces"][i][-1][1, :]])
+            for i, s in enumerate(self._traces_info["starts"])
+        ]
+        self._traces_info["starts"] = [np.stack(s) for s in self._traces_info["starts"]]
+
+        # Since trajectories can be short, identify triangle changes and keep only
+        # first and last pairs on same triangle + transition to new triangle
+        # Source points will still represent the initial point of every
+        # optimisation step
+        for i in range(len(self._traces_info["traces"])):
+            trace = self._traces_info["traces"][i]
+            _, _, face_ids = trimesh.proximity.closest_point(self._mesh, trace)
+            new_trace = [trace[0]]
+            for j in range(1, len(trace)):
+                if face_ids[j] != face_ids[j - 1]:
+                    new_trace.append(trace[j - 1])
+                    new_trace.append(trace[j])
+            new_trace.append(trace[-1])
+            self._traces_info["traces"][i] = np.stack(new_trace)
         return self._traces_info
 
     def reset_traces_info(self):
         if self._traces_info is not None:
-            self._traces_info["traces"] = []
-            self._traces_info["sources"] = []
+            for i in range(len(self._traces_info["traces"])):
+                self._traces_info["traces"][i] = []
+                self._traces_info["starts"][i] = []
         else:
             raise ValueError("Tracing info is not enabled.")
