@@ -1,0 +1,28 @@
+devce: cuda
+debug: True
+
+mesh:
+  path: ../objects/spot/spot_triangulated.ply
+  bake_vert_colours: ${has_texture: ${mesh.path}}
+
+heat_kernels:
+  num: 80
+  dims: 32
+  k_eig: 256
+  init_sampling_method: fps
+  normalize_colours: False
+  albo_precomp_anisotropies: [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]
+  albo_precomp_angles_every_deg: 30
+  use_precomp_anis: True
+
+optim:
+  method: vertex_colours
+  iters: 5000
+  lrs:
+    multiplier: 1.0
+    centres: 1e-1
+    colors: 1e-3
+    anisotropies: 1e-3
+    angles: 1e-3
+    diff_times: 1e-3
+    out_net: 1e-3

@@ -11,14 +11,15 @@ from utils.typing import *
 
 
 class EigenAlboInterpolation:
-    def __init__(self, verts, faces, fnorm, k_eig=256, fpath=None, device="cpu"):
+    def __init__(self, verts, faces, fnorm, hk_config, device="cpu"):
         self._verts = verts
         self._faces = faces
         self._fnorm = fnorm
         self._device = device
+        self._hk_config = hk_config
 
-        self._k_eig = k_eig
-        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen(fpath)
+        self._k_eig = hk_config.k_eig
+        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen(hk_config.mesh_path)
 
         # self._all_eigen = _all_eigen
         self._mass = _mass
@@ -30,9 +31,9 @@ class EigenAlboInterpolation:
             dim=1,
         )
 
-        self._eigen_val = _all_eigen[:, :k_eig].contiguous()
+        self._eigen_val = _all_eigen[:, : self._k_eig].contiguous()
         self._eigen_vec = (
-            _all_eigen[:, k_eig:]
+            _all_eigen[:, self._k_eig :]
             .view(-1, self._verts.shape[0], self._k_eig)
             .contiguous()
         )
@@ -73,9 +74,9 @@ class EigenAlboInterpolation:
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         print("> Precomputing all eigendecompositions")
-        for angle in tqdm(range(0, 180, 30)):
+        for angle in tqdm(range(0, 180, self._hk_config.albo_precomp_angles_every_deg)):
             angle = math.radians(angle)
-            for scale in [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]:
+            for scale in self._hk_config.albo_precomp_anisotropies:
                 sampling_coords.append(torch.tensor([angle, scale]))
 
                 lapl, mass = utils.get_anisotropic_lbo(
@@ -157,6 +158,7 @@ class EigenAlboInterpolation:
 if __name__ == "__main__":
     import trimesh
     import numpy as np
+    import omegaconf
 
     mesh_path = "../objects/spot_triangulated.obj"
     mesh = utils.load_mesh(mesh_path, show=False)
@@ -169,8 +171,9 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
+    hk_config = omegaconf.OmegaConf.create({"k_eig": 256, "mesh_path": mesh_path})
     pca_eigen_albo = EigenAlboInterpolation(
-        verts, faces, fnorm, k_eig=256, fpath=mesh_path, device="cuda"
+        verts, faces, fnorm, hk_config, device="cuda"
     )
 
     # albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
