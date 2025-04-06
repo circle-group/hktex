@@ -45,8 +45,8 @@ class GeodesicOpt(optim.Optimizer):
                     continue
                 d_p = p.grad
 
-                p_n, face_id_n = self.tracer.trace(p, face_id, d_p.mul(-lr))
-                p.copy_(p_n)
-                face_id.copy_(face_id_n)
+                bary_coords = getattr(p, "bary_coords", None)
+
+                self.tracer.trace_(p, face_id, d_p.mul(-lr), bary_coords=bary_coords)
 
         return loss

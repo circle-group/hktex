@@ -121,8 +121,12 @@ class OptimiseFixedHeatKernels:
         splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(self.device)
 
         optimisers = {
-            name: torch.optim.Adam([{"params": splats[name], "lr": self._lr_mult * lr}])
-            for name, _, lr in params
+            "splats": torch.optim.Adam(
+                [
+                    {"params": splats[name], "lr": self._lr_mult * lr}
+                    for name, _, lr in params
+                ],
+            )
         }
 
         self._splat_param_keys.append("kernel_locations")
@@ -196,9 +200,14 @@ class OptimiseFixedHeatKernels:
             kernel_vert_idx = self._faces[self.kernel_face_ids]
             B, T = kernel_vert_idx.shape
             kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-            # TODO: Save a detached version of this in optimizer to not recalculate, maybe
             barycentric_coords = utils.cart_to_bary_coords(
                 self.kernel_locations, kernel_vertx
+            )
+            # TODO: Can be cleaned a bit, saved for tracer in optimizer
+            setattr(
+                self._splats["kernel_locations"],
+                "bary_coords",
+                barycentric_coords.detach(),
             )
 
             kernel_evecs, kernel_mass = (

@@ -17,11 +17,32 @@ class GeodesicTracer:
     @abstractmethod
     def trace(
         self,
-        barycentric_coords: Float[Tensor, "B 3"],
+        coords: Float[Tensor, "B 3"],
         face_ids: Int[Tensor, "B"],
         tangent_vector: Float[Tensor, "B 3"],
+        *,
+        bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_face_ids: Optional[Float[Tensor, "B"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
         pass
+
+    def trace_(
+        self,
+        coords: Float[Tensor, "B 3"],
+        face_ids: Int[Tensor, "B"],
+        tangent_vector: Float[Tensor, "B 3"],
+        *,
+        bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+    ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
+        return self.trace(
+            coords,
+            face_ids,
+            tangent_vector,
+            bary_coords=bary_coords,
+            out_coords=coords,
+            out_face_ids=face_ids,
+        )
 
 
 class CPUGeodesicTracer(GeodesicTracer):
@@ -62,13 +83,16 @@ class CPUGeodesicTracer(GeodesicTracer):
         coords: Float[Tensor, "B 3"],
         face_ids: Int[Tensor, "B"],
         tangent_vector: Float[Tensor, "B 3"],
+        *,
+        bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_face_ids: Optional[Float[Tensor, "B"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
-        # TODO: Take barycentric coords directly instead of euclidian coords
-        #       as it is calculated by the code already
-        vert_idx = self.faces[face_ids]
-        B, T = vert_idx.shape
-        vertx = self.vertices[vert_idx.view(B * T)].view(B, T, -1)
-        bary_coords = utils.cart_to_bary_coords(coords, vertx)
+        if bary_coords is None:
+            vert_idx = self.faces[face_ids]
+            B, T = vert_idx.shape
+            vertx = self.vertices[vert_idx.view(B * T)].view(B, T, -1)
+            bary_coords = utils.cart_to_bary_coords(coords, vertx)
 
         bary_coord_np = bary_coords.detach().cpu().numpy()
         face_id_np = face_ids.detach().cpu().numpy()
@@ -89,15 +113,17 @@ class CPUGeodesicTracer(GeodesicTracer):
 
         new_coords = np.stack(new_coords)
         _, _, new_face_ids = trimesh.proximity.closest_point(self._mesh, new_coords)
-        # new_barycentric_coords = batched_cartesian_to_barycentric_coordinates(
-        #     new_coords,
-        #     get_all_face_vertices(self._mesh.vertices, self._mesh.faces)[new_face_ids],
-        #  )
 
-        # TODO: Have an inplace version that writes these directly to previous tensors
-        new_coords = coords.new_tensor(new_coords)
-        new_face_ids = face_ids.new_tensor(new_face_ids)
-        return new_coords, new_face_ids
+        if out_coords is None:
+            out_coords = coords.new_tensor(new_coords)
+        else:
+            out_coords.copy_(torch.tensor(new_coords, device="cpu"))
+
+        if out_face_ids is None:
+            out_face_ids = face_ids.new_tensor(new_face_ids)
+        else:
+            out_face_ids.copy_(torch.tensor(new_face_ids, device="cpu"))
+        return out_coords, out_face_ids
 
     @property
     def full_traces_info(self):

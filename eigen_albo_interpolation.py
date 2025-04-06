@@ -1,8 +1,9 @@
 import math
-import torch
 import numpy as np
 
-from typing import Optional, Tuple
+import torch
+import torch.linalg as linalg
+
 from tqdm import tqdm
 
 import utils
@@ -143,17 +144,13 @@ class EigenAlboInterpolation:
         target_eigen_vec = torch.take_along_dim(
             eigen_vec, vert_idx.unsqueeze(-1), dim=1
         )  # B 3 K
-        # target_mass = torch.gather(
-        #     mass.expand(eigen_vec.shape[0], -1), 1, index=vert_idx
-        # )  # B 3
-        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)
+        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)  # B 3
 
-        # W = 1.0 / torch.clamp(barycentric_coords, min=1e-8)
-        # W = W / W.sum(dim=1, keepdim=True)  # B 3
         W = barycentric_coords
 
         eigen_vec_interp = torch.einsum("ij,ijk->ik", W, target_eigen_vec)  # B K
-        mass_interp = torch.einsum("ij,ij->i", W, target_mass)  # B
+        mass_interp = linalg.vecdot(W, target_mass)  # B
+
         return eigen_vec_interp, mass_interp
 
 
