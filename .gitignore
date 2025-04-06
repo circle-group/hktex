@@ -3,3 +3,4 @@ __pycache__
 .vscode
 
 *.pickle
+configs/tmp_*.yaml

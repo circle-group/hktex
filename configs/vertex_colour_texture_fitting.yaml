@@ -1,9 +1,9 @@
-devce: cuda
+device: cuda
 debug: True
 
 mesh:
   path: ../objects/spot/spot_triangulated.ply
-  bake_vert_colours: ${has_texture: ${mesh.path}}
+  bake_vert_colours: ${has_texture:${mesh.path}}
 
 heat_kernels:
   num: 80

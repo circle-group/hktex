@@ -74,7 +74,7 @@ class OptimiseHeatKernels:
         self._lrs = opt_cfg.lrs
         self._lr_mult = self._lrs.multiplier
 
-        if self._lrs.out_net is not None:
+        if self._lrs.out_net is not None and self._lrs.out_net > 0:
             self.out_net = nn.Sequential(
                 nn.ReLU(),
                 nn.Linear(self.kernel_dim, 2 * self.kernel_dim),
@@ -369,13 +369,13 @@ def get_opt_method(method_name):
     if method_name == "vertex_colours":
         opt_method = OptimiseHeatKernelsToVertColTexture
     elif method_name == "stationary_heat_kernels":
-        opt_method = OptimiseStationaryHeatKernelsToKnown
+        opt_method = OptimiseHeatKernelsToKnownStationary
     else:
         raise NotImplementedError
     return opt_method
 
 
-class OptimiseStationaryHeatKernelsToKnown(OptimiseHeatKernels):
+class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
     def __init__(
         self,
         verts: np.ndarray,
@@ -387,6 +387,8 @@ class OptimiseStationaryHeatKernelsToKnown(OptimiseHeatKernels):
         debug: bool = False,
         **kwargs,
     ):
+        hk_cfg.dims = 3
+        opt_cfg.lrs.out_net = 0
         super().__init__(
             verts,
             faces,
@@ -578,8 +580,8 @@ if __name__ == "__main__":
     args, extra_args = parser.parse_known_args()
 
     cfg = utils.configs.load_configs(
-        yaml_config_paths=[],  # ["../configs/vertex_colour_texture_fitting.yaml"],
-        cli_args=["mesh.path=../objects/spot/spot_triangulated.ply"] + extra_args,
+        yaml_config_paths=["configs/tmp_experiment.yaml"],
+        cli_args=[] + extra_args,
         debug=True,
     )
 
@@ -594,8 +596,8 @@ if __name__ == "__main__":
     try:
         vcols = mesh.visual.vertex_colors
     except AttributeError:
-        v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
-        mesh = trimesh.Trimesh(v, f)
+        # v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
+        # mesh = trimesh.Trimesh(v, f)
         vcols = None
 
     verts = np.array(mesh.vertices)

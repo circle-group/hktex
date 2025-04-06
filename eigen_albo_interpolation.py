@@ -43,7 +43,7 @@ class EigenAlboInterpolation:
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
-        if fpath is None:
+        if fpath is None or not self._hk_config.use_precomp_anis:
             all_eigen, sampling_coords, mass = self._precompute_all_eigen()
         else:
             fformat = "." + fpath.split(".")[-1]
@@ -160,7 +160,7 @@ if __name__ == "__main__":
     import numpy as np
     import omegaconf
 
-    mesh_path = "../objects/spot_triangulated.obj"
+    mesh_path = "../objects/spot/spot_triangulated.ply"
     mesh = utils.load_mesh(mesh_path, show=False)
 
     v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
