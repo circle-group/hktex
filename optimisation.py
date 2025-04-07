@@ -655,7 +655,10 @@ def main(args, extras) -> Dict[str, Any]:
     # "mesh.path=../objects/justalien/justalien.glb"
 
     mesh = utils.load_mesh(
-        cfg.mesh.path, show=False, bake_vert_colors=cfg.mesh.bake_vert_colours
+        cfg.mesh.path,
+        show=False,
+        merge_tex=False,
+        bake_vert_colors=cfg.mesh.bake_vert_colours,
     )
 
     try:

@@ -20,6 +20,7 @@ __all__ = [
     "get_device",
     "load_module_weights",
     "seed_everything",
+    "interpolate_barycentric_coords",
 ]
 
 
