@@ -1,25 +1,44 @@
+from dataclasses import dataclass, field
 import math
-import numpy as np
 
 import torch
 import torch.linalg as linalg
 
 from tqdm import tqdm
 
-import utils
-from utils.typing import *
+import heatsplats
+from heatsplats.utils import get_anisotropic_lbo, compute_eig_laplacian, BaseObject
+from heatsplats.utils.typing import *
+
+__all__ = ["EigenAlboInterpolation"]
 
 
-class EigenAlboInterpolation:
-    def __init__(self, verts, faces, fnorm, hk_config, device="cpu"):
+@heatsplats.register("eigen-albo-interpolation")
+class EigenAlboInterpolation(BaseObject):
+    @dataclass
+    class Config(BaseObject.Config):
+        k_eig: int = 256
+
+        use_precomputed: bool = True
+        precompute_anisotropies: list = field(
+            default_factory=lambda: [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]
+        )
+        precompute_angles_every_deg: int = 30
+        mesh_path: Optional[str] = None
+
+    cfg: Config
+
+    def configure(
+        self,
+        verts: Float[Tensor, "V 3"],
+        faces: Float[Tensor, "F 3"],
+        fnorm: Float[Tensor, "F 3"],
+    ):
         self._verts = verts
         self._faces = faces
         self._fnorm = fnorm
-        self._device = device
-        self._hk_config = hk_config
 
-        self._k_eig = hk_config.k_eig
-        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen(hk_config.mesh_path)
+        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen()
 
         # self._all_eigen = _all_eigen
         self._mass = _mass
@@ -31,19 +50,22 @@ class EigenAlboInterpolation:
             dim=1,
         )
 
-        self._eigen_val = _all_eigen[:, : self._k_eig].contiguous()
+        k_eig = self.cfg.k_eig
+        self._eigen_val = _all_eigen[:, :k_eig].contiguous()
         self._eigen_vec = (
-            _all_eigen[:, self._k_eig :]
-            .view(-1, self._verts.shape[0], self._k_eig)
-            .contiguous()
+            _all_eigen[:, k_eig:].view(-1, self._verts.shape[0], k_eig).contiguous()
         )
 
-    def precompute_all_eigen(
-        self, fpath: Optional[str] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def precompute_all_eigen(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        fpath = self.cfg.mesh_path
+        if self.cfg.use_precomputed and fpath is None:
+            heatsplats.warn(
+                f"Eigen Albo Interpolation requires mesh path when using precomputed, falling back to non-precomputed"
+            )
+
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
-        if fpath is None or not self._hk_config.use_precomp_anis:
+        if fpath is None or not self.cfg.use_precomputed:
             all_eigen, sampling_coords, mass = self._precompute_all_eigen()
         else:
             fformat = "." + fpath.split(".")[-1]
@@ -60,9 +82,9 @@ class EigenAlboInterpolation:
                 torch.save(sampling_coords, smp_coords_path)
                 torch.save(mass, mass_path)
         return (
-            all_eigen.to(torch.float32).to(self._device),
-            sampling_coords.to(torch.float32).to(self._device),
-            mass.to(torch.float32).to(self._device),
+            all_eigen.to(torch.float32).to(self.device),
+            sampling_coords.to(torch.float32).to(self.device),
+            mass.to(torch.float32).to(self.device),
         )
 
     def _precompute_all_eigen(
@@ -74,12 +96,12 @@ class EigenAlboInterpolation:
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         print("> Precomputing all eigendecompositions")
-        for angle in tqdm(range(0, 180, self._hk_config.albo_precomp_angles_every_deg)):
+        for angle in tqdm(range(0, 180, self.cfg.precompute_angles_every_deg)):
             angle = math.radians(angle)
-            for scale in self._hk_config.albo_precomp_anisotropies:
+            for scale in self.cfg.precompute_anisotropies:
                 sampling_coords.append(torch.tensor([angle, scale]))
 
-                lapl, mass = utils.get_anisotropic_lbo(
+                lapl, mass = get_anisotropic_lbo(
                     torch.tensor(self._verts),
                     torch.tensor(self._faces).T,
                     torch.tensor(self._fnorm),
@@ -87,7 +109,7 @@ class EigenAlboInterpolation:
                     anisotropy=float(scale),
                 )
 
-                eval, evecs = utils.compute_eig_laplacian(lapl, mass, self._k_eig)
+                eval, evecs = compute_eig_laplacian(lapl, mass, self.cfg.k_eig)
 
                 flat_evecs = torch.tensor(evecs).flatten()
                 all_eigen.append(torch.cat([torch.tensor(eval), flat_evecs]))
@@ -153,57 +175,3 @@ class EigenAlboInterpolation:
         mass_interp = linalg.vecdot(W, target_mass)  # B
 
         return eigen_vec_interp, mass_interp
-
-
-if __name__ == "__main__":
-    import trimesh
-    import numpy as np
-    import omegaconf
-
-    mesh_path = "../objects/spot/spot_triangulated.ply"
-    mesh = utils.load_mesh(mesh_path, show=False)
-
-    v, f = trimesh.remesh.subdivide(mesh.vertices, mesh.faces)
-    # v, f = trimesh.remesh.subdivide(v, f)
-    mesh = trimesh.Trimesh(v, f)
-
-    verts = np.array(mesh.vertices)
-    faces = np.array(mesh.faces)
-    fnorm = np.array(mesh.face_normals)
-
-    hk_config = omegaconf.OmegaConf.create({"k_eig": 256, "mesh_path": mesh_path})
-    pca_eigen_albo = EigenAlboInterpolation(
-        verts, faces, fnorm, hk_config, device="cuda"
-    )
-
-    # albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
-    #     angle=45.0, scale=33.0
-    # )
-
-    albo_evals, albo_evecs, mass = pca_eigen_albo.get_albo_eigenquantities(
-        angles=torch.deg2rad(torch.tensor([45.0, 18.3, 10.0])),
-        scales=torch.tensor([33.0, 60, 5.2]),
-    )
-
-    colours = torch.zeros([3, *verts.shape])
-    # idxs = torch.randint(0, mesh.vertices.shape[0], (3,))
-    idxs = torch.tensor([3804, 0, 4274])
-    # colours[:, idxs, :] = torch.tensor(
-    #     [1.0, 0, 0], dtype=torch.float64
-    # ).unsqueeze(0)
-    # colours[:, 0, :] = torch.tensor([1.0, 0, 0]).unsqueeze(0)
-    colours[torch.arange(3), idxs, :] = torch.tensor(
-        [[1.0, 0, 0], [0, 1.0, 0], [0, 0, 1.0]], dtype=torch.float
-    )
-
-    colours = utils.heat_diffusion(
-        colours, mass, albo_evals, albo_evecs, torch.tensor([0.001, 0.1, 0.01])
-    )
-
-    colours = colours.sum(dim=0)
-
-    colours = (colours - colours.min()) / (colours.max() - colours.min())
-    colours *= 255
-    colours = colours.squeeze().numpy()
-
-    mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=colours)

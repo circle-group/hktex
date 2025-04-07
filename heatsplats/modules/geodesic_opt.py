@@ -2,8 +2,11 @@ import torch
 import torch.optim as optim
 from torch.optim.optimizer import Optimizer, ParamsT, required
 
-from tracer import GeodesicTracer
-from utils.typing import *
+from .tracer import GeodesicTracer
+from heatsplats.utils.typing import *
+
+
+__all__ = ["GeodesicOpt"]
 
 
 class GeodesicOpt(optim.Optimizer):

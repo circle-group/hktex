@@ -1,5 +1,7 @@
 import torch
 
+__all__ = ["compute_biharmonic_distance"]
+
 
 def compute_biharmonic_distance(
     evecs_i: torch.Tensor, evecs_j, evals: torch.Tensor, pairwise: bool = True

@@ -1,78 +1,83 @@
+from dataclasses import dataclass, field
+from abc import abstractmethod
+import os
+import sys
+import argparse
+import numpy as np
+import matplotlib.pyplot as plt
+from termcolor import colored
+import trimesh
+
+from tqdm import tqdm
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
-import matplotlib.pyplot as plt
-from termcolor import colored
-from omegaconf import DictConfig
-from abc import abstractmethod
-
-from tqdm import tqdm
-
-import eigen_albo_interpolation
-
-import utils
-from utils.typing import *
-from geodesic_opt import GeodesicOpt
-from tracer import CPUGeodesicTracer
+import heatsplats
+from heatsplats.modules import GeodesicTracer, GeodesicOpt, EigenAlboInterpolation
+import heatsplats.utils as utils
+from heatsplats.utils import BaseObject
+from heatsplats.utils.typing import *
 
 
-class OptimiseHeatKernels:
-    def __init__(
-        self,
-        verts: np.ndarray,
-        faces: np.ndarray,
-        fnorms: np.ndarray,
-        hk_cfg: DictConfig,
-        opt_cfg: DictConfig,
-        device: str = "cpu",
-        debug: bool = False,
-        **kwargs,
+@dataclass
+class LearningRateConfig:
+    multiplier: float = 1.0
+    centres: float = 1e-1
+    colors: float = 1e-3
+    anisotropies: float = 1e-3
+    angles: float = 1e-3
+    diff_times: float = 1e-3
+    out_net: Union[None, float] = 1e-3
+
+
+class OptimiseHeatKernels(BaseObject):
+    @dataclass
+    class Config(BaseObject.Config):
+        tracer_type: str = ""
+        tracer: dict = field(default_factory=dict)
+
+        eigen_albo: dict = field(default_factory=dict)
+
+        n_sources: int = 128
+        kernel_dim: int = 32
+
+        normalize_colours: bool = False
+
+        lrs: LearningRateConfig = field(default_factory=LearningRateConfig)
+
+    cfg: Config
+
+    def configure(
+        self, verts: np.ndarray, faces: np.ndarray, fnorms: np.ndarray, **kwargs
     ):
-        self.device = device
-        self.debug = debug
+        super().configure()
 
-        self._eigalbo_interp = eigen_albo_interpolation.EigenAlboInterpolation(
-            verts, faces, fnorms, hk_cfg, device=device
+        self.n_sources = self.cfg.n_sources
+        self.kernel_dim = self.cfg.kernel_dim
+        self.normalize_colours = self.cfg.normalize_colours
+        self._lrs = self.cfg.lrs
+        self._lr_mult = self._lrs.multiplier
+
+        self._verts = torch.tensor(verts, device=self.device, dtype=torch.float)
+        self._faces = torch.tensor(faces, device=self.device)
+
+        self.eigalbo_interp = EigenAlboInterpolation(
+            self.cfg.eigen_albo, verts, faces, fnorms
         )
-
-        self._n_sources = hk_cfg.num
-        if hk_cfg.init_sampling_method == "fps":
-            source_idx = utils.farthest_point_sampling(
-                torch.from_numpy(verts).to(device), self._n_sources
-            )
-            self._source_idxs = source_idx.nonzero(as_tuple=True)[0]
-        elif hk_cfg.init_sampling_method == "random":
-            self._source_idxs = torch.randint(
-                0, len(verts), (self._n_sources,), device=device
-            )
-        else:
-            raise NotImplementedError("Unknown sampling method for initial hk centres")
-        self._idx_range = torch.arange(self._n_sources, device=device)
-
-        self._verts = torch.tensor(verts, device=device, dtype=torch.float)
-        self._faces = torch.tensor(faces, device=device)
-        self.tracer = CPUGeodesicTracer(
+        self.tracer: GeodesicTracer = heatsplats.find(self.cfg.tracer_type)(
+            self.cfg.tracer,
             self._verts,
             self._faces,
-            debug=debug,
-            n_debug_traces=min(self._n_sources, 100),
         )
 
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
         self._angle_scaler = torch.pi
         self._angle_act = lambda x: self._angle_scaler * F.hardsigmoid(x)
-        # self._anis_scaler = 100
-        # self._anis_act = lambda x: self._anis_scaler * F.hardsigmoid(x)
         self._anis_act = lambda x: torch.exp(x)
-
         self._colour_act = lambda x: x
-
-        self.kernel_dim = hk_cfg.dims
-        self._normalize_colours = hk_cfg.normalize_colours
-        self._lrs = opt_cfg.lrs
-        self._lr_mult = self._lrs.multiplier
 
         if self._lrs.out_net is not None and self._lrs.out_net > 0:
             self.out_net = nn.Sequential(
@@ -81,16 +86,13 @@ class OptimiseHeatKernels:
                 nn.ReLU(),
                 nn.Linear(2 * self.kernel_dim, 3),
                 nn.Sigmoid(),
-            ).to(device)
+            ).to(self.device)
         else:
             self.out_net = None
 
-        self._splats, self._optims = self._make_splats_and_optimisers(self._n_sources)
+        self._splats, self._optims = self._make_splats_and_optimisers(self.n_sources)
 
     def _make_splats_and_optimisers(self, n_sources: int, **kwargs):
-        # kernel_colours = torch.rand((n_sources, 3), dtype=torch.float)
-        # angles = (torch.rand(n_sources) + torch.pi / 4) * 0.1
-        # anisotropies = torch.rand(n_sources)
         kernel_colours = torch.randn(
             (n_sources, self.kernel_dim), dtype=torch.float, device=self.device
         )
@@ -177,7 +179,7 @@ class OptimiseHeatKernels:
         return self._kernel_face_ids
 
     def optimise(self, n_iter=100):
-        B, V = self._n_sources, self._verts.shape[0]
+        B, V = self.n_sources, self._verts.shape[0]
         v_colours_buffer: Float[Tensor, "B V L"] = torch.zeros(
             [B, V, self.kernel_dim],
             device=self.device,
@@ -193,15 +195,9 @@ class OptimiseHeatKernels:
             v_colours: Float[Tensor, "B V L"] = (
                 v_colours_buffer.clone().detach().requires_grad_(True)
             )
-            # v_colours = v_colours.index_put(
-            #     (self._idx_range, self._source_idxs),
-            #     self.kernel_colours,
-            # )
 
-            albo_evals, albo_evecs, mass = (
-                self._eigalbo_interp.get_albo_eigenquantities(
-                    angles=self.angles, scales=self.anisotropies
-                )
+            albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
+                angles=self.angles, scales=self.anisotropies
             )
 
             kernel_vert_idx = self._faces[self.kernel_face_ids]
@@ -218,7 +214,7 @@ class OptimiseHeatKernels:
             )
 
             kernel_evecs, kernel_mass = (
-                self._eigalbo_interp.barycentric_eig_interpolation(
+                self.eigalbo_interp.barycentric_eig_interpolation(
                     eigen_vec=albo_evecs,
                     mass=mass,
                     barycentric_coords=barycentric_coords,
@@ -246,7 +242,7 @@ class OptimiseHeatKernels:
             v_colours = v_colours[:V]
             if self.out_net is not None:
                 v_colours = self.out_net(v_colours)
-            if self._normalize_colours:
+            if self.normalize_colours:
                 v_colours = self._normalize(v_colours)
 
             if i == 0:
@@ -287,18 +283,40 @@ class OptimiseHeatKernels:
         return v_colours, gt_colours, init_colours
 
     def render(self):
-        # TODO: Fix
-        v_colours_buffer = torch.zeros(
-            [self._n_sources, *self._verts.shape[:-1], self.kernel_dim],
+        B, V = self.n_sources, self._verts.shape[0]
+        v_colours: Float[Tensor, "B V L"] = torch.zeros(
+            [B, V, self.kernel_dim],
             device=self.device,
         )
-        v_colours = v_colours_buffer.index_put(
-            (self._idx_range, self._source_idxs),
-            self.kernel_colours,
-        )
-        albo_evals, albo_evecs, mass = self._eigalbo_interp.get_albo_eigenquantities(
+
+        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
             angles=self.angles, scales=self.anisotropies
         )
+
+        kernel_vert_idx = self._faces[self.kernel_face_ids]
+        B, T = kernel_vert_idx.shape
+        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+        barycentric_coords = utils.cart_to_bary_coords(
+            self.kernel_locations, kernel_vertx
+        )
+
+        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_eig_interpolation(
+            eigen_vec=albo_evecs,
+            mass=mass,
+            barycentric_coords=barycentric_coords,
+            vert_idx=kernel_vert_idx,
+        )
+
+        v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
+            (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
+        )
+        albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
+            ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
+        )
+        mass: Float[Tensor, "B V+1"] = torch.cat(
+            (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
+        )
+
         v_colours = utils.heat_diffusion_reduce(
             v_colours,
             mass,
@@ -306,13 +324,14 @@ class OptimiseHeatKernels:
             albo_evecs,
             self.diff_times,
         )
+        v_colours = v_colours[:V]
         if self.out_net is not None:
             v_colours = self.out_net(v_colours)
-        if self._normalize_colours:
+        if self.normalize_colours:
             v_colours = self._normalize(v_colours)
         return v_colours
 
-    def _normalize(self, colours):
+    def _normalize(self, colours: Float[Tensor, "B 3"]):
         cmin, cmax = colours.min(), colours.max()
         colours = (colours - cmin) / (cmax - cmin)
         return colours
@@ -355,6 +374,7 @@ class OptimiseHeatKernels:
 
     @property
     def debug_trimesh_traces(self):
+        assert self.tracer.debug, "Tracer not in debug mode"
         traces_info = self.tracer.full_traces_info
         # segment_starts = np.concatenate(traces_info["starts"], axis=0)
         traces_starts = np.stack([s[0, ::] for s in traces_info["starts"]])
@@ -365,45 +385,26 @@ class OptimiseHeatKernels:
         ]
 
 
-def get_opt_method(method_name):
-    if method_name == "vertex_colours":
-        opt_method = OptimiseHeatKernelsToVertColTexture
-    elif method_name == "stationary_heat_kernels":
-        opt_method = OptimiseHeatKernelsToKnownStationary
-    else:
-        raise NotImplementedError
-    return opt_method
-
-
+@heatsplats.register("optimize-stationary-heat-kernels")
 class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
-    def __init__(
-        self,
-        verts: np.ndarray,
-        faces: np.ndarray,
-        fnorms: np.ndarray,
-        hk_cfg: DictConfig,
-        opt_cfg: DictConfig,
-        device: str = "cpu",
-        debug: bool = False,
-        **kwargs,
+    @dataclass
+    class Config(OptimiseHeatKernels.Config):
+        gt_source_sampling_method: Optional[str] = "fps"
+
+    cfg: Config
+
+    def configure(
+        self, verts: np.ndarray, faces: np.ndarray, fnorms: np.ndarray, **kwargs
     ):
-        hk_cfg.dims = 3
-        opt_cfg.lrs.out_net = 0
-        super().__init__(
-            verts,
-            faces,
-            fnorms,
-            hk_cfg,
-            opt_cfg,
-            device,
-            debug,
-            **kwargs,
-        )
+        self.cfg.kernel_dim = 3
+        self.cfg.lrs.out_net = 0
+
+        super().configure(verts, faces, fnorms)
+
         self._gt_splats = None
 
-    def _make_gt_colours(self):
-        if self._n_sources == 3:
-            self._source_idxs = torch.tensor([3804, 0, 4274])
+        if self.n_sources == 3:
+            self._source_idxs = torch.tensor([3804, 0, 4274], device=self.device)
 
             self._gt_splats = {
                 "angles": torch.tensor([45.0, 18.3, 10.0], device=self.device),
@@ -416,27 +417,37 @@ class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
                 ),
             }
         else:
+            if self.cfg.gt_source_sampling_method == "fps":
+                source_idx = utils.farthest_point_sampling(self._verts, self.n_sources)
+                self._source_idxs = source_idx.nonzero(as_tuple=True)[0]
+            else:
+                self._source_idxs = torch.randint(
+                    0, len(verts), (self.n_sources,), device=self.device
+                )
+
             self._gt_splats = {
-                "angles": torch.rand(self._n_sources, device=self.device) * 180,
-                "anisotropies": (100 * torch.rand(self._n_sources, device=self.device)),
+                "angles": torch.rand(self.n_sources, device=self.device) * 180,
+                "anisotropies": (100 * torch.rand(self.n_sources, device=self.device)),
                 "diff_times": self._diff_time_scaler_func(
-                    torch.rand(self._n_sources, device=self.device)
+                    torch.rand(self.n_sources, device=self.device)
                 ),
                 "kernel_colours": torch.rand(
-                    (self._n_sources, 3),
+                    (self.n_sources, 3),
                     dtype=torch.float,
                     device=self.device,
                 ),
             }
+        self._idx_range = torch.arange(self.n_sources, device=self.device)
 
+    def _make_gt_colours(self):
         gt_colours = torch.zeros(
-            [self._n_sources, *self._verts.shape], device=self.device
+            [self.n_sources, *self._verts.shape], device=self.device
         )
         gt_colours[self._idx_range, self._source_idxs, :] = self._gt_splats[
             "kernel_colours"
         ]
 
-        albo_evals, albo_evecs, mass = self._eigalbo_interp.get_albo_eigenquantities(
+        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
             angles=torch.deg2rad(self._gt_splats["angles"]),
             scales=self._gt_splats["anisotropies"],
         )
@@ -462,7 +473,7 @@ class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
         )
 
         gt_colours = gt_colours.sum(dim=0)
-        if self._normalize_colours:
+        if self.normalize_colours:
             gt_colours = self._normalize(gt_colours)
         return gt_colours
 
@@ -531,28 +542,24 @@ class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
         plt.show()
 
 
+@heatsplats.register("optimise-vertex-colours")
 class OptimiseHeatKernelsToVertColTexture(OptimiseHeatKernels):
-    def __init__(
+    @dataclass
+    class Config(OptimiseHeatKernels.Config):
+        pass
+
+    cfg: Config
+
+    def configure(
         self,
-        verts,
-        faces,
-        fnorms,
-        hk_cfg,
-        opt_cfg,
-        device="cpu",
-        vcols=None,
+        verts: np.ndarray,
+        faces: np.ndarray,
+        fnorms: np.ndarray,
+        vcols: np.ndarray,
         **kwargs,
     ):
-        super().__init__(
-            verts,
-            faces,
-            fnorms,
-            hk_cfg,
-            opt_cfg,
-            device,
-            **kwargs,
-        )
-        assert vcols is not None
+        super().configure(verts, faces, fnorms)
+
         self._vcols = torch.tensor(vcols, device=self.device)
 
     def _make_gt_colours(self):
@@ -570,20 +577,78 @@ class OptimiseHeatKernelsToVertColTexture(OptimiseHeatKernels):
         }
 
 
-if __name__ == "__main__":
-    import argparse
-    import trimesh
-    import numpy as np
+class ColoredFilter(logging.Filter):
+    """
+    A logging filter to add color to certain log levels.
+    """
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-f", "--fff", help="dummy arg to fool ipython", default="1")
-    args, extra_args = parser.parse_known_args()
+    RESET = "\033[0m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
 
-    cfg = utils.configs.load_configs(
-        yaml_config_paths=["configs/tmp_experiment.yaml"],
-        cli_args=[] + extra_args,
-        debug=True,
-    )
+    COLORS = {
+        "WARNING": YELLOW,
+        "INFO": GREEN,
+        "DEBUG": BLUE,
+        "CRITICAL": MAGENTA,
+        "ERROR": RED,
+    }
+
+    RESET = "\x1b[0m"
+
+    def __init__(self):
+        super().__init__()
+
+    def filter(self, record):
+        if record.levelname in self.COLORS:
+            color_start = self.COLORS[record.levelname]
+            record.levelname = f"{color_start}[{record.levelname}]"
+            record.msg = f"{record.msg}{self.RESET}"
+        return True
+
+
+def main(args, extras) -> Dict[str, Any]:
+    # set CUDA_VISIBLE_DEVICES if needed, then import pytorch-lightning
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    env_gpus_str = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+    env_gpus = list(env_gpus_str.split(",")) if env_gpus_str else []
+    selected_gpus = [0]
+
+    # Always rely on CUDA_VISIBLE_DEVICES if specific GPU ID(s) are specified.
+    # As far as Pytorch Lightning is concerned, we always use all available GPUs
+    # (possibly filtered by CUDA_VISIBLE_DEVICES).
+    devices = -1
+    if len(env_gpus) > 0:
+        # CUDA_VISIBLE_DEVICES was set already, e.g. within SLURM srun or higher-level script.
+        n_gpus = len(env_gpus)
+    else:
+        selected_gpus = list(args.gpu.split(","))
+        n_gpus = len(selected_gpus)
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+    logger = logging.getLogger("heatsplats")
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+
+    for handler in logger.handlers:
+        if handler.stream == sys.stderr:  # type: ignore
+            handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+            handler.addFilter(ColoredFilter())
+
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.set_float32_matmul_precision("high")
+
+    from heatsplats.utils import ExperimentConfig, load_config, seed_everything
+
+    # parse YAML config to OmegaConf
+    cfg: ExperimentConfig
+    cfg = load_config(args.config, cli_args=extras, n_gpus=n_gpus)
+
+    seed_everything(cfg.seed)
 
     # "mesh.path=../objects/spot/spot_triangulated.ply"
     # "mesh.path=../objects/mech_drone/mech_drone.glb"
@@ -604,47 +669,36 @@ if __name__ == "__main__":
     faces = np.array(mesh.faces)
     fnorm = np.array(mesh.face_normals)
 
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.set_float32_matmul_precision("high")
-
     # torch.cuda.memory._record_memory_history()
 
-    optimisation_method = get_opt_method(method_name=cfg.optim.method)
-    optimisation = optimisation_method(
-        verts,
-        faces,
-        fnorm,
-        vcols=vcols,
-        hk_cfg=cfg.heat_kernels,
-        opt_cfg=cfg.optim,
-        device=cfg.device,
-        debug=cfg.debug,
+    trainer: OptimiseHeatKernels = heatsplats.find(cfg.trainer_type)(
+        cfg.trainer, verts, faces, fnorm, vcols=vcols
     )
 
-    v_colours, gt_colours, init_colours = optimisation.optimise(n_iter=cfg.optim.iters)
-    # torch.cuda.memory._dump_snapshot("memory_snapshot.pickle")
+    v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
 
-    v_colours = (v_colours * 255).to(dtype=torch.uint8)
-    v_colours = v_colours.squeeze().detach().cpu().numpy()
+    return {
+        "optimisation": trainer,
+        "mesh": mesh,
+        "colours": (v_colours, gt_colours, init_colours),
+    }
 
-    gt_colours = (gt_colours * 255).to(dtype=torch.uint8)
-    gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
-    init_colours = (init_colours * 255).to(dtype=torch.uint8)
-    init_colours = init_colours.squeeze().detach().cpu().numpy()
-
-    gt_mesh = mesh.copy()
-    gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
-
-    v_mesh = mesh.copy()
-    v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
-    v_scene = trimesh.Scene(
-        [v_mesh, utils.big_trimesh_pcl(optimisation.kernel_centres)]
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, help="path to config file")
+    parser.add_argument(
+        "--gpu",
+        default="0",
+        help="GPU(s) to be used. 0 means use the 1st available GPU. "
+        "1,2 means use the 2nd and 3rd available GPU. "
+        "If CUDA_VISIBLE_DEVICES is set before calling `train.py`, "
+        "this argument is ignored and all available GPUs are always used.",
     )
-    if cfg.debug:
-        v_scene_traces = trimesh.Scene([v_mesh, *optimisation.debug_trimesh_traces])
 
-    init_mesh = mesh.copy()
-    init_mesh.visual = trimesh.visual.ColorVisuals(
-        init_mesh, vertex_colors=init_colours
+    parser.add_argument(
+        "--verbose", action="store_true", help="if true, set logging level to DEBUG"
     )
+
+    args, extras = parser.parse_known_args()
+    main(args, extras)

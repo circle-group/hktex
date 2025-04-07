@@ -1,23 +1,27 @@
-device: cuda
-debug: True
+name: "vertex-colour-texture-fitting"
+tag: "${filename:${mesh.path}}"
+exp_root_dir: "outputs"
+seed: 0
 
 mesh:
   path: ../objects/spot/spot_triangulated.ply
   bake_vert_colours: ${has_texture:${mesh.path}}
 
-heat_kernels:
-  num: 80
-  dims: 32
-  k_eig: 256
-  init_sampling_method: fps
-  normalize_colours: False
-  albo_precomp_anisotropies: [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100]
-  albo_precomp_angles_every_deg: 30
-  use_precomp_anis: True
+trainer_type: "optimise-vertex-colours"
+trainer:
+  n_sources: 80
+  kernel_dim: 32
 
-optim:
-  method: vertex_colours
-  iters: 5000
+  normalize_colours: False
+
+  tracer_type: cpu-geodesic-tracer
+  tracer: 
+    n_debug_traces: 10
+
+  eigen_albo: 
+    k_eig: 256
+    mesh_path: ${mesh.path}
+
   lrs:
     multiplier: 1.0
     centres: 1e-1
@@ -26,3 +30,7 @@ optim:
     angles: 1e-3
     diff_times: 1e-3
     out_net: 1e-3
+
+optim:
+  iters: 5000
+  

@@ -1,3 +1,5 @@
+from dataclasses import dataclass, field
+
 from abc import abstractmethod
 import trimesh
 import numpy as np
@@ -5,14 +7,30 @@ import numpy as np
 import torch
 import potpourri3d as pp3d
 
-import utils
-from utils.typing import *
-from utils.geodesics import *
+import heatsplats
+from heatsplats.utils import cart_to_bary_coords, BaseObject
+from heatsplats.utils.typing import *
+
+__all__ = ["GeodesicTracer", "CPUGeodesicTracer"]
 
 
-class GeodesicTracer:
-    def __init__(self):
-        pass
+class GeodesicTracer(BaseObject):
+    @dataclass
+    class Config(BaseObject.Config):
+        debug: bool = False
+
+    cfg: Config
+
+    def configure(self, vertices: Float[Tensor, "B 3"], faces: Float[Tensor, "B 3"]):
+        super().configure()
+
+        self.V = vertices.shape[0]
+        self.F = faces.shape[0]
+        assert vertices.shape[1] == 3 and faces.shape[1] == 3
+        self.vertices = vertices
+        self.faces = faces
+
+        self.debug = self.cfg.debug
 
     @abstractmethod
     def trace(
@@ -44,39 +62,42 @@ class GeodesicTracer:
             out_face_ids=face_ids,
         )
 
+    @property
+    def full_traces_info(self) -> Optional[Dict[str, Any]]:
+        return None
 
+    def reset_traces_info(self):
+        pass
+
+
+@heatsplats.register("cpu-geodesic-tracer")
 class CPUGeodesicTracer(GeodesicTracer):
-    def __init__(
-        self,
-        vertices: torch.Tensor,
-        faces: torch.Tensor,
-        max_iterations: Optional[int] = None,
-        debug: bool = False,
-        n_debug_traces: int = 10,
-    ):
-        super().__init__()
+    @dataclass
+    class Config(GeodesicTracer.Config):
+        max_iterations: Optional[int] = None
 
-        self.V = vertices.shape[0]
-        self.F = faces.shape[0]
-        assert vertices.shape[1] == 3 and faces.shape[1] == 3
-        self.vertices = vertices
-        self.faces = faces
-        vertices_np = vertices.detach().cpu().numpy()
-        faces_np = faces.detach().cpu().numpy()
+        n_debug_traces: int = 10
+
+    cfg: Config
+
+    def configure(self, vertices: Float[Tensor, "B 3"], faces: Float[Tensor, "B 3"]):
+        super().configure(vertices, faces)
+
+        vertices_np = self.vertices.detach().cpu().numpy()
+        faces_np = self.faces.detach().cpu().numpy()
 
         self.tracer = pp3d.GeodesicTracer(vertices_np, faces_np)
-        self.max_iterations = max_iterations
 
+        n_debug_traces = self.cfg.n_debug_traces
         self._mesh = trimesh.Trimesh(vertices_np, faces_np)
         self._traces_info = (
             {
                 "traces": [[] for _ in range(n_debug_traces)],
                 "starts": [[] for _ in range(n_debug_traces)],
             }
-            if debug
+            if self.cfg.debug
             else None
         )
-        self._n_debug_traces = n_debug_traces
 
     def trace(
         self,
@@ -92,7 +113,7 @@ class CPUGeodesicTracer(GeodesicTracer):
             vert_idx = self.faces[face_ids]
             B, T = vert_idx.shape
             vertx = self.vertices[vert_idx.view(B * T)].view(B, T, -1)
-            bary_coords = utils.cart_to_bary_coords(coords, vertx)
+            bary_coords = cart_to_bary_coords(coords, vertx)
 
         bary_coord_np = bary_coords.detach().cpu().numpy()
         face_id_np = face_ids.detach().cpu().numpy()
@@ -104,10 +125,10 @@ class CPUGeodesicTracer(GeodesicTracer):
         new_coords = []
         for i in range(B):
             trace_pts = self.tracer.trace_geodesic_from_face(
-                face_id_np[i], bary_coord_np[i], tangent_np[i], self.max_iterations
+                face_id_np[i], bary_coord_np[i], tangent_np[i], self.cfg.max_iterations
             )
             new_coords.append(trace_pts[-1, :])
-            if self._traces_info is not None and i < self._n_debug_traces:
+            if self._traces_info is not None and i < self.cfg.n_debug_traces:
                 self._traces_info["traces"][i].append(trace_pts)
                 self._traces_info["starts"][i].append(trace_pts[0, :])
 
@@ -126,7 +147,7 @@ class CPUGeodesicTracer(GeodesicTracer):
         return out_coords, out_face_ids
 
     @property
-    def full_traces_info(self):
+    def full_traces_info(self) -> Optional[Dict[str, Any]]:
         assert self._traces_info is not None, "Tracing info is not enabled."
 
         # Since trajectories have been separately stored for each heat source as

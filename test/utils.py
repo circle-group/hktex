@@ -4,8 +4,12 @@ import torch
 
 import numpy as np
 
-from utils import load_mesh, get_anisotropic_lbo, compute_eig_laplacian, heat_diffusion
-import utils
+from heatsplats.utils import (
+    load_mesh,
+    get_anisotropic_lbo,
+    compute_eig_laplacian,
+    heat_diffusion,
+)
 
 if __name__ == "__main__":
     # mesh = load_mesh("objects/mech_drone.glb", show=False)
