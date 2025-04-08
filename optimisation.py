@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 import heatsplats
 from heatsplats.modules import GeodesicTracer, GeodesicOpt, EigenAlboInterpolation
-from heatsplats.data import *
+from heatsplats.data import MeshSamplerDataModule
 
 import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
@@ -54,8 +54,7 @@ class OptimiseHeatKernels(BaseObject):
 
     def configure(
         self,
-        mesh: trimesh.Trimesh,
-        data_loader: Union[None, torch.utils.data.DataLoader] = None,
+        datamodule: MeshSamplerDataModule,
         **kwargs,
     ):
         super().configure()
@@ -67,7 +66,8 @@ class OptimiseHeatKernels(BaseObject):
         self._lrs = self.cfg.lrs
         self._lr_mult = self._lrs.multiplier
 
-        self.data_loader = data_loader
+        self.datamodule = datamodule
+        mesh = self.datamodule.mesh
 
         self._verts = torch.tensor(mesh.vertices, device=self.device, dtype=torch.float)
         self._faces = torch.tensor(mesh.faces, device=self.device)
@@ -188,110 +188,111 @@ class OptimiseHeatKernels(BaseObject):
         return self._kernel_face_ids
 
     def optimise(self, n_iter=100):
+        dataloader = self.datamodule.train_dataloader()
+        data_iter = iter(dataloader)
+
         B, V = self.n_sources, self._verts.shape[0]
-        v_colours_buffer: Float[Tensor, "B V L"] = torch.zeros(
-            [B, V, self.kernel_dim],
-            device=self.device,
-        )
 
         self._logger.info(f"INITIAL -> {self._colored_print_opt_params}")
 
         errors_lists = {k: [] for k in self._splats.keys()}
 
         for i in (pbar := tqdm(range(n_iter))):
-            for j, data in enumerate(self.data_loader):
-                gt_colours = data["colour"]
+            data = next(data_iter)
 
-                v_colours: Float[Tensor, "B V L"] = (
-                    v_colours_buffer.clone().detach().requires_grad_(True)
+            pos: Tensor = data["pos"].to(self.device)
+            gt_colours: Tensor = data["colour"].to(self.device)
+
+            v_colours: Float[Tensor, "B V L"] = torch.zeros(
+                [B, pos.shape[0], self.kernel_dim],
+                device=self.device,
+            )
+
+            albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
+                angles=self.angles, scales=self.anisotropies
+            )
+
+            kernel_vert_idx = self._faces[self.kernel_face_ids]
+            B, T = kernel_vert_idx.shape
+            kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+            barycentric_coords = utils.cart_to_bary_coords(
+                self.kernel_locations, kernel_vertx
+            )
+            # TODO: Can be cleaned a bit, saved for tracer in optimizer
+            setattr(
+                self._splats["kernel_locations"],
+                "bary_coords",
+                barycentric_coords.detach(),
+            )
+
+            kernel_evecs, kernel_mass = (
+                self.eigalbo_interp.barycentric_eig_interpolation(
+                    eigen_vec=albo_evecs,
+                    mass=mass,
+                    barycentric_coords=barycentric_coords,
+                    vert_idx=kernel_vert_idx,
                 )
+            )
 
-                albo_evals, albo_evecs, mass = (
-                    self.eigalbo_interp.get_albo_eigenquantities(
-                        angles=self.angles, scales=self.anisotropies
-                    )
-                )
+            # TODO: Subset of vertices -> pos
+            # TODO: Non-vertex location -> pos
 
-                kernel_vert_idx = self._faces[self.kernel_face_ids]
-                B, T = kernel_vert_idx.shape
-                kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-                barycentric_coords = utils.cart_to_bary_coords(
-                    self.kernel_locations, kernel_vertx
-                )
-                # TODO: Can be cleaned a bit, saved for tracer in optimizer
-                setattr(
-                    self._splats["kernel_locations"],
-                    "bary_coords",
-                    barycentric_coords.detach(),
-                )
+            v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
+                (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
+            )
+            albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
+                ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
+            )
+            mass: Float[Tensor, "B V+1"] = torch.cat(
+                (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
+            )
 
-                kernel_evecs, kernel_mass = (
-                    self.eigalbo_interp.barycentric_eig_interpolation(
-                        eigen_vec=albo_evecs,
-                        mass=mass,
-                        barycentric_coords=barycentric_coords,
-                        vert_idx=kernel_vert_idx,
-                    )
-                )
+            v_colours = utils.heat_diffusion_reduce(
+                v_colours,
+                mass,
+                albo_evals,
+                albo_evecs,
+                self.diff_times,
+            )
+            v_colours = v_colours[:V]
+            if self.out_net is not None:
+                v_colours = self.out_net(v_colours)
+            if self.normalize_colours:
+                v_colours = utils.normalise_colours(v_colours)
 
-                v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
-                    (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
-                )
-                albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
-                    ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
-                )
-                mass: Float[Tensor, "B V+1"] = torch.cat(
-                    (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
-                )
+            if i == 0:
+                init_colours = v_colours.clone().detach()
 
-                v_colours = utils.heat_diffusion_reduce(
-                    v_colours,
-                    mass,
-                    albo_evals,
-                    albo_evecs,
-                    self.diff_times,
-                )
-                v_colours = v_colours[:V]
-                if self.out_net is not None:
-                    v_colours = self.out_net(v_colours)
-                if self.normalize_colours:
-                    v_colours = utils.normalise_colours(v_colours)
+            loss = (
+                F.mse_loss(v_colours, gt_colours, reduction="sum") / v_colours.shape[0]
+            )
 
-                if i == 0:
-                    init_colours = v_colours.clone().detach()
+            loss.backward()
 
-                loss = (
-                    F.mse_loss(v_colours, gt_colours, reduction="sum")
-                    / v_colours.shape[0]
-                )
-
-                loss.backward()
-
-                with torch.no_grad():
-                    if i == 0 or (i + 1) % 100 == 0:
-                        for name in self._splat_param_keys:
-                            self._logger.info(
-                                f"{name}: {self._splats[name].grad.data.norm(2)}"
-                            )
-
-                for optimizer in self._optims.values():
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-                with torch.no_grad():
-                    pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
-                    if i == 0 or (i + 1) % 100 == 0:
+            with torch.no_grad():
+                if i == 0 or (i + 1) % 100 == 0:
+                    for name in self._splat_param_keys:
                         self._logger.info(
-                            f"Iteration: {i + 1} -> Loss: {loss.item()}.",
-                            self._errors["printables"],
+                            f"{name}: {self._splats[name].grad.data.norm(2)}"
                         )
 
-                    errors = self._errors
-                    for k in self._splat_param_keys:
-                        if k in errors:
-                            errors_lists[k].append(errors[k].item())
+            for optimizer in self._optims.values():
+                optimizer.step()
+                optimizer.zero_grad()
 
-        self._logger.info(f"FINAL -> ", self._colored_print_opt_params)
+            with torch.no_grad():
+                errors = self._errors
+                if i == 0 or (i + 1) % 100 == 0:
+                    self._logger.info(
+                        f"Iteration: {i + 1} -> Loss: {loss.item()}. {errors['printables']}",
+                    )
+
+                for k in self._splat_param_keys:
+                    if k in errors:
+                        errors_lists[k].append(errors[k].item())
+                pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
+
+        self._logger.info(f"FINAL -> {self._colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
 
@@ -401,51 +402,52 @@ class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
 
     def configure(
         self,
-        mesh: trimesh.Trimesh,
-        data_loader: Union[None, torch.utils.data.DataLoader] = None,
+        datamodule: MeshSamplerDataModule,
         **kwargs,
     ):
         self.cfg.kernel_dim = 3
         self.cfg.lrs.out_net = 0
 
-        super().configure(mesh, data_loader, **kwargs)
+        super().configure(datamodule, **kwargs)
 
-        data_loader.dataset.configure(
+        assert hasattr(
+            datamodule, "bake_heat"
+        ), "OptimiseHeatKernelsToKnownStationary requires a datamodule with configure and bake_heat"
+        datamodule.configure(
             n_sources=self.n_sources,
-            source_sampling_method=self.cfg.gt_source_sampling_method,
             diff_time_scaler_func=self._diff_time_scaler_func,
         )
+        datamodule.bake_heat(
+            self.eigalbo_interp, self.normalize_colours, device=self.device
+        )
 
-        self._gt_splats = data_loader.dataset.gt_spalts
-        self._source_idxs = data_loader.dataset.source_idxs
-        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
-            angles=torch.deg2rad(self._gt_splats["angles"]),
-            scales=self._gt_splats["anisotropies"],
-        )
-        data_loader.dataset.bake_heat(
-            albo_evals, albo_evecs, mass, self.normalize_colours
-        )
+    @property
+    def gt_splats(self):
+        return self.datamodule.gt_splats
 
     @property
     def _errors(self):
         angles_error = (
-            (self.angles - torch.deg2rad(self._gt_splats["angles"]))
+            (self.angles.cpu() - torch.deg2rad(self.gt_splats["angles"]))
             .pow(2)
             .sum()
             .pow(0.5)
-        ).cpu()
+        )
         anisotropies_error = (
-            (self.anisotropies - self._gt_splats["anisotropies"]).pow(2).sum().pow(0.5)
+            (self.anisotropies.cpu() - self.gt_splats["anisotropies"])
+            .pow(2)
+            .sum()
+            .pow(0.5)
         )
         diff_times_error = (
-            (self.diff_times - self._gt_splats["diff_times"]).pow(2).sum().pow(0.5)
+            (self.diff_times.cpu() - self.gt_splats["diff_times"]).pow(2).sum().pow(0.5)
         )
         kernel_colours_error = (
-            (self.kernel_colours - self._gt_splats["kernel_colours"])
+            (self.kernel_colours.cpu() - self.gt_splats["kernel_colours"])
             .pow(2)
             .sum()
             .pow(0.5)
-        ).cpu()
+        )
         return {
             "printables": (
                 "ERRORS: "
@@ -501,11 +503,10 @@ class OptimiseHeatKernelsToVertColTexture(OptimiseHeatKernels):
 
     def configure(
         self,
-        mesh: trimesh.Trimesh,
-        data_loader: Union[None, torch.utils.data.DataLoader] = None,
+        datamodule: MeshSamplerDataModule,
         **kwargs,
     ):
-        super().configure(mesh, data_loader, **kwargs)
+        super().configure(datamodule, **kwargs)
 
     @property
     def _errors(self):
@@ -594,28 +595,19 @@ def main(args, extras) -> Dict[str, Any]:
 
     seed_everything(cfg.seed)
 
-    # "mesh.path=../objects/spot/spot_triangulated.ply"
-    # "mesh.path=../objects/mech_drone/mech_drone.glb"
-    # "mesh.path=../objects/justalien/justalien.glb"
+    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule.prepare_data()
+    datamodule.setup("fit")
 
-    mesh = utils.load_mesh(
-        cfg.mesh.path,
-        show=False,
-        merge_tex=True,
-        bake_vert_colors=cfg.mesh.bake_vert_colours,
-    )
-
-    # torch.cuda.memory._record_memory_history()
-    data_loader = SurfaceColoursDataLoader(cfg.data, mesh=mesh).get_loader()
     trainer: OptimiseHeatKernels = heatsplats.find(cfg.trainer_type)(
-        cfg.trainer, mesh, data_loader
+        cfg.trainer, datamodule
     )
 
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
 
     return {
         "optimisation": trainer,
-        "mesh": mesh,
+        "datamodule": datamodule,
         "colours": (v_colours, gt_colours, init_colours),
     }
 

@@ -6,6 +6,7 @@ import torch
 from IPython import get_ipython
 
 from optimisation import main, OptimiseHeatKernels
+from heatsplats.data import MeshSamplerDataModule
 from heatsplats.utils import big_trimesh_pcl
 
 try:
@@ -21,6 +22,7 @@ except NameError:
 if __name__ == "__main__":
     args_dict = {
         "config": "configs/vertex_colour_texture_fitting.yaml",
+        # "config": "configs/known_vertex_colour_fitting.yaml",
         "gpu": "0",
         "verbose": True,
     }
@@ -32,7 +34,8 @@ if __name__ == "__main__":
 
     # For interactive viewer
     optimisation: OptimiseHeatKernels = out["optimisation"]
-    mesh: trimesh.Trimesh = out["mesh"]
+    datamodule: MeshSamplerDataModule = out["datamodule"]
+    mesh: trimesh.Trimesh = datamodule.mesh
     v_colours, gt_colours, init_colours = out["colours"]
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)

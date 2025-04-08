@@ -36,4 +36,4 @@ def warn(*args, **kwargs):
     logger.warning(*args, **kwargs)
 
 
-from . import modules
+from . import data, modules

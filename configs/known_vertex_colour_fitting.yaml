@@ -3,7 +3,7 @@ tag: "${filename:${data.mesh_path}}"
 exp_root_dir: "outputs"
 seed: 0
 
-data_type: vertex-colours-datamodule
+data_type: known-heat-vertex-colours-datamodule
 data:
   mesh_path: ../objects/spot/spot_triangulated.ply
   bake_vert_colours_if_textured: True
@@ -11,10 +11,12 @@ data:
   sample_all_vertices: True
   num_workers: 0
 
-trainer_type: "optimise-vertex-colours"
+  source_sampling_method: fps
+
+trainer_type: "optimize-stationary-heat-kernels"
 trainer:
   n_sources: 80
-  kernel_dim: 32
+  kernel_dim: 3
 
   normalize_colours: False
 
@@ -33,7 +35,7 @@ trainer:
     anisotropies: 1e-3
     angles: 1e-3
     diff_times: 1e-3
-    out_net: 1e-3
+    out_net: 0
 
 optim:
   iters: 5000

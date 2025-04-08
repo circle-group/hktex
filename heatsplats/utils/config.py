@@ -53,12 +53,6 @@ def C_max(value: Any) -> float:
 
 
 @dataclass
-class MeshConfig:
-    path: Union[Path, str] = "???"
-    bake_vert_colours: Union[bool, None] = "${has_texture: ${mesh.path}}"
-
-
-@dataclass
 class OptimConfig:
     iters: int = 5000
 
@@ -82,15 +76,13 @@ class ExperimentConfig:
 
     resume: Optional[str] = None
 
-    # data_type: str = ""
-    # data: dict = field(default_factory=dict)
+    data_type: str = ""
+    data: dict = field(default_factory=dict)
 
     trainer_type: str = ""
     trainer: dict = field(default_factory=dict)
 
-    mesh: MeshConfig = field(default_factory=MeshConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
-    data: dict = field(default_factory=dict)
 
     variables: dict = field(default_factory=dict)
 
