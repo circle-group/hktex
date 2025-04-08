@@ -21,6 +21,7 @@ __all__ = [
     "load_module_weights",
     "seed_everything",
     "interpolate_barycentric_coords",
+    "normalise_colours",
 ]
 
 
@@ -158,3 +159,9 @@ def seed_everything(seed: int, verbose: bool = True) -> int:
     torch.manual_seed(seed)
 
     return seed
+
+
+def normalise_colours(colours: Float[Tensor, "B 3"]):
+    cmin, cmax = colours.min(), colours.max()
+    colours = (colours - cmin) / (cmax - cmin)
+    return colours

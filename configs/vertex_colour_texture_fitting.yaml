@@ -34,3 +34,7 @@ trainer:
 optim:
   iters: 5000
   
+data:
+  batch_size: 1
+  num_workers: 0
+  dataset_type: "all-vertex-colours-dataset"

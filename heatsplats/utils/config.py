@@ -90,6 +90,7 @@ class ExperimentConfig:
 
     mesh: MeshConfig = field(default_factory=MeshConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+    data: dict = field(default_factory=dict)
 
     variables: dict = field(default_factory=dict)
 

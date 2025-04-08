@@ -57,3 +57,10 @@ if __name__ == "__main__":
     init_mesh.visual = trimesh.visual.ColorVisuals(
         init_mesh, vertex_colors=init_colours
     )
+
+    print(f"You can now visualise the followings:")
+    print(f"  - Initial mesh: init_mesh.show()")
+    print(f"  - GT mesh: gt_mesh.show()")
+    print(f"  - Optimised mesh: v_mesh.show()")
+    print(f"  - Optimised mesh with final kernel positions: v_scene.show()")
+    print(f"  - Optimised mesh with traces: v_scene_traces.show()")
