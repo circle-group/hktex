@@ -54,6 +54,7 @@ class OptimiseHeatKernels(BaseObject):
         self, verts: np.ndarray, faces: np.ndarray, fnorms: np.ndarray, **kwargs
     ):
         super().configure()
+        self._logger = logging.getLogger("heatsplats")
 
         self.n_sources = self.cfg.n_sources
         self.kernel_dim = self.cfg.kernel_dim
@@ -187,7 +188,7 @@ class OptimiseHeatKernels(BaseObject):
 
         gt_colours = self._make_gt_colours()
 
-        print(f"INITIAL -> ", self._colored_print_opt_params)
+        self._logger.info(f"INITIAL -> {self._colored_print_opt_params}")
 
         errors_lists = {k: [] for k in self._splats.keys()}
 
@@ -257,7 +258,9 @@ class OptimiseHeatKernels(BaseObject):
             with torch.no_grad():
                 if i == 0 or (i + 1) % 100 == 0:
                     for name in self._splat_param_keys:
-                        print(f"{name}: {self._splats[name].grad.data.norm(2)}")
+                        self._logger.info(
+                            f"{name}: {self._splats[name].grad.data.norm(2)}"
+                        )
 
             for optimizer in self._optims.values():
                 optimizer.step()
@@ -266,7 +269,7 @@ class OptimiseHeatKernels(BaseObject):
             with torch.no_grad():
                 pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
                 if i == 0 or (i + 1) % 100 == 0:
-                    print(
+                    self._logger.info(
                         f"Iteration: {i + 1} -> Loss: {loss.item()}.",
                         self._errors["printables"],
                     )
@@ -276,7 +279,7 @@ class OptimiseHeatKernels(BaseObject):
                     if k in errors:
                         errors_lists[k].append(errors[k].item())
 
-        print(f"FINAL -> ", self._colored_print_opt_params)
+        self._logger.info(f"FINAL -> ", self._colored_print_opt_params)
 
         self.plot_errors(errors_lists)
 
@@ -633,6 +636,9 @@ def main(args, extras) -> Dict[str, Any]:
     logger = logging.getLogger("heatsplats")
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+    if not logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        logger.addHandler(handler)
 
     for handler in logger.handlers:
         if handler.stream == sys.stderr:  # type: ignore
@@ -657,7 +663,7 @@ def main(args, extras) -> Dict[str, Any]:
     mesh = utils.load_mesh(
         cfg.mesh.path,
         show=False,
-        merge_tex=False,
+        merge_tex=True,
         bake_vert_colors=cfg.mesh.bake_vert_colours,
     )
 

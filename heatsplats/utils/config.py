@@ -107,6 +107,12 @@ class ExperimentConfig:
                     )
                 else:
                     self.timestamp = datetime.now().strftime("@%Y%m%d-%H%M%S")
+        if self.trainer.tracer.n_debug_traces > self.trainer.n_sources:
+            self.trainer.tracer.n_debug_traces = self.trainer.n_sources
+            heatsplats.warn(
+                "Number of debug traces should not exceed number of sources. Displaying all sources instead."
+            )
+
         self.trial_name += self.timestamp
         self.exp_dir = os.path.join(self.exp_root_dir, self.name)
         self.trial_dir = os.path.join(self.exp_dir, self.trial_name)

@@ -3,8 +3,20 @@ import argparse
 
 import torch
 
+from IPython import get_ipython
+
 from optimisation import main, OptimiseHeatKernels
 from heatsplats.utils import big_trimesh_pcl
+
+try:
+    if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # Jupyter Notebook
+        print("Running in a Jupyter Notebook. Enabling autoreload...")
+        get_ipython().run_line_magic("load_ext", "autoreload")
+        get_ipython().run_line_magic("autoreload", "2")
+except NameError:
+    # get_ipython() is not defined, so not running in an IPython environment
+    pass
+
 
 if __name__ == "__main__":
     args_dict = {
