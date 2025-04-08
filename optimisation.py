@@ -187,6 +187,12 @@ class OptimiseHeatKernels(BaseObject):
     def kernel_face_ids(self) -> torch.Tensor:
         return self._kernel_face_ids
 
+    def prepare_batch(self, data: dict) -> dict:
+        for k, v in data.items():
+            if isinstance(v, Tensor):
+                data[k] = v.to(self.device)
+        return data
+
     def optimise(self, n_iter=100):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
@@ -199,17 +205,21 @@ class OptimiseHeatKernels(BaseObject):
 
         for i in (pbar := tqdm(range(n_iter))):
             data = next(data_iter)
+            data = self.prepare_batch(data)
 
-            pos: Tensor = data["pos"].to(self.device)
-            gt_colours: Tensor = data["colour"].to(self.device)
+            pos: Tensor = data["pos"]
+            gt_colours: Tensor = data["colour"]
+            evals: Tensor = data["evals"]
+            verts_evecs: Tensor = data["verts_evecs"]
+            verts_mass: Tensor = data["verts_mass"]
+            pts_evecs: Tensor = data["pts_evecs"]
+            pts_mass: Tensor = data["pts_mass"]
 
-            v_colours: Float[Tensor, "B V L"] = torch.zeros(
-                [B, pos.shape[0], self.kernel_dim],
+            P = pos.shape[0]
+
+            colours: Float[Tensor, "B P L"] = torch.zeros(
+                [B, P, self.kernel_dim],
                 device=self.device,
-            )
-
-            albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
-                angles=self.angles, scales=self.anisotropies
             )
 
             kernel_vert_idx = self._faces[self.kernel_face_ids]
@@ -227,45 +237,42 @@ class OptimiseHeatKernels(BaseObject):
 
             kernel_evecs, kernel_mass = (
                 self.eigalbo_interp.barycentric_eig_interpolation(
-                    eigen_vec=albo_evecs,
-                    mass=mass,
+                    eigen_vec=verts_evecs,
+                    mass=verts_mass,
                     barycentric_coords=barycentric_coords,
                     vert_idx=kernel_vert_idx,
                 )
             )
 
-            # TODO: Subset of vertices -> pos
-            # TODO: Non-vertex location -> pos
-
-            v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
-                (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
+            colours: Float[Tensor, "B P+1 L"] = torch.cat(
+                (colours, self.kernel_colours.unsqueeze(1)), dim=1
             )
-            albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
-                ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
+            pts_evecs: Float[Tensor, "B P+1 K"] = torch.cat(
+                ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
             )
-            mass: Float[Tensor, "B V+1"] = torch.cat(
-                (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
+            pts_mass: Float[Tensor, "B P+1"] = torch.cat(
+                (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
             )
 
-            v_colours = utils.heat_diffusion_reduce(
-                v_colours,
-                mass,
-                albo_evals,
-                albo_evecs,
+            colours = utils.heat_diffusion_reduce(
+                colours,
+                pts_mass,
+                evals,
+                pts_evecs,
                 self.diff_times,
             )
-            v_colours = v_colours[:V]
+            colours = colours[:P]
+
+            # Postprocess
             if self.out_net is not None:
-                v_colours = self.out_net(v_colours)
+                colours = self.out_net(colours)
             if self.normalize_colours:
-                v_colours = utils.normalise_colours(v_colours)
+                colours = utils.normalise_colours(colours)
 
             if i == 0:
-                init_colours = v_colours.clone().detach()
-
-            loss = (
-                F.mse_loss(v_colours, gt_colours, reduction="sum") / v_colours.shape[0]
-            )
+                init_colours = colours.clone().detach()
+            # Compute loss and backpropagate
+            loss = F.mse_loss(colours, gt_colours, reduction="sum") / colours.shape[0]
 
             loss.backward()
 
@@ -296,9 +303,106 @@ class OptimiseHeatKernels(BaseObject):
 
         self.plot_errors(errors_lists)
 
-        return v_colours, gt_colours, init_colours
+        return colours, gt_colours, init_colours
+
+    @abstractmethod
+    def render(self):
+        pass
+
+    @property
+    def _colored_print_opt_params(self):
+        angles = torch.rad2deg(self.angles).detach().cpu().numpy()
+        anisotropies = self.anisotropies.detach().cpu().numpy()
+        diff_times = self.diff_times.detach().cpu().numpy()
+        kernel_colours = self.kernel_colours.view(-1).detach().cpu().numpy()
+        return (
+            colored(f"Angles: {angles}, ", "yellow")
+            + colored(f"Anisotropies: {anisotropies}, ", "green")
+            + colored(f"Diff times: {diff_times}, ", "blue")
+            + colored(f"Kernel colours: {kernel_colours}", "red")
+        )
+
+    @property
+    def kernel_centres(self):
+        # kernel_vert_idx = self._faces[self.kernel_face_ids]
+        # B, T = kernel_vert_idx.shape
+        # kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
+        # barycentric_coords = self.kernel_locations
+        # return utils.bary_to_cart_coords(barycentric_coords, kernel_vertx)
+        return self.kernel_locations
+
+    @property
+    @abstractmethod
+    def _errors(self):
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def plot_errors(errors_lists):
+        pass
+
+    @property
+    def debug_trimesh_traces(self):
+        assert self.tracer.debug, "Tracer not in debug mode"
+        traces_info = self.tracer.full_traces_info
+        # segment_starts = np.concatenate(traces_info["starts"], axis=0)
+        traces_starts = np.stack([s[0, ::] for s in traces_info["starts"]])
+        traces = traces_info["traces"]
+        return [
+            utils.big_trimesh_pcl(traces_starts, None, radius=0.005),
+            *[trimesh.load_path(t, colors=[[255, 0, 0, 255]]) for t in traces],
+        ]
+
+
+@heatsplats.register("optimise-vertex-colours")
+class OptimiseVertColTexture(OptimiseHeatKernels):
+    @dataclass
+    class Config(OptimiseHeatKernels.Config):
+        pass
+
+    cfg: Config
+
+    def configure(
+        self,
+        datamodule: MeshSamplerDataModule,
+        **kwargs,
+    ):
+        super().configure(datamodule, **kwargs)
+
+    @property
+    def _errors(self):
+        return {
+            "printables": None,
+            "angles": torch.tensor(0),
+            "anisotropies": torch.tensor(0),
+            "diff_times": torch.tensor(0),
+            "kernel_colours": torch.tensor(0),
+        }
+
+    def prepare_batch(self, data: dict) -> dict:
+        data = super().prepare_batch(data)
+        vert_idx = data["vert_idx"]
+
+        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
+            angles=self.angles, scales=self.anisotropies
+        )
+
+        data["evals"] = albo_evals
+        data["verts_evecs"] = albo_evecs
+        data["verts_mass"] = mass
+
+        # if vert_idx.shape[0] == albo_evecs.shape[1], then all vertices were sampled in normal order
+        if vert_idx.shape[0] < albo_evecs.shape[1]:
+            data["pts_evecs"] = albo_evecs[:, vert_idx]
+            data["pts_mass"] = mass[:, vert_idx]
+        else:
+            data["pts_evecs"] = data["verts_evecs"]
+            data["pts_mass"] = data["verts_mass"]
+
+        return data
 
     def render(self):
+        # TODO: Maybe batched instead, from test_loader
         B, V = self.n_sources, self._verts.shape[0]
         v_colours: Float[Tensor, "B V L"] = torch.zeros(
             [B, V, self.kernel_dim],
@@ -347,53 +451,9 @@ class OptimiseHeatKernels(BaseObject):
             v_colours = utils.normalise_colours(v_colours)
         return v_colours
 
-    @property
-    def _colored_print_opt_params(self):
-        angles = torch.rad2deg(self.angles).detach().cpu().numpy()
-        anisotropies = self.anisotropies.detach().cpu().numpy()
-        diff_times = self.diff_times.detach().cpu().numpy()
-        kernel_colours = self.kernel_colours.view(-1).detach().cpu().numpy()
-        return (
-            colored(f"Angles: {angles}, ", "yellow")
-            + colored(f"Anisotropies: {anisotropies}, ", "green")
-            + colored(f"Diff times: {diff_times}, ", "blue")
-            + colored(f"Kernel colours: {kernel_colours}", "red")
-        )
-
-    @property
-    def kernel_centres(self):
-        # kernel_vert_idx = self._faces[self.kernel_face_ids]
-        # B, T = kernel_vert_idx.shape
-        # kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-        # barycentric_coords = self.kernel_locations
-        # return utils.bary_to_cart_coords(barycentric_coords, kernel_vertx)
-        return self.kernel_locations
-
-    @property
-    @abstractmethod
-    def _errors(self):
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def plot_errors(errors_lists):
-        pass
-
-    @property
-    def debug_trimesh_traces(self):
-        assert self.tracer.debug, "Tracer not in debug mode"
-        traces_info = self.tracer.full_traces_info
-        # segment_starts = np.concatenate(traces_info["starts"], axis=0)
-        traces_starts = np.stack([s[0, ::] for s in traces_info["starts"]])
-        traces = traces_info["traces"]
-        return [
-            utils.big_trimesh_pcl(traces_starts, None, radius=0.005),
-            *[trimesh.load_path(t, colors=[[255, 0, 0, 255]]) for t in traces],
-        ]
-
 
 @heatsplats.register("optimize-stationary-heat-kernels")
-class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
+class OptimiseStationaryHeatKernels(OptimiseVertColTexture):
     @dataclass
     class Config(OptimiseHeatKernels.Config):
         gt_source_sampling_method: Optional[str] = "fps"
@@ -493,32 +553,6 @@ class OptimiseHeatKernelsToKnownStationary(OptimiseHeatKernels):
         plt.show()
 
 
-@heatsplats.register("optimise-vertex-colours")
-class OptimiseHeatKernelsToVertColTexture(OptimiseHeatKernels):
-    @dataclass
-    class Config(OptimiseHeatKernels.Config):
-        pass
-
-    cfg: Config
-
-    def configure(
-        self,
-        datamodule: MeshSamplerDataModule,
-        **kwargs,
-    ):
-        super().configure(datamodule, **kwargs)
-
-    @property
-    def _errors(self):
-        return {
-            "printables": None,
-            "angles": torch.tensor(0),
-            "anisotropies": torch.tensor(0),
-            "diff_times": torch.tensor(0),
-            "kernel_colours": torch.tensor(0),
-        }
-
-
 class ColoredFilter(logging.Filter):
     """
     A logging filter to add color to certain log levels.
@@ -604,11 +638,12 @@ def main(args, extras) -> Dict[str, Any]:
     )
 
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
+    r_colours = trainer.render()
 
     return {
         "optimisation": trainer,
         "datamodule": datamodule,
-        "colours": (v_colours, gt_colours, init_colours),
+        "colours": (v_colours, gt_colours, init_colours, r_colours),
     }
 
 

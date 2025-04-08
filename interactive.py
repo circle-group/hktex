@@ -26,7 +26,13 @@ if __name__ == "__main__":
         "gpu": "0",
         "verbose": True,
     }
-    extras_dict = {"trainer.tracer.debug": True, "optim.iters": 500}
+    extras_dict = {
+        "trainer.tracer.debug": True,
+        "optim.iters": 5000,
+        "data.sample_all_vertices": False,
+        "data.batch_size": 512,
+        "trainer.n_sources": 512,
+    }
 
     args = argparse.Namespace(**args_dict)
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
@@ -36,7 +42,7 @@ if __name__ == "__main__":
     optimisation: OptimiseHeatKernels = out["optimisation"]
     datamodule: MeshSamplerDataModule = out["datamodule"]
     mesh: trimesh.Trimesh = datamodule.mesh
-    v_colours, gt_colours, init_colours = out["colours"]
+    v_colours, gt_colours, init_colours, r_colours = out["colours"]
 
     v_colours = (v_colours * 255).to(dtype=torch.uint8)
     v_colours = v_colours.squeeze().detach().cpu().numpy()
@@ -46,6 +52,9 @@ if __name__ == "__main__":
 
     init_colours = (init_colours * 255).to(dtype=torch.uint8)
     init_colours = init_colours.squeeze().detach().cpu().numpy()
+
+    r_colours = (r_colours * 255).to(dtype=torch.uint8)
+    r_colours = r_colours.squeeze().detach().cpu().numpy()
 
     gt_mesh = mesh.copy()
     gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
@@ -61,9 +70,15 @@ if __name__ == "__main__":
         init_mesh, vertex_colors=init_colours
     )
 
+    r_mesh = mesh.copy()
+    r_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=r_colours)
+    r_scene = trimesh.Scene([r_mesh, big_trimesh_pcl(optimisation.kernel_centres)])
+
     print(f"You can now visualise the followings:")
     print(f"  - Initial mesh: init_mesh.show()")
     print(f"  - GT mesh: gt_mesh.show()")
     print(f"  - Optimised mesh: v_mesh.show()")
     print(f"  - Optimised mesh with final kernel positions: v_scene.show()")
     print(f"  - Optimised mesh with traces: v_scene_traces.show()")
+    print(f"  - Rendered mesh: r_mesh.show()")
+    print(f"  - Rendered mesh with final kernel positions: r_scene.show()")
