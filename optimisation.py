@@ -209,10 +209,11 @@ class OptimiseHeatKernels(BaseObject):
             pos: Tensor = data["pos"]
             gt_colours: Tensor = data["colour"]
             evals: Tensor = data["evals"]
-            verts_evecs: Tensor = data["verts_evecs"]
-            verts_mass: Tensor = data["verts_mass"]
+            # verts_evecs: Tensor = data["verts_evecs"]
+            # verts_mass: Tensor = data["verts_mass"]
             pts_evecs: Tensor = data["pts_evecs"]
             pts_mass: Tensor = data["pts_mass"]
+            albo_weights = data["albo_weights"]
 
             P = pos.shape[0]
 
@@ -234,10 +235,18 @@ class OptimiseHeatKernels(BaseObject):
                 barycentric_coords.detach(),
             )
 
+            # kernel_evecs, kernel_mass = (
+            #     self.eigalbo_interp.barycentric_eig_interpolation(
+            #         eigen_vec=verts_evecs,
+            #         mass=verts_mass,
+            #         barycentric_coords=barycentric_coords,
+            #         vert_idx=kernel_vert_idx,
+            #     )
+            # )
+
             kernel_evecs, kernel_mass = (
-                self.eigalbo_interp.barycentric_eig_interpolation(
-                    eigen_vec=verts_evecs,
-                    mass=verts_mass,
+                self.eigalbo_interp.barycentric_albo_batchwise_next(
+                    albo_weights=albo_weights,
                     barycentric_coords=barycentric_coords,
                     vert_idx=kernel_vert_idx,
                 )
@@ -419,25 +428,37 @@ class OptimiseUvTexture(OptimiseHeatKernels):
         face_ids = data["face_id"]
         barys = data["bary"]
 
-        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
-            angles=self.angles, scales=self.anisotropies
-        )
+        # albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
+        #     angles=self.angles, scales=self.anisotropies
+        # )
 
-        data["evals"] = albo_evals
-        data["verts_evecs"] = albo_evecs
-        data["verts_mass"] = mass
+        # data["evals"] = albo_evals
+        # data["verts_evecs"] = albo_evecs
+        # data["verts_mass"] = mass
 
         pts_tri_vert_idx = self._faces[face_ids]  # [P, 3]
 
-        pts_evecs, pts_mass = self.eigalbo_interp.barycentric_eig_interpolation_pts(
-            eigen_vec=albo_evecs,
-            mass=mass,
-            barycentric_coords=barys,
-            vert_idx=pts_tri_vert_idx,
+        # pts_evecs, pts_mass = self.eigalbo_interp.barycentric_eig_interpolation_pts(
+        #     eigen_vec=albo_evecs,
+        #     mass=mass,
+        #     barycentric_coords=barys,
+        #     vert_idx=pts_tri_vert_idx,
+        # )
+
+        albo_evals, pts_evecs, pts_mass, albo_weights = (
+            self.eigalbo_interp.barycentric_albo_eigenquantities(
+                angles=self.angles,
+                scales=self.anisotropies,
+                barycentric_coords=barys,
+                vert_idx=pts_tri_vert_idx,
+            )
         )
 
+        data["evals"] = albo_evals
         data["pts_evecs"] = pts_evecs
         data["pts_mass"] = pts_mass
+        data["albo_weights"] = albo_weights
+
         return data
 
     @property

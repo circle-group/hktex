@@ -30,8 +30,8 @@ if __name__ == "__main__":
     extras_dict = {
         "trainer.tracer.debug": True,
         "optim.iters": 5000,
-        "data.batch_size": 64,
-        # "trainer.n_sources": 512,
+        "data.batch_size": 512,
+        "trainer.n_sources": 512,
     }
 
     args = argparse.Namespace(**args_dict)

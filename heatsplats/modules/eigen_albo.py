@@ -69,7 +69,6 @@ class EigenAlboInterpolation(BaseObject):
         if fpath is None or not self.cfg.use_precomputed:
             all_eigen, sampling_coords, mass = self._precompute_all_eigen()
         else:
-            fformat = "." + fpath.split(".")[-1]
             fpath_base = fpath.rsplit(".", 1)[0]
             precomputed_path = f"{fpath_base}_{self.cfg.precomputed_name}.pt"
             heatsplats.info(f"Loading precomputed albo eigen from {precomputed_path}")
@@ -209,3 +208,84 @@ class EigenAlboInterpolation(BaseObject):
         mass_interp = linalg.vecdot(W, target_mass)  # P
 
         return eigen_vec_interp, mass_interp
+
+    def barycentric_albo_eigenquantities(
+        self,
+        angles: Float[Tensor, "B"],
+        scales: Float[Tensor, "B"],
+        barycentric_coords: Float[Tensor, "P 3"],
+        vert_idx: Int[Tensor, "P 3"],
+    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B P K"], Float[Tensor, "B P"], Any]:
+        B, P = angles.shape[0], barycentric_coords.shape[0]
+        assert scales.shape[0] == B and vert_idx.shape[0] == P
+        assert barycentric_coords.shape[1] == 3 and vert_idx.shape[1] == 3
+
+        query_cartesian = torch.stack(
+            [
+                torch.cos(angles) * scales,
+                torch.sin(angles) * scales,
+            ],
+            dim=1,
+        )
+
+        diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
+        squared_distance = (diff * diff).sum(-1, keepdim=True)
+        dist, idx = squared_distance.topk(k=4, largest=False, dim=0)
+        x_idx = idx.squeeze().t()  # B, 4
+        dist = dist.squeeze().t()  # B, 4
+
+        weights = 1.0 / torch.clamp(dist, min=1e-16)
+        weights = weights / weights.sum(dim=1, keepdim=True)
+
+        with torch.no_grad():
+            eigen_vec, mass = self._eigen_vec, self._mass
+            M, V, K = eigen_vec.shape
+
+            eigen_vec = eigen_vec[:, vert_idx.view(-1)]  # M, P*3, K
+            mass = mass[:, vert_idx.view(-1)].view(1, P, 3)  # 1, P, 3
+
+        weights2 = weights.new_zeros((B, M)).scatter_(1, index=x_idx, src=weights)
+        # B,M x M,K -> B,K
+        evals = weights2 @ self._eigen_val
+        # B,M x M,P*3,K -> B,P*3,K -> B, P, 3, K
+        evecs = torch.einsum("ij,jkl->ikl", weights2, eigen_vec).view(B, P, 3, K)
+
+        bary_W = barycentric_coords.unsqueeze(0)  # 1, P, 3
+
+        # 1,P,1,3 x B,P,3,K -> B,P,K
+        evec_interp = torch.matmul(bary_W.unsqueeze(2), evecs).squeeze(2)
+        mass_interp = linalg.vecdot(bary_W, mass)  # 1, P
+
+        return evals, evec_interp, mass_interp, (weights2,)
+
+    def barycentric_albo_batchwise_next(
+        self,
+        albo_weights: Any,  # From barycentric_albo_eigenquantities
+        barycentric_coords: Float[Tensor, "B 3"],
+        vert_idx: Int[Tensor, "B 3"],
+    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B"]]:
+        B, M = barycentric_coords.shape[0], self._eigen_val.shape[0]
+
+        weights2: Float[Tensor, "B M"]
+        (weights2,) = albo_weights
+
+        assert weights2.shape[0] == B and vert_idx.shape[0] == B
+        assert weights2.shape[1] == M and vert_idx.shape[1] == 3
+
+        with torch.no_grad():
+            eigen_vec, mass = self._eigen_vec, self._mass
+            M, V, K = eigen_vec.shape
+
+            eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(M, B, 3, K)  # M, B, 3, K
+            eigen_vec = eigen_vec.permute(1, 0, 2, 3)  # B, M, 3, K
+            mass = mass[:, vert_idx.view(-1)].view(B, 3)  # B, 3
+
+        # B,M x B,M,3,K -> B,3,K
+        evecs = linalg.vecdot(weights2.unsqueeze(-1).unsqueeze(-1), eigen_vec, dim=1)
+
+        bary_W = barycentric_coords  # B, 3
+
+        evec_interp = torch.einsum("bt,btk->bk", bary_W, evecs)
+        mass_interp = linalg.vecdot(bary_W, mass)
+
+        return evec_interp, mass_interp
