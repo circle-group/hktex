@@ -46,6 +46,16 @@ def load_mesh(
     else:
         mesh = scene
 
+    # Before merging vertices, if there were uvs, store old uvs and faces to later
+    # retrieve correct colours from the texture.
+    if merge_tex:
+        try:
+            setattr(mesh, "original_uv", mesh.visual.uv.copy())
+            setattr(mesh, "original_faces", mesh.faces.copy())
+        except AttributeError:
+            # No uvs, so no need to store them
+            pass
+
     trimesh.grouping.merge_vertices(mesh, merge_tex=merge_tex, merge_norm=True)
 
     if bake_vert_colors:
