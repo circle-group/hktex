@@ -21,17 +21,17 @@ except NameError:
 
 if __name__ == "__main__":
     args_dict = {
-        "config": "configs/vertex_colour_texture_fitting.yaml",
+        # "config": "configs/vertex_colour_texture_fitting.yaml",
         # "config": "configs/known_vertex_colour_fitting.yaml",
+        "config": "configs/uv_texture_fitting.yaml",
         "gpu": "0",
-        "verbose": True,
+        "verbose": False,
     }
     extras_dict = {
         "trainer.tracer.debug": True,
         "optim.iters": 5000,
-        "data.sample_all_vertices": False,
-        "data.batch_size": 512,
-        "trainer.n_sources": 512,
+        "data.batch_size": 64,
+        # "trainer.n_sources": 512,
     }
 
     args = argparse.Namespace(**args_dict)

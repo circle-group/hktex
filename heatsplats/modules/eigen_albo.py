@@ -184,18 +184,20 @@ class EigenAlboInterpolation(BaseObject):
         vert_idx: Int[Tensor, "P 3"],
     ) -> tuple[Float[Tensor, "B P K"], Float[Tensor, "P"]]:
 
-        target_eigen_vec = torch.take_along_dim(
-            eigen_vec.unsqueeze(1),  # B 1 V K
-            vert_idx.unsqueeze(0).unsqueeze(-1),  # 1 P 3 1
-            dim=2,  # Index along V
-        )  # B P 3 K
+        B, V, K = eigen_vec.shape
+        P = vert_idx.shape[0]
 
-        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)  # P 3
+        # Gather eigen_vec values directly
+        target_eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(B, P, 3, K)  # B P 3 K
 
-        W = barycentric_coords
+        # Gather mass values directly
+        target_mass = mass[:, vert_idx.view(-1)].view(P, 3)  # P 3
 
-        eigen_vec_interp = torch.einsum("pt,bptk->bpk", W, target_eigen_vec)  # B P K
+        W = barycentric_coords  # P 3
 
+        eigen_vec_interp = torch.matmul(W.unsqueeze(1), target_eigen_vec).squeeze(
+            2
+        )  # B P K
         mass_interp = linalg.vecdot(W, target_mass)  # P
 
         return eigen_vec_interp, mass_interp
