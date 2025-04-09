@@ -102,9 +102,9 @@ class EigenAlboInterpolation(BaseObject):
                 sampling_coords.append(torch.tensor([angle, scale]))
 
                 lapl, mass = get_anisotropic_lbo(
-                    torch.tensor(self._verts),
-                    torch.tensor(self._faces).T,
-                    torch.tensor(self._fnorm),
+                    self._verts,
+                    self._faces.T,
+                    self._fnorm,
                     rotation_angle=angle,
                     anisotropy=float(scale),
                 )

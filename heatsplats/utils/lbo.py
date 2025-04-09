@@ -52,11 +52,11 @@ def get_anisotropic_lbo(
     if anisotropy != 0 or rotation_angle != 0:
         assert anisotropy > 0
 
-        np_faces_t = face.numpy().T
-        pd1, pd2, _, _ = igl.principal_curvature(pos.numpy(), np_faces_t)
+        np_faces_t = face.cpu().numpy().T
+        pd1, pd2, _, _ = igl.principal_curvature(pos.cpu().numpy(), np_faces_t)
         fpd1 = torch.tensor(igl.average_onto_faces(np_faces_t, pd1))
         fpd2 = torch.tensor(igl.average_onto_faces(np_faces_t, pd2))
-        f_reference = torch.stack([fpd1, fpd2, face_normals], dim=2)
+        f_reference = torch.stack([fpd1, fpd2, face_normals.cpu()], dim=2)
         f_reference_t = torch.transpose(f_reference, 1, 2)
         an_scale_mat = torch.diag(torch.tensor([1 / (1 + anisotropy), 1.0, 1.0])).to(
             torch.float64
@@ -65,16 +65,20 @@ def get_anisotropic_lbo(
             torch.matmul(f_reference, an_scale_mat), f_reference_t
         )
         angle = torch.tensor(rotation_angle)
-        rotation_arount_normal_mat = torch.tensor(
+        rotation_around_normal_mat = torch.tensor(
             [
                 [torch.cos(angle), -torch.sin(angle), 0],
                 [torch.sin(angle), torch.cos(angle), 0],
                 [0, 0, 1],
             ]
         ).to(torch.float64)
-        anisotropy_mat = torch.matmul(
-            torch.matmul(rotation_arount_normal_mat, scales_mat),
-            rotation_arount_normal_mat.t(),
+        anisotropy_mat = (
+            torch.matmul(
+                torch.matmul(rotation_around_normal_mat, scales_mat),
+                rotation_around_normal_mat.t(),
+            )
+            .to(pos.device)
+            .to(torch.float32)
         )
     else:
         anisotropy_mat = None
@@ -115,7 +119,7 @@ def get_anisotropic_lbo(
 
     return (
         -sparse_torch_to_np(torch.sparse_coo_tensor(edge_index, edge_weight)),
-        area_deg.numpy(),
+        area_deg.cpu().numpy(),
     )
 
 
@@ -166,7 +170,7 @@ def compute_eig_laplacian(
     while True:
         try:
             evals, evecs = scipy.sparse.linalg.eigsh(
-                lapl_eigsh, k=k_eig, M=mass_mat, sigma=eigs_sigma
+                lapl_eigsh.astype(np.float32), k=k_eig, M=mass_mat, sigma=eigs_sigma
             )
             evals = np.clip(evals, a_min=0.0, a_max=float("inf"))
             break
