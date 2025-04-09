@@ -58,7 +58,6 @@ class OptimiseHeatKernels(BaseObject):
         **kwargs,
     ):
         super().configure()
-        self._logger = logging.getLogger("heatsplats")
 
         self.n_sources = self.cfg.n_sources
         self.kernel_dim = self.cfg.kernel_dim
@@ -199,7 +198,7 @@ class OptimiseHeatKernels(BaseObject):
 
         B, V = self.n_sources, self._verts.shape[0]
 
-        self._logger.info(f"INITIAL -> {self._colored_print_opt_params}")
+        heatsplats.debug(f"INITIAL -> {self._colored_print_opt_params}")
 
         errors_lists = {k: [] for k in self._splats.keys()}
 
@@ -280,7 +279,7 @@ class OptimiseHeatKernels(BaseObject):
             with torch.no_grad():
                 if i == 0 or (i + 1) % 100 == 0:
                     for name in self._splat_param_keys:
-                        self._logger.info(
+                        heatsplats.debug(
                             f"{name}: {self._splats[name].grad.data.norm(2)}"
                         )
 
@@ -291,7 +290,7 @@ class OptimiseHeatKernels(BaseObject):
             with torch.no_grad():
                 errors = self._errors
                 if i == 0 or (i + 1) % 100 == 0:
-                    self._logger.info(
+                    heatsplats.info(
                         f"Iteration: {i + 1} -> Loss: {loss.item()}. {errors['printables']}",
                     )
 
@@ -300,7 +299,7 @@ class OptimiseHeatKernels(BaseObject):
                         errors_lists[k].append(errors[k].item())
                 pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
 
-        self._logger.info(f"FINAL -> {self._colored_print_opt_params}")
+        heatsplats.debug(f"FINAL -> {self._colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
         v_colours = self.compute_vertex_colours()
@@ -657,6 +656,8 @@ def main(args, extras) -> Dict[str, Any]:
     logger = logging.getLogger("heatsplats")
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         logger.addHandler(handler)

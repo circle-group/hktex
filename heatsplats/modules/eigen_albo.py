@@ -25,6 +25,7 @@ class EigenAlboInterpolation(BaseObject):
         )
         precompute_angles_every_deg: int = 30
         mesh_path: Optional[str] = None
+        precomputed_name: str = "eigen_albo"
 
     cfg: Config
 
@@ -69,18 +70,25 @@ class EigenAlboInterpolation(BaseObject):
             all_eigen, sampling_coords, mass = self._precompute_all_eigen()
         else:
             fformat = "." + fpath.split(".")[-1]
-            eigen_path = fpath.replace(fformat, "_all_eigen.pt")
-            smp_coords_path = fpath.replace(fformat, "_smp_coords.pt")
-            mass_path = fpath.replace(fformat, "_mass.pt")
+            fpath_base = fpath.rsplit(".", 1)[0]
+            precomputed_path = f"{fpath_base}_{self.cfg.precomputed_name}.pt"
+            heatsplats.info(f"Loading precomputed albo eigen from {precomputed_path}")
             try:
-                all_eigen = torch.load(eigen_path, weights_only=True)
-                sampling_coords = torch.load(smp_coords_path, weights_only=True)
-                mass = torch.load(mass_path, weights_only=True)
-            except (FileNotFoundError, AssertionError):
+                precomputed = torch.load(precomputed_path, weights_only=True)
+                all_eigen = precomputed["all_eigen"]
+                sampling_coords = precomputed["sampling_coords"]
+                mass = precomputed["mass"]
+            except (FileNotFoundError, KeyError):
+                heatsplats.info(f"Precomputed albo eigen not found")
                 all_eigen, sampling_coords, mass = self._precompute_all_eigen()
-                torch.save(all_eigen, eigen_path)
-                torch.save(sampling_coords, smp_coords_path)
-                torch.save(mass, mass_path)
+                torch.save(
+                    {
+                        "all_eigen": all_eigen,
+                        "sampling_coords": sampling_coords,
+                        "mass": mass,
+                    },
+                    precomputed_path,
+                )
         return (
             all_eigen.to(torch.float32).to(self.device),
             sampling_coords.to(torch.float32).to(self.device),
@@ -95,7 +103,7 @@ class EigenAlboInterpolation(BaseObject):
 
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
-        print("> Precomputing all eigendecompositions")
+        heatsplats.info("Computing all eigendecompositions")
         for angle in tqdm(range(0, 180, self.cfg.precompute_angles_every_deg)):
             angle = math.radians(angle)
             for scale in self.cfg.precompute_anisotropies:
@@ -125,7 +133,7 @@ class EigenAlboInterpolation(BaseObject):
         angles: Float[Tensor, "B"],
         scales: Float[Tensor, "B"],
         vert_idx: Optional[Int[Tensor, "D"]] = None,
-    ) -> Tuple[Float[Tensor, "B V"], Float[Tensor, "B V K"], Float[Tensor, "B V"]]:
+    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B V K"], Float[Tensor, "B V"]]:
         query_cartesian = torch.stack(
             [
                 torch.cos(angles) * scales,
