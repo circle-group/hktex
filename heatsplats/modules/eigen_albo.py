@@ -171,7 +171,31 @@ class EigenAlboInterpolation(BaseObject):
 
         W = barycentric_coords
 
-        eigen_vec_interp = torch.einsum("ij,ijk->ik", W, target_eigen_vec)  # B K
+        eigen_vec_interp = torch.einsum("bt,btk->bk", W, target_eigen_vec)  # B K
         mass_interp = linalg.vecdot(W, target_mass)  # B
+
+        return eigen_vec_interp, mass_interp
+
+    def barycentric_eig_interpolation_pts(
+        self,
+        eigen_vec: Float[Tensor, "B V K"],
+        mass: Float[Tensor, "1 V"],
+        barycentric_coords: Float[Tensor, "P 3"],
+        vert_idx: Int[Tensor, "P 3"],
+    ) -> tuple[Float[Tensor, "B P K"], Float[Tensor, "P"]]:
+
+        target_eigen_vec = torch.take_along_dim(
+            eigen_vec.unsqueeze(1),  # B 1 V K
+            vert_idx.unsqueeze(0).unsqueeze(-1),  # 1 P 3 1
+            dim=2,  # Index along V
+        )  # B P 3 K
+
+        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)  # P 3
+
+        W = barycentric_coords
+
+        eigen_vec_interp = torch.einsum("pt,bptk->bpk", W, target_eigen_vec)  # B P K
+
+        mass_interp = linalg.vecdot(W, target_mass)  # P
 
         return eigen_vec_interp, mass_interp

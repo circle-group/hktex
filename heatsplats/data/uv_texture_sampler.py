@@ -16,14 +16,14 @@ from .base import MeshSamplerDataModule, MeshSamplerDataConfig
 
 
 @dataclass
-class RandomColourSamplerDataConfig(MeshSamplerDataConfig):
+class UvTextureSamplerDataConfig(MeshSamplerDataConfig):
     batch_size: int = 128
     num_workers: int = 4
 
 
-class RandomColourSamplerDataset(IterableDataset):
+class UvTextureSamplerDataset(IterableDataset):
     def __init__(
-        self, cfg: RandomColourSamplerDataConfig, mesh: trimesh.Trimesh, split: str
+        self, cfg: UvTextureSamplerDataConfig, mesh: trimesh.Trimesh, split: str
     ):
         super().__init__()
 
@@ -35,6 +35,13 @@ class RandomColourSamplerDataset(IterableDataset):
         self.faces = torch.tensor(mesh.faces)
 
         self.uv = torch.tensor(self.mesh.visual.uv)
+
+        if hasattr(mesh, "original_faces") and hasattr(mesh, "original_uv"):
+            self.tex_faces = torch.tensor(mesh.original_faces)
+            self.uv = torch.tensor(mesh.original_uv)
+        else:
+            self.tex_faces = self.faces
+
         self.tex_img = self.get_texture_image()
 
     def get_texture_image(self):
@@ -57,28 +64,26 @@ class RandomColourSamplerDataset(IterableDataset):
                 self.faces, face_id, bary_coord, self.verts
             )
             uv = interpolate_barycentric_coords(
-                self.faces, face_id, bary_coord, self.uv
+                self.tex_faces, face_id, bary_coord, self.uv
             )
             color = trimesh.visual.uv_to_color(uv, self.tex_img)[:, :3] / 255
             color = torch.tensor(color, dtype=torch.float)
             yield {"pos": pos, "colour": color, "face_id": face_id, "bary": bary_coord}
 
 
-@heatsplats.register("random-colour-sampler-datamodule")
-class RandomColourSamplerDataModule(MeshSamplerDataModule):
-    cfg: RandomColourSamplerDataConfig
+@heatsplats.register("uv-texture-sampler-datamodule")
+class UvTextureSamplerDataModule(MeshSamplerDataModule):
+    cfg: UvTextureSamplerDataConfig
 
     def __init__(self, cfg: Optional[Union[dict, DictConfig]] = None) -> None:
-        cfg = parse_structured(RandomColourSamplerDataConfig, cfg)
+        cfg = parse_structured(UvTextureSamplerDataConfig, cfg)
 
         super().__init__(cfg=cfg)
 
     def setup(self, stage=None) -> None:
         super().setup(stage)
         if stage in [None, "fit"]:
-            self.train_dataset = RandomColourSamplerDataset(
-                self.cfg, self.mesh, "train"
-            )
+            self.train_dataset = UvTextureSamplerDataset(self.cfg, self.mesh, "train")
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
