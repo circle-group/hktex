@@ -71,7 +71,7 @@ class UvTextureSamplerDataset(IterableDataset):
             yield {"pos": pos, "colour": color, "face_id": face_id, "bary": bary_coord}
 
 
-@heatsplats.register("uv-texture-sampler-datamodule")
+@heatsplats.register("data.uv-texture-sampler")
 class UvTextureSamplerDataModule(MeshSamplerDataModule):
     cfg: UvTextureSamplerDataConfig
 

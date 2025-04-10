@@ -5,8 +5,9 @@ import torch
 
 from IPython import get_ipython
 
-from optimisation import main, OptimiseHeatKernels
+from optimisation import main
 from heatsplats.data import MeshSamplerDataModule
+from heatsplats.trainers import BaseTrainer
 from heatsplats.utils import big_trimesh_pcl
 
 try:
@@ -30,7 +31,7 @@ if __name__ == "__main__":
     extras_dict = {
         "trainer.tracer.debug": True,
         "optim.iters": 5000,
-        "data.batch_size": 512,
+        "data.batch_size": 128,
         "trainer.n_sources": 512,
     }
 
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     out = main(args, extras)
 
     # For interactive viewer
-    optimisation: OptimiseHeatKernels = out["optimisation"]
+    optimisation: BaseTrainer = out["optimisation"]
     datamodule: MeshSamplerDataModule = out["datamodule"]
     mesh: trimesh.Trimesh = datamodule.mesh
     v_colours, gt_colours, init_colours = out["colours"]

@@ -13,7 +13,7 @@ from heatsplats.utils.typing import *
 __all__ = ["EigenAlboInterpolation"]
 
 
-@heatsplats.register("eigen-albo-interpolation")
+@heatsplats.register("modules.eigen-albo-interpolation")
 class EigenAlboInterpolation(BaseObject):
     @dataclass
     class Config(BaseObject.Config):

@@ -70,7 +70,7 @@ class GeodesicTracer(BaseObject):
         pass
 
 
-@heatsplats.register("cpu-geodesic-tracer")
+@heatsplats.register("modules.cpu-geodesic-tracer")
 class CPUGeodesicTracer(GeodesicTracer):
     @dataclass
     class Config(GeodesicTracer.Config):

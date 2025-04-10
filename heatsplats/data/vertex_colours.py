@@ -54,7 +54,7 @@ class VertexColoursDataset(IterableDataset):
             yield {"pos": verts, "colour": vcols, "vert_idx": vert_idx}
 
 
-@heatsplats.register("vertex-colours-datamodule")
+@heatsplats.register("data.vertex-colours")
 class VertexColoursDataModule(MeshSamplerDataModule):
     cfg: VertexColoursDataConfig
 

@@ -21,7 +21,7 @@ class KnownHeatVertexColoursDataConfig(VertexColoursDataConfig):
     source_sampling_method: str = "fps"
 
 
-@heatsplats.register("known-heat-vertex-colours-datamodule")
+@heatsplats.register("data.known-heat-vertex-colours")
 class KnownHeatVertexColoursDataModule(MeshSamplerDataModule):
     cfg: KnownHeatVertexColoursDataConfig
 
