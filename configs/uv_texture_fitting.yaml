@@ -14,11 +14,6 @@ data:
 
 trainer_type: trainers.uv-texture
 trainer:
-  n_sources: 80
-  kernel_dim: 32
-
-  normalize_colours: False
-
   tracer_type: modules.cpu-geodesic-tracer
   tracer: 
     n_debug_traces: 10
@@ -27,14 +22,26 @@ trainer:
     k_eig: 256
     mesh_path: ${data.mesh_path}
 
-  lrs:
-    multiplier: 1.0
-    centres: 1e-1
-    colors: 1e-3
-    anisotropies: 1e-3
-    angles: 1e-3
-    diff_times: 1e-3
-    out_net: 1e-3
+  model: 
+    n_sources: 80
+    kernel_dim: 32
 
+  optimizers:
+    - name: Adam
+      args:
+        lr: 1e-3
+      params:
+        model._kernel_colours: {}
+        model._angles: {}
+        model._anisotropies: {}
+        model._diff_times: {}
+        model.out_net: {}
+    - name: GeodesicOpt
+      args:
+        lr: 1e-1
+      tracer: tracer
+      params:
+        model._kernel_locations:
+          face_ids: model._kernel_face_ids
 optim:
   iters: 5000

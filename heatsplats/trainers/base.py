@@ -11,23 +11,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import heatsplats
-from heatsplats.modules import Mesh, GeodesicTracer, GeodesicOpt, EigenAlboInterpolation
+from heatsplats.modules import (
+    Mesh,
+    Model,
+    GeodesicTracer,
+    GeodesicOpt,
+    EigenAlboInterpolation,
+)
 from heatsplats.data import MeshSamplerDataModule
 
 import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
 from heatsplats.utils.typing import *
 
-
-@dataclass
-class LearningRateConfig:
-    multiplier: float = 1.0
-    centres: float = 1e-1
-    colors: float = 1e-3
-    anisotropies: float = 1e-3
-    angles: float = 1e-3
-    diff_times: float = 1e-3
-    out_net: Union[None, float] = 1e-3
+from .utils import parse_optimizers
 
 
 class BaseTrainer(BaseObject):
@@ -37,13 +34,9 @@ class BaseTrainer(BaseObject):
         tracer: dict = field(default_factory=dict)
 
         eigen_albo: dict = field(default_factory=dict)
+        model: dict = field(default_factory=dict)
 
-        n_sources: int = 128
-        kernel_dim: int = 32
-
-        normalize_colours: bool = False
-
-        lrs: LearningRateConfig = field(default_factory=LearningRateConfig)
+        optimizers: list = field(default_factory=list)
 
     cfg: Config
 
@@ -54,125 +47,26 @@ class BaseTrainer(BaseObject):
     ):
         super().configure()
 
-        self.n_sources = self.cfg.n_sources
-        self.kernel_dim = self.cfg.kernel_dim
-        self.normalize_colours = self.cfg.normalize_colours
-        self._lrs = self.cfg.lrs
-        self._lr_mult = self._lrs.multiplier
-
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
+        self.model = Model(self.cfg.model, self.mesh)
+
+        if (
+            "n_debug_traces" in self.cfg.tracer
+            and self.cfg.tracer["n_debug_traces"] > self.model.N_sources
+        ):
+            self.cfg.tracer["n_debug_traces"] = self.model.N_sources
+            heatsplats.warn(
+                "Number of debug traces should not exceed number of sources. Displaying all sources instead."
+            )
 
         self.eigalbo_interp = EigenAlboInterpolation(self.cfg.eigen_albo, self.mesh)
         self.tracer: GeodesicTracer = heatsplats.find(self.cfg.tracer_type)(
             self.cfg.tracer, self.mesh
         )
 
-        self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
-        self._angle_scaler = torch.pi
-        self._angle_act = lambda x: self._angle_scaler * F.hardsigmoid(x)
-        self._anis_act = lambda x: torch.exp(x)
-        self._colour_act = lambda x: x
-
-        if self._lrs.out_net is not None and self._lrs.out_net > 0:
-            self.out_net = nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(self.kernel_dim, 2 * self.kernel_dim),
-                nn.ReLU(),
-                nn.Linear(2 * self.kernel_dim, 3),
-                nn.Sigmoid(),
-            ).to(self.device)
-        else:
-            self.out_net = None
-
-        self._splats, self._optims = self._make_splats_and_optimisers(self.n_sources)
-
-    def _make_splats_and_optimisers(self, n_sources: int, **kwargs):
-        kernel_colours = torch.randn(
-            (n_sources, self.kernel_dim), dtype=torch.float, device=self.device
-        )
-        angles = torch.randn(n_sources, device=self.device)
-        anisotropies = torch.randn(n_sources, device=self.device)
-        diff_times = torch.rand(n_sources, device=self.device)
-
-        # Sample face and barycentric location on face
-        kernel_face_ids = torch.randint(
-            0, self.mesh.N_faces, (n_sources,), device=self.device
-        )
-        kernel_locations = utils.uniform_sample_triangle(
-            torch.rand((n_sources, 2), device=self.device)
-        )
-        # Convert to cartesian coordinates
-        kernel_vert_idx = self.mesh.get_face_vertices(kernel_face_ids)
-        kernel_locations = self.mesh.barycentric_to_cartesian(
-            kernel_locations, kernel_vert_idx
-        )
-
-        params = [
-            # name, value, lr
-            ("kernel_colours", torch.nn.Parameter(kernel_colours), self._lrs.colors),
-            ("angles", torch.nn.Parameter(angles), self._lrs.angles),
-            ("anisotropies", torch.nn.Parameter(anisotropies), self._lrs.anisotropies),
-            ("diff_times", torch.nn.Parameter(diff_times), self._lrs.diff_times),
-        ]
-        self._splat_param_keys = [x[0] for x in params]
-        for name, (param, lr) in kwargs.items():
-            params.append((name, param, lr))
-
-        if self.out_net is not None:
-            params.append(("out_net", self.out_net.parameters(), self._lrs.out_net))
-
-        splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(self.device)
-
-        optimisers = {
-            "splats": torch.optim.Adam(
-                [
-                    {"params": splats[name], "lr": self._lr_mult * lr}
-                    for name, _, lr in params
-                ],
-            )
-        }
-
-        self._splat_param_keys.append("kernel_locations")
-        splats["kernel_locations"] = nn.Parameter(kernel_locations)
-        self._kernel_face_ids = kernel_face_ids
-        optimisers["kernel_locations"] = GeodesicOpt(
-            [
-                {
-                    "params": [splats["kernel_locations"]],
-                    "lr": self._lr_mult * self._lrs.centres,
-                    "face_ids": [self._kernel_face_ids],
-                }
-            ],
-            tracer=self.tracer,
-        )
-
-        return splats, optimisers
-
-    @property
-    def kernel_colours(self) -> torch.Tensor:
-        return self._colour_act(self._splats["kernel_colours"])
-
-    @property
-    def angles(self) -> torch.Tensor:
-        return self._angle_act(self._splats["angles"])
-
-    @property
-    def anisotropies(self) -> torch.Tensor:
-        return self._anis_act(self._splats["anisotropies"])
-
-    @property
-    def diff_times(self) -> torch.Tensor:
-        return self._diff_time_scaler_func(self._splats["diff_times"])
-
-    @property
-    def kernel_locations(self) -> torch.Tensor:
-        return self._splats["kernel_locations"]
-
-    @property
-    def kernel_face_ids(self) -> torch.Tensor:
-        return self._kernel_face_ids
+        self.optimizers = parse_optimizers(self.cfg.optimizers, self)
 
     def prepare_batch(self, data: dict) -> dict:
         for k, v in data.items():
@@ -184,11 +78,11 @@ class BaseTrainer(BaseObject):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
-        B, V = self.n_sources, self.mesh.N_verts
+        B = self.model.N_sources
 
-        heatsplats.debug(f"INITIAL -> {self._colored_print_opt_params}")
+        heatsplats.debug(f"INITIAL -> {self.model.colored_print_opt_params}")
 
-        errors_lists = {k: [] for k in self._splats.keys()}
+        errors_lists = {k: [] for k in self.model.splat_param_keys}
 
         for i in (pbar := tqdm(range(n_iter))):
             data = next(data_iter)
@@ -204,20 +98,15 @@ class BaseTrainer(BaseObject):
             P = pos.shape[0]
 
             colours: Float[Tensor, "B P L"] = torch.zeros(
-                [B, P, self.kernel_dim],
+                [B, P, self.model.kernel_dim],
                 device=self.device,
             )
 
-            kernel_vert_idx = self.mesh.get_face_vertices(self.kernel_face_ids)
+            kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
             barycentric_coords = self.mesh.cartesian_to_barycentric(
-                self.kernel_locations, kernel_vert_idx
+                self.model.kernel_locations, kernel_vert_idx
             )
-            # TODO: Can be cleaned a bit, saved for tracer in optimizer
-            setattr(
-                self._splats["kernel_locations"],
-                "bary_coords",
-                barycentric_coords.detach(),
-            )
+            self.model.save_barycentric_locations(barycentric_coords)
 
             kernel_evecs, kernel_mass = (
                 self.eigalbo_interp.barycentric_albo_batchwise_next(
@@ -228,7 +117,7 @@ class BaseTrainer(BaseObject):
             )
 
             colours: Float[Tensor, "B P+1 L"] = torch.cat(
-                (colours, self.kernel_colours.unsqueeze(1)), dim=1
+                (colours, self.model.kernel_colours.unsqueeze(1)), dim=1
             )
             pts_evecs: Float[Tensor, "B P+1 K"] = torch.cat(
                 ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
@@ -242,15 +131,12 @@ class BaseTrainer(BaseObject):
                 pts_mass,
                 evals,
                 pts_evecs,
-                self.diff_times,
+                self.model.diff_times,
             )
             colours = colours[:P]
 
             # Postprocess
-            if self.out_net is not None:
-                colours = self.out_net(colours)
-            if self.normalize_colours:
-                colours = utils.normalise_colours(colours)
+            colours = self.model(colours)
 
             if i == 0:
                 init_colours = colours.clone().detach()
@@ -260,14 +146,7 @@ class BaseTrainer(BaseObject):
 
             loss.backward()
 
-            with torch.no_grad():
-                if i == 0 or (i + 1) % 100 == 0:
-                    for name in self._splat_param_keys:
-                        heatsplats.debug(
-                            f"{name}: {self._splats[name].grad.data.norm(2)}"
-                        )
-
-            for optimizer in self._optims.values():
+            for optimizer in self.optimizers:
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -278,31 +157,31 @@ class BaseTrainer(BaseObject):
                         f"Iteration: {i + 1} -> Loss: {loss.item()}. {errors['printables']}",
                     )
 
-                for k in self._splat_param_keys:
+                for k in self.model.splat_param_keys:
                     if k in errors:
                         errors_lists[k].append(errors[k].item())
                 pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
 
-        heatsplats.debug(f"FINAL -> {self._colored_print_opt_params}")
+        heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
         v_colours = self.compute_vertex_colours()
         return v_colours, gt_colours, init_colours
 
     def compute_vertex_colours(self):
-        B, V = self.n_sources, self.mesh.N_verts
+        B, V = self.model.N_sources, self.mesh.N_verts
         v_colours: Float[Tensor, "B V L"] = torch.zeros(
-            [B, V, self.kernel_dim],
+            [B, V, self.model.kernel_dim],
             device=self.device,
         )
 
         albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
-            angles=self.angles, scales=self.anisotropies
+            angles=self.model.angles, scales=self.model.anisotropies
         )
 
-        kernel_vert_idx = self.mesh.get_face_vertices(self.kernel_face_ids)
+        kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
         barycentric_coords = self.mesh.cartesian_to_barycentric(
-            self.kernel_locations, kernel_vert_idx
+            self.model.kernel_locations, kernel_vert_idx
         )
 
         kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_eig_interpolation(
@@ -313,7 +192,7 @@ class BaseTrainer(BaseObject):
         )
 
         v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
-            (v_colours, self.kernel_colours.unsqueeze(1)), dim=1
+            (v_colours, self.model.kernel_colours.unsqueeze(1)), dim=1
         )
         albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
             ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
@@ -327,31 +206,15 @@ class BaseTrainer(BaseObject):
             mass,
             albo_evals,
             albo_evecs,
-            self.diff_times,
+            self.model.diff_times,
         )
         v_colours = v_colours[:V]
-        if self.out_net is not None:
-            v_colours = self.out_net(v_colours)
-        if self.normalize_colours:
-            v_colours = utils.normalise_colours(v_colours)
+        v_colours = self.model(v_colours)
         return v_colours
 
     @property
-    def _colored_print_opt_params(self):
-        angles = torch.rad2deg(self.angles).detach().cpu().numpy()
-        anisotropies = self.anisotropies.detach().cpu().numpy()
-        diff_times = self.diff_times.detach().cpu().numpy()
-        kernel_colours = self.kernel_colours.view(-1).detach().cpu().numpy()
-        return (
-            colored(f"Angles: {angles}, ", "yellow")
-            + colored(f"Anisotropies: {anisotropies}, ", "green")
-            + colored(f"Diff times: {diff_times}, ", "blue")
-            + colored(f"Kernel colours: {kernel_colours}", "red")
-        )
-
-    @property
     def kernel_centres(self):
-        return self.kernel_locations
+        return self.model.kernel_locations
 
     @property
     def _errors(self):

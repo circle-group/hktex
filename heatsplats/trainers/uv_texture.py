@@ -35,8 +35,8 @@ class UvTextureTrainer(BaseTrainer):
 
         albo_evals, pts_evecs, pts_mass, albo_weights = (
             self.eigalbo_interp.barycentric_albo_eigenquantities(
-                angles=self.angles,
-                scales=self.anisotropies,
+                angles=self.model.angles,
+                scales=self.model.anisotropies,
                 barycentric_coords=barys,
                 vert_idx=pts_tri_vert_idx,
             )
