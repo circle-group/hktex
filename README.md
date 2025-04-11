@@ -16,8 +16,9 @@ mamba install cuda-compiler -c conda-forge
 
 pip install trimesh Pillow rtree "pyglet<2"
 pip install robust_laplacian point-cloud-utils libigl potpourri3d
+pip install mitsuba
 pip install termcolor tqdm matplotlib
 pip install jaxtyping omegaconf
-pip install ipykerel
+pip install ipykerel ipywidgets
 ```
 
