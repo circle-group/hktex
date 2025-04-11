@@ -131,8 +131,9 @@ class Model(BaseModule):
         return self._kernel_face_ids
 
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
+        out = x_diffusion
         if self.out_net is not None:
-            out = self.out_net(x_diffusion)
+            out = self.out_net(out)
         if self.normalize_colours:
             out = utils.normalise_colours(out)
         return out
