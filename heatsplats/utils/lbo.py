@@ -56,7 +56,9 @@ def get_anisotropic_lbo(
         pd1, pd2, _, _ = igl.principal_curvature(pos.cpu().numpy(), np_faces_t)
         fpd1 = torch.tensor(igl.average_onto_faces(np_faces_t, pd1))
         fpd2 = torch.tensor(igl.average_onto_faces(np_faces_t, pd2))
-        f_reference = torch.stack([fpd1, fpd2, face_normals.cpu()], dim=2)
+        f_reference = torch.stack([fpd1, fpd2, face_normals.cpu()], dim=2).to(
+            torch.float64
+        )
         f_reference_t = torch.transpose(f_reference, 1, 2)
         an_scale_mat = torch.diag(torch.tensor([1 / (1 + anisotropy), 1.0, 1.0])).to(
             torch.float64

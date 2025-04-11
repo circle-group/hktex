@@ -156,3 +156,12 @@ class Model(BaseModule):
             "bary_coords",
             barycentric_coords.detach(),
         )
+
+    def save_torch(self, filename):
+        torch.save(self.state_dict(), filename)
+
+    def save_numpy_npz(self, filename):
+        np_dict = {}
+        for k, v in self.state_dict().items():
+            np_dict[k] = v.detach().cpu().numpy()
+        np.savez_compressed(filename, **np_dict)

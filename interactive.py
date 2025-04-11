@@ -29,10 +29,12 @@ if __name__ == "__main__":
         "verbose": False,
     }
     extras_dict = {
+        "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
-        "optim.iters": 5000,
-        "data.batch_size": 512,
-        "trainer.model.n_sources": 128,
+        "trainer.tracer.n_debug_traces": 100,
+        "optim.iters": 10000,
+        "data.batch_size": 1024,
+        "trainer.model.n_sources": 100,
     }
 
     args = argparse.Namespace(**args_dict)

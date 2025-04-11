@@ -1,4 +1,4 @@
-name: "vertex-colour-texture-fitting"
+name: "uv-texture-fitting"
 tag: "${filename:${data.mesh_path}}"
 exp_root_dir: "outputs"
 seed: 0
