@@ -95,9 +95,12 @@ class KnownHeatVertexColoursDataModule(MeshSamplerDataModule):
             "kernel_colours"
         ].to(device)
 
-        albo_evals, albo_evecs, mass = eigalbo_interp.get_albo_eigenquantities(
+        albo_weights = eigalbo_interp.interpolate_anisotropies(
             angles=torch.deg2rad(self.gt_splats["angles"].to(device)),
             scales=self.gt_splats["anisotropies"].to(device),
+        )
+        albo_evals, albo_evecs, mass = eigalbo_interp.albo_vertices(
+            albo_weights=albo_weights
         )
 
         gt_colours = heat_diffusion(

@@ -1,3 +1,6 @@
+import os
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import trimesh
 import argparse
 
@@ -31,10 +34,14 @@ if __name__ == "__main__":
     extras_dict = {
         "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
-        "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 10000,
+        # "trainer.tracer.n_debug_traces": 400,
+        "optim.iters": 500,
         "data.batch_size": 1024,
-        "trainer.model.n_sources": 100,
+        # "data.sample_all_vertices": False,
+        "trainer.model.n_sources": 400,
+        # "trainer.model.kernel_dim": 3,
+        # "trainer.model.out_net": False,
+        # "trainer.model.normalize_colours": False,
     }
 
     args = argparse.Namespace(**args_dict)

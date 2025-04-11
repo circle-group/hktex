@@ -54,6 +54,11 @@ class EigenAlboInterpolation(BaseObject):
         self.M = M
         self.K = k_eig
 
+        V = self._mesh.N_verts
+
+        assert self._smp_coords_cartesian.shape[0] == M
+        assert self._eigen_vec.shape[1] == V and self._mass.shape[1] == V
+
     def precompute_all_eigen(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         fpath = self.cfg.mesh_path
         if self.cfg.use_precomputed and fpath is None:
@@ -124,12 +129,14 @@ class EigenAlboInterpolation(BaseObject):
 
         return torch.stack(all_eigen), polar_smp_coords, mass
 
-    def get_albo_eigenquantities(
+    def interpolate_anisotropies(
         self,
-        angles: Float[Tensor, "B"],
-        scales: Float[Tensor, "B"],
-        vert_idx: Optional[Int[Tensor, "D"]] = None,
-    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B V K"], Float[Tensor, "B V"]]:
+        angles: Float[Tensor, "G"],
+        scales: Float[Tensor, "G"],
+    ) -> Float[Tensor, "G M"]:
+        G = angles.shape[0]
+        assert scales.shape[0] == G
+
         query_cartesian = torch.stack(
             [
                 torch.cos(angles) * scales,
@@ -147,105 +154,54 @@ class EigenAlboInterpolation(BaseObject):
         weights = 1.0 / torch.clamp(dist, min=1e-16)
         weights = weights / weights.sum(dim=1, keepdim=True)
 
-        eigen_vec, mass = self._eigen_vec, self._mass
-        if vert_idx is not None:
-            eigen_vec = eigen_vec[:, vert_idx]
-            mass = mass[:, vert_idx]
+        M = self._eigen_val.shape[0]
+        albo_weights = weights.new_zeros((G, M)).scatter_(1, index=x_idx, src=weights)
 
-        weights2 = weights.new_zeros(
-            (weights.shape[0], self._eigen_val.shape[0])
-        ).scatter_(1, index=x_idx, src=weights)
-        evals = weights2 @ self._eigen_val
-        evecs = torch.einsum("ij,jkl->ikl", weights2, eigen_vec)
+        return albo_weights
 
-        return evals, evecs, mass
-
-    def barycentric_eig_interpolation(
+    def albo_vertices(
         self,
-        eigen_vec: Float[Tensor, "B V K"],
-        mass: Float[Tensor, "1 V"],
-        barycentric_coords: Float[Tensor, "B 3"],
-        vert_idx: Int[Tensor, "B 3"],
-    ) -> tuple[Float[Tensor, "B K"], Float[Tensor, "B"]]:
-
-        target_eigen_vec = torch.take_along_dim(
-            eigen_vec, vert_idx.unsqueeze(-1), dim=1
-        )  # B 3 K
-        target_mass = torch.take_along_dim(mass, vert_idx, dim=1)  # B 3
-
-        W = barycentric_coords
-
-        eigen_vec_interp = torch.einsum("bt,btk->bk", W, target_eigen_vec)  # B K
-        mass_interp = linalg.vecdot(W, target_mass)  # B
-
-        return eigen_vec_interp, mass_interp
-
-    def barycentric_eig_interpolation_pts(
-        self,
-        eigen_vec: Float[Tensor, "B V K"],
-        mass: Float[Tensor, "1 V"],
-        barycentric_coords: Float[Tensor, "P 3"],
-        vert_idx: Int[Tensor, "P 3"],
-    ) -> tuple[Float[Tensor, "B P K"], Float[Tensor, "P"]]:
-
-        B, V, K = eigen_vec.shape
-        P = vert_idx.shape[0]
-
-        # Gather eigen_vec values directly
-        target_eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(B, P, 3, K)  # B P 3 K
-
-        # Gather mass values directly
-        target_mass = mass[:, vert_idx.view(-1)].view(P, 3)  # P 3
-
-        W = barycentric_coords  # P 3
-
-        eigen_vec_interp = torch.matmul(W.unsqueeze(1), target_eigen_vec).squeeze(
-            2
-        )  # B P K
-        mass_interp = linalg.vecdot(W, target_mass)  # P
-
-        return eigen_vec_interp, mass_interp
-
-    def barycentric_albo_eigenquantities(
-        self,
-        angles: Float[Tensor, "B"],
-        scales: Float[Tensor, "B"],
-        barycentric_coords: Float[Tensor, "P 3"],
-        vert_idx: Int[Tensor, "P 3"],
-    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B P K"], Float[Tensor, "B P"], Any]:
-        B, P = angles.shape[0], barycentric_coords.shape[0]
-        assert scales.shape[0] == B and vert_idx.shape[0] == P
-        assert barycentric_coords.shape[1] == 3 and vert_idx.shape[1] == 3
-
-        query_cartesian = torch.stack(
-            [
-                torch.cos(angles) * scales,
-                torch.sin(angles) * scales,
-            ],
-            dim=1,
-        )
-
-        diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
-        squared_distance = (diff * diff).sum(-1, keepdim=True)
-        dist, idx = squared_distance.topk(k=4, largest=False, dim=0)
-        x_idx = idx.squeeze().t()  # B, 4
-        dist = dist.squeeze().t()  # B, 4
-
-        weights = 1.0 / torch.clamp(dist, min=1e-16)
-        weights = weights / weights.sum(dim=1, keepdim=True)
+        albo_weights: Float[Tensor, "G M"],
+        vert_idx: Optional[Int[Tensor, "P"]] = None,
+    ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+        G, M = albo_weights.shape[0], self._eigen_val.shape[0]
+        assert albo_weights.shape[1] == M
 
         with torch.no_grad():
             eigen_vec, mass = self._eigen_vec, self._mass
-            M, V, K = eigen_vec.shape
+            M, _, K = eigen_vec.shape
+
+            if vert_idx is not None:
+                eigen_vec = eigen_vec[:, vert_idx]
+                mass = mass[:, vert_idx]
+
+        evals = albo_weights @ self._eigen_val
+        evecs = torch.einsum("ij,jkl->ikl", albo_weights, eigen_vec)
+
+        return evals, evecs, mass
+
+    def barycentric_albo_points(
+        self,
+        albo_weights: Float[Tensor, "G M"],
+        barycentric_coords: Float[Tensor, "P 3"],
+        vert_idx: Int[Tensor, "P 3"],
+    ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+        G, P = albo_weights.shape[0], barycentric_coords.shape[0]
+        M = self._eigen_val.shape[0]
+        assert vert_idx.shape[0] == P and albo_weights.shape[1] == M
+        assert barycentric_coords.shape[1] == 3 and vert_idx.shape[1] == 3
+
+        with torch.no_grad():
+            eigen_vec, mass = self._eigen_vec, self._mass
+            M, _, K = eigen_vec.shape
 
             eigen_vec = eigen_vec[:, vert_idx.view(-1)]  # M, P*3, K
             mass = mass[:, vert_idx.view(-1)].view(1, P, 3)  # 1, P, 3
 
-        weights2 = weights.new_zeros((B, M)).scatter_(1, index=x_idx, src=weights)
-        # B,M x M,K -> B,K
-        evals = weights2 @ self._eigen_val
-        # B,M x M,P*3,K -> B,P*3,K -> B, P, 3, K
-        evecs = torch.einsum("ij,jkl->ikl", weights2, eigen_vec).view(B, P, 3, K)
+        # G,M x M,K -> G,K
+        evals = albo_weights @ self._eigen_val
+        # G,M x M,P*3,K -> G,P*3,K -> G, P, 3, K
+        evecs = torch.einsum("ij,jkl->ikl", albo_weights, eigen_vec).view(G, P, 3, K)
 
         bary_W = barycentric_coords.unsqueeze(0)  # 1, P, 3
 
@@ -253,32 +209,31 @@ class EigenAlboInterpolation(BaseObject):
         evec_interp = torch.matmul(bary_W.unsqueeze(2), evecs).squeeze(2)
         mass_interp = linalg.vecdot(bary_W, mass)  # 1, P
 
-        return evals, evec_interp, mass_interp, (weights2,)
+        return evals, evec_interp, mass_interp
 
-    def barycentric_albo_batchwise_next(
+    def barycentric_albo_gaussians(
         self,
-        albo_weights: Any,  # From barycentric_albo_eigenquantities
-        barycentric_coords: Float[Tensor, "B 3"],
-        vert_idx: Int[Tensor, "B 3"],
-    ) -> Tuple[Float[Tensor, "B K"], Float[Tensor, "B"]]:
-        B, M = barycentric_coords.shape[0], self._eigen_val.shape[0]
-
-        weights2: Float[Tensor, "B M"]
-        (weights2,) = albo_weights
-
-        assert weights2.shape[0] == B and vert_idx.shape[0] == B
-        assert weights2.shape[1] == M and vert_idx.shape[1] == 3
+        albo_weights: Float[Tensor, "G M"],
+        barycentric_coords: Float[Tensor, "G 3"],
+        vert_idx: Int[Tensor, "G 3"],
+    ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G"]]:
+        G, M = albo_weights.shape[0], self._eigen_val.shape[0]
+        assert barycentric_coords.shape[0] == G and vert_idx.shape[0] == G
+        assert albo_weights.shape[1] == M
+        assert barycentric_coords.shape[1] == 3 and vert_idx.shape[1] == 3
 
         with torch.no_grad():
             eigen_vec, mass = self._eigen_vec, self._mass
-            M, V, K = eigen_vec.shape
+            M, _, K = eigen_vec.shape
 
-            eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(M, B, 3, K)  # M, B, 3, K
-            eigen_vec = eigen_vec.permute(1, 0, 2, 3)  # B, M, 3, K
-            mass = mass[:, vert_idx.view(-1)].view(B, 3)  # B, 3
+            eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(M, G, 3, K)  # M, G, 3, K
+            eigen_vec = eigen_vec.permute(1, 0, 2, 3)  # G, M, 3, K
+            mass = mass[:, vert_idx.view(-1)].view(G, 3)  # G, 3
 
-        # B,M x B,M,3,K -> B,3,K
-        evecs = linalg.vecdot(weights2.unsqueeze(-1).unsqueeze(-1), eigen_vec, dim=1)
+        # G,M x G,M,3,K -> G,3,K
+        evecs = linalg.vecdot(
+            albo_weights.unsqueeze(-1).unsqueeze(-1), eigen_vec, dim=1
+        )
 
         bary_W = barycentric_coords  # B, 3
 

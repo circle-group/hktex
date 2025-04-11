@@ -100,10 +100,10 @@ class Model(BaseModule):
         self._kernel_face_ids = nn.Buffer(kernel_face_ids, persistent=True)
 
         self.splat_param_keys = [
-            "_kernel_colours",
-            "_angles",
-            "_anisotropies",
-            "_diff_times",
+            "kernel_colours",
+            "angles",
+            "anisotropies",
+            "diff_times",
         ]
 
     @property

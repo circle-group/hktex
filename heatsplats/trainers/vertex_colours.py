@@ -30,21 +30,18 @@ class VertexColoursTrainer(BaseTrainer):
     def prepare_batch(self, data: dict) -> dict:
         data = super().prepare_batch(data)
         vert_idx = data["vert_idx"]
+        all_vertices = vert_idx.shape[0] == self.mesh.verts.shape[0]
 
-        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
-            angles=self.angles, scales=self.anisotropies
+        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
+            angles=self.model.angles, scales=self.model.anisotropies
+        )
+        albo_evals, albo_evecs, mass = self.eigalbo_interp.albo_vertices(
+            albo_weights=albo_weights, vert_idx=None if all_vertices else vert_idx
         )
 
         data["evals"] = albo_evals
-        data["verts_evecs"] = albo_evecs
-        data["verts_mass"] = mass
-
-        # if vert_idx.shape[0] == albo_evecs.shape[1], then all vertices were sampled in normal order
-        if vert_idx.shape[0] < albo_evecs.shape[1]:
-            data["pts_evecs"] = albo_evecs[:, vert_idx]
-            data["pts_mass"] = mass[:, vert_idx]
-        else:
-            data["pts_evecs"] = data["verts_evecs"]
-            data["pts_mass"] = data["verts_mass"]
+        data["pts_evecs"] = albo_evecs
+        data["pts_mass"] = mass
+        data["albo_weights"] = albo_weights
 
         return data

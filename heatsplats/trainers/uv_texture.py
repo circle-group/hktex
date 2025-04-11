@@ -33,13 +33,13 @@ class UvTextureTrainer(BaseTrainer):
 
         pts_tri_vert_idx = self.mesh.get_face_vertices(face_ids)  # [P, 3]
 
-        albo_evals, pts_evecs, pts_mass, albo_weights = (
-            self.eigalbo_interp.barycentric_albo_eigenquantities(
-                angles=self.model.angles,
-                scales=self.model.anisotropies,
-                barycentric_coords=barys,
-                vert_idx=pts_tri_vert_idx,
-            )
+        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
+            angles=self.model.angles, scales=self.model.anisotropies
+        )
+        albo_evals, pts_evecs, pts_mass = self.eigalbo_interp.barycentric_albo_points(
+            albo_weights=albo_weights,
+            barycentric_coords=barys,
+            vert_idx=pts_tri_vert_idx,
         )
 
         data["evals"] = albo_evals

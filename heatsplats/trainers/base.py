@@ -108,12 +108,10 @@ class BaseTrainer(BaseObject):
             )
             self.model.save_barycentric_locations(barycentric_coords)
 
-            kernel_evecs, kernel_mass = (
-                self.eigalbo_interp.barycentric_albo_batchwise_next(
-                    albo_weights=albo_weights,
-                    barycentric_coords=barycentric_coords,
-                    vert_idx=kernel_vert_idx,
-                )
+            kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
+                albo_weights=albo_weights,
+                barycentric_coords=barycentric_coords,
+                vert_idx=kernel_vert_idx,
             )
 
             colours: Float[Tensor, "B P+1 L"] = torch.cat(
@@ -175,8 +173,11 @@ class BaseTrainer(BaseObject):
             device=self.device,
         )
 
-        albo_evals, albo_evecs, mass = self.eigalbo_interp.get_albo_eigenquantities(
+        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
             angles=self.model.angles, scales=self.model.anisotropies
+        )
+        albo_evals, albo_evecs, mass = self.eigalbo_interp.albo_vertices(
+            albo_weights=albo_weights
         )
 
         kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
@@ -184,9 +185,8 @@ class BaseTrainer(BaseObject):
             self.model.kernel_locations, kernel_vert_idx
         )
 
-        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_eig_interpolation(
-            eigen_vec=albo_evecs,
-            mass=mass,
+        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
+            albo_weights=albo_weights,
             barycentric_coords=barycentric_coords,
             vert_idx=kernel_vert_idx,
         )

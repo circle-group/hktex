@@ -10,13 +10,13 @@ import heatsplats
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.utils.typing import *
 
-from .base import BaseTrainer
+from .vertex_colours import VertexColoursTrainer
 
 
 @heatsplats.register("trainers.stationary-heat-kernels")
-class StationaryHeatKernelsTrainer(BaseTrainer):
+class StationaryHeatKernelsTrainer(VertexColoursTrainer):
     @dataclass
-    class Config(BaseTrainer.Config):
+    class Config(VertexColoursTrainer.Config):
         gt_source_sampling_method: Optional[str] = "fps"
 
     cfg: Config
@@ -26,20 +26,17 @@ class StationaryHeatKernelsTrainer(BaseTrainer):
         datamodule: MeshSamplerDataModule,
         **kwargs,
     ):
-        self.cfg.kernel_dim = 3
-        self.cfg.lrs.out_net = 0
-
         super().configure(datamodule, **kwargs)
 
         assert hasattr(
             datamodule, "bake_heat"
         ), "OptimiseHeatKernelsToKnownStationary requires a datamodule with configure and bake_heat"
         datamodule.configure(
-            n_sources=self.n_sources,
-            diff_time_scaler_func=self._diff_time_scaler_func,
+            n_sources=self.model.N_sources,
+            diff_time_scaler_func=self.model._diff_time_scaler_func,
         )
         datamodule.bake_heat(
-            self.eigalbo_interp, self.normalize_colours, device=self.device
+            self.eigalbo_interp, self.model.normalize_colours, device=self.device
         )
 
     @property
@@ -48,23 +45,27 @@ class StationaryHeatKernelsTrainer(BaseTrainer):
 
     @property
     def _errors(self):
+        model = self.model
         angles_error = (
-            (self.angles.cpu() - torch.deg2rad(self.gt_splats["angles"]))
+            (model.angles.cpu() - torch.deg2rad(self.gt_splats["angles"]))
             .pow(2)
             .sum()
             .pow(0.5)
         )
         anisotropies_error = (
-            (self.anisotropies.cpu() - self.gt_splats["anisotropies"])
+            (model.anisotropies.cpu() - self.gt_splats["anisotropies"])
             .pow(2)
             .sum()
             .pow(0.5)
         )
         diff_times_error = (
-            (self.diff_times.cpu() - self.gt_splats["diff_times"]).pow(2).sum().pow(0.5)
+            (model.diff_times.cpu() - self.gt_splats["diff_times"])
+            .pow(2)
+            .sum()
+            .pow(0.5)
         )
         kernel_colours_error = (
-            (self.kernel_colours.cpu() - self.gt_splats["kernel_colours"])
+            (model.kernel_colours.cpu() - self.gt_splats["kernel_colours"])
             .pow(2)
             .sum()
             .pow(0.5)
