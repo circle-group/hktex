@@ -11,6 +11,8 @@ import heatsplats
 from heatsplats.utils import cart_to_bary_coords, BaseObject
 from heatsplats.utils.typing import *
 
+from .mesh import Mesh
+
 __all__ = ["GeodesicTracer", "CPUGeodesicTracer"]
 
 
@@ -21,14 +23,13 @@ class GeodesicTracer(BaseObject):
 
     cfg: Config
 
-    def configure(self, vertices: Float[Tensor, "B 3"], faces: Float[Tensor, "B 3"]):
+    def configure(self, mesh: Mesh):
         super().configure()
 
-        self.V = vertices.shape[0]
-        self.F = faces.shape[0]
-        assert vertices.shape[1] == 3 and faces.shape[1] == 3
-        self.vertices = vertices
-        self.faces = faces
+        self.mesh = mesh
+
+        self.V = mesh.verts.shape[0]
+        self.F = mesh.faces.shape[0]
 
         self.debug = self.cfg.debug
 
@@ -80,11 +81,11 @@ class CPUGeodesicTracer(GeodesicTracer):
 
     cfg: Config
 
-    def configure(self, vertices: Float[Tensor, "B 3"], faces: Float[Tensor, "B 3"]):
-        super().configure(vertices, faces)
+    def configure(self, mesh: Mesh):
+        super().configure(mesh)
 
-        vertices_np = self.vertices.detach().cpu().numpy()
-        faces_np = self.faces.detach().cpu().numpy()
+        vertices_np = self.mesh.verts.detach().cpu().numpy()
+        faces_np = self.mesh.faces.detach().cpu().numpy()
 
         self.tracer = pp3d.GeodesicTracer(vertices_np, faces_np)
 
@@ -110,10 +111,8 @@ class CPUGeodesicTracer(GeodesicTracer):
         out_face_ids: Optional[Float[Tensor, "B"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
         if bary_coords is None:
-            vert_idx = self.faces[face_ids]
-            B, T = vert_idx.shape
-            vertx = self.vertices[vert_idx.view(B * T)].view(B, T, -1)
-            bary_coords = cart_to_bary_coords(coords, vertx)
+            vert_ids = self.mesh.get_face_vertices(face_ids)
+            bary_coords = self.mesh.cartesian_to_barycentric(coords, vert_ids)
 
         bary_coord_np = bary_coords.detach().cpu().numpy()
         face_id_np = face_ids.detach().cpu().numpy()

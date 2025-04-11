@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import heatsplats
-from heatsplats.modules import GeodesicTracer, GeodesicOpt, EigenAlboInterpolation
+from heatsplats.modules import Mesh, GeodesicTracer, GeodesicOpt, EigenAlboInterpolation
 from heatsplats.data import MeshSamplerDataModule
 
 import heatsplats.utils as utils
@@ -61,19 +61,12 @@ class BaseTrainer(BaseObject):
         self._lr_mult = self._lrs.multiplier
 
         self.datamodule = datamodule
-        mesh = self.datamodule.mesh
 
-        self._verts = torch.tensor(mesh.vertices, device=self.device, dtype=torch.float)
-        self._faces = torch.tensor(mesh.faces, device=self.device)
-        self._fnorms = torch.tensor(mesh.face_normals, device=self.device)
+        self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
 
-        self.eigalbo_interp = EigenAlboInterpolation(
-            self.cfg.eigen_albo, self._verts, self._faces, self._fnorms
-        )
+        self.eigalbo_interp = EigenAlboInterpolation(self.cfg.eigen_albo, self.mesh)
         self.tracer: GeodesicTracer = heatsplats.find(self.cfg.tracer_type)(
-            self.cfg.tracer,
-            self._verts,
-            self._faces,
+            self.cfg.tracer, self.mesh
         )
 
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
@@ -105,16 +98,16 @@ class BaseTrainer(BaseObject):
 
         # Sample face and barycentric location on face
         kernel_face_ids = torch.randint(
-            0, self._faces.shape[0], (n_sources,), device=self.device
+            0, self.mesh.N_faces, (n_sources,), device=self.device
         )
         kernel_locations = utils.uniform_sample_triangle(
             torch.rand((n_sources, 2), device=self.device)
         )
         # Convert to cartesian coordinates
-        kernel_vert_idx = self._faces[kernel_face_ids]
-        B, T = kernel_vert_idx.shape
-        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-        kernel_locations = utils.bary_to_cart_coords(kernel_locations, kernel_vertx)
+        kernel_vert_idx = self.mesh.get_face_vertices(kernel_face_ids)
+        kernel_locations = self.mesh.barycentric_to_cartesian(
+            kernel_locations, kernel_vert_idx
+        )
 
         params = [
             # name, value, lr
@@ -191,7 +184,7 @@ class BaseTrainer(BaseObject):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
-        B, V = self.n_sources, self._verts.shape[0]
+        B, V = self.n_sources, self.mesh.N_verts
 
         heatsplats.debug(f"INITIAL -> {self._colored_print_opt_params}")
 
@@ -215,11 +208,9 @@ class BaseTrainer(BaseObject):
                 device=self.device,
             )
 
-            kernel_vert_idx = self._faces[self.kernel_face_ids]
-            B, T = kernel_vert_idx.shape
-            kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-            barycentric_coords = utils.cart_to_bary_coords(
-                self.kernel_locations, kernel_vertx
+            kernel_vert_idx = self.mesh.get_face_vertices(self.kernel_face_ids)
+            barycentric_coords = self.mesh.cartesian_to_barycentric(
+                self.kernel_locations, kernel_vert_idx
             )
             # TODO: Can be cleaned a bit, saved for tracer in optimizer
             setattr(
@@ -299,7 +290,7 @@ class BaseTrainer(BaseObject):
         return v_colours, gt_colours, init_colours
 
     def compute_vertex_colours(self):
-        B, V = self.n_sources, self._verts.shape[0]
+        B, V = self.n_sources, self.mesh.N_verts
         v_colours: Float[Tensor, "B V L"] = torch.zeros(
             [B, V, self.kernel_dim],
             device=self.device,
@@ -309,11 +300,9 @@ class BaseTrainer(BaseObject):
             angles=self.angles, scales=self.anisotropies
         )
 
-        kernel_vert_idx = self._faces[self.kernel_face_ids]
-        B, T = kernel_vert_idx.shape
-        kernel_vertx = self._verts[kernel_vert_idx.view(B * T)].view(B, T, -1)
-        barycentric_coords = utils.cart_to_bary_coords(
-            self.kernel_locations, kernel_vertx
+        kernel_vert_idx = self.mesh.get_face_vertices(self.kernel_face_ids)
+        barycentric_coords = self.mesh.cartesian_to_barycentric(
+            self.kernel_locations, kernel_vert_idx
         )
 
         kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_eig_interpolation(

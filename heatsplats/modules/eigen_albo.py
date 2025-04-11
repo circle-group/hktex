@@ -10,6 +10,8 @@ import heatsplats
 from heatsplats.utils import get_anisotropic_lbo, compute_eig_laplacian, BaseObject
 from heatsplats.utils.typing import *
 
+from .mesh import Mesh
+
 __all__ = ["EigenAlboInterpolation"]
 
 
@@ -29,19 +31,13 @@ class EigenAlboInterpolation(BaseObject):
 
     cfg: Config
 
-    def configure(
-        self,
-        verts: Float[Tensor, "V 3"],
-        faces: Float[Tensor, "F 3"],
-        fnorm: Float[Tensor, "F 3"],
-    ):
-        self._verts = verts
-        self._faces = faces
-        self._fnorm = fnorm
+    def configure(self, mesh: Mesh):
+        self._mesh = mesh
 
         _all_eigen, _smp_coords, _mass = self.precompute_all_eigen()
 
-        # self._all_eigen = _all_eigen
+        M = _all_eigen.shape[0]
+
         self._mass = _mass
         self._smp_coords_cartesian = torch.stack(
             [
@@ -53,9 +49,10 @@ class EigenAlboInterpolation(BaseObject):
 
         k_eig = self.cfg.k_eig
         self._eigen_val = _all_eigen[:, :k_eig].contiguous()
-        self._eigen_vec = (
-            _all_eigen[:, k_eig:].view(-1, self._verts.shape[0], k_eig).contiguous()
-        )
+        self._eigen_vec = _all_eigen[:, k_eig:].view(M, -1, k_eig).contiguous()
+
+        self.M = M
+        self.K = k_eig
 
     def precompute_all_eigen(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         fpath = self.cfg.mesh_path
@@ -109,9 +106,9 @@ class EigenAlboInterpolation(BaseObject):
                 sampling_coords.append(torch.tensor([angle, scale]))
 
                 lapl, mass = get_anisotropic_lbo(
-                    self._verts,
-                    self._faces.T,
-                    self._fnorm,
+                    self._mesh.verts,
+                    self._mesh.faces.T,
+                    self._mesh.fnorms,
                     rotation_angle=angle,
                     anisotropy=float(scale),
                 )
