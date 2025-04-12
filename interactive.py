@@ -1,6 +1,4 @@
 import os
-
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import trimesh
 import argparse
 

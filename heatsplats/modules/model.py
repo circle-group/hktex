@@ -54,8 +54,8 @@ class Model(BaseModule):
         self.normalize_colours = self.cfg.normalize_colours
 
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
-        self._angle_scaler = torch.pi
-        self._angle_act = lambda x: self._angle_scaler * F.hardsigmoid(x)
+        self._angle_scale, self._angle_offset = torch.pi, torch.pi / 2
+        self._angle_act = lambda x: self._angle_scale * x + self._angle_offset
         self._anis_act = lambda x: torch.exp(x)
         self._colour_act = lambda x: x
 
@@ -72,19 +72,25 @@ class Model(BaseModule):
         self._make_splats(mesh)
 
     def _make_splats(self, mesh: Mesh):
-        kernel_colours = torch.randn(
-            (self.N_sources, self.kernel_dim), dtype=torch.float, device=self.device
-        )
-        angles = torch.randn(self.N_sources, device=self.device)
-        anisotropies = torch.randn(self.N_sources, device=self.device)
-        diff_times = torch.rand(self.N_sources, device=self.device)
+        factory_kwargs = {"dtype": torch.float, "device": self.device}
+        if self.out_net is not None:
+            kernel_colours = torch.randn(
+                (self.N_sources, self.kernel_dim), **factory_kwargs
+            )
+        else:
+            kernel_colours = torch.rand(
+                (self.N_sources, self.out_dim), **factory_kwargs
+            )
+        angles = torch.randn(self.N_sources, **factory_kwargs)
+        anisotropies = torch.randn(self.N_sources, **factory_kwargs)
+        diff_times = torch.rand(self.N_sources, **factory_kwargs)
 
         # Sample face and barycentric location on face
         kernel_face_ids = torch.randint(
             0, mesh.N_faces, (self.N_sources,), device=self.device
         )
         kernel_locations = utils.uniform_sample_triangle(
-            torch.rand((self.N_sources, 2), device=self.device)
+            torch.rand((self.N_sources, 2), **factory_kwargs)
         )
         # Convert to cartesian coordinates
         kernel_vert_idx = mesh.get_face_vertices(kernel_face_ids)

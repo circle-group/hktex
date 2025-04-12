@@ -111,5 +111,4 @@ class StationaryHeatKernelsTrainer(VertexColoursTrainer):
         for ax in axs.flat:
             ax.legend()
 
-        plt.tight_layout()
-        plt.show()
+        VertexColoursTrainer.plot_errors(errors_lists)
