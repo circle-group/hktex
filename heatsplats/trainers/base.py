@@ -3,6 +3,7 @@ from abc import abstractmethod
 import numpy as np
 from termcolor import colored
 import trimesh
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 
@@ -83,6 +84,7 @@ class BaseTrainer(BaseObject):
         heatsplats.debug(f"INITIAL -> {self.model.colored_print_opt_params}")
 
         errors_lists = {k: [] for k in self.model.splat_param_keys}
+        errors_lists["loss"] = []
 
         for i in (pbar := tqdm(range(n_iter))):
             data = next(data_iter)
@@ -150,15 +152,17 @@ class BaseTrainer(BaseObject):
 
             with torch.no_grad():
                 errors = self._errors
+                loss_step = loss.item()
                 if i == 0 or (i + 1) % 100 == 0:
                     heatsplats.info(
-                        f"Iteration: {i + 1} -> Loss: {loss.item()}. {errors['printables']}",
+                        f"Iteration: {i + 1} -> Loss: {loss_step}. {errors['printables']}",
                     )
 
                 for k in self.model.splat_param_keys:
                     if k in errors:
                         errors_lists[k].append(errors[k].item())
-                pbar.set_postfix_str(f"Loss: {loss.item():0.4f}")
+                errors_lists["loss"].append(loss_step)
+                pbar.set_postfix_str(f"Loss: {loss_step:0.4f}")
 
         heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
@@ -228,7 +232,17 @@ class BaseTrainer(BaseObject):
 
     @staticmethod
     def plot_errors(errors_lists):
-        pass
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+
+        ax.plot(errors_lists["loss"], label="Loss")
+        ax.set_title("Loss per step")
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("Loss")
+
+        ax.legend()
+
+        plt.tight_layout()
+        plt.show()
 
     @property
     def debug_trimesh_traces(self):
