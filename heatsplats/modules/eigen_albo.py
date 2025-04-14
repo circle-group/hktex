@@ -39,12 +39,8 @@ class EigenAlboInterpolation(BaseObject):
         M = _all_eigen.shape[0]
 
         self._mass = _mass
-        self._smp_coords_cartesian = torch.stack(
-            [
-                torch.cos(_smp_coords[:, 0]) * _smp_coords[:, 1],
-                torch.sin(_smp_coords[:, 0]) * _smp_coords[:, 1],
-            ],
-            dim=1,
+        self._smp_coords_cartesian = self._make_cartesian_query(
+            _smp_coords[:, 0], _smp_coords[:, 1]
         )
 
         k_eig = self.cfg.k_eig
@@ -129,22 +125,33 @@ class EigenAlboInterpolation(BaseObject):
 
         return torch.stack(all_eigen), polar_smp_coords, mass
 
+    def _make_cartesian_query(
+        self,
+        angles: Float[Tensor, "G"],
+        scales: Float[Tensor, "G"],
+        abs_sin: bool = True,
+    ) -> Float[Tensor, "G 2"]:
+        G = angles.shape[0]
+        assert scales.shape[0] == G
+
+        cos_angles, sin_angles = torch.cos(angles), torch.sin(angles)
+        if abs_sin:
+            sin_angles = sin_angles.abs()
+        query_cartesian = torch.stack(
+            [
+                cos_angles * scales,
+                sin_angles * scales,
+            ],
+            dim=1,
+        )
+        return query_cartesian
+
     def interpolate_anisotropies(
         self,
         angles: Float[Tensor, "G"],
         scales: Float[Tensor, "G"],
     ) -> Float[Tensor, "G M"]:
-        G = angles.shape[0]
-        assert scales.shape[0] == G
-
-        query_cartesian = torch.stack(
-            [
-                torch.cos(angles) * scales,
-                torch.sin(angles) * scales,
-            ],
-            dim=1,
-        )
-
+        query_cartesian = self._make_cartesian_query(angles, scales)
         diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
         squared_distance = (diff * diff).sum(-1, keepdim=True)
         dist, idx = squared_distance.topk(k=4, largest=False, dim=0)
@@ -154,7 +161,7 @@ class EigenAlboInterpolation(BaseObject):
         weights = 1.0 / torch.clamp(dist, min=1e-16)
         weights = weights / weights.sum(dim=1, keepdim=True)
 
-        M = self._eigen_val.shape[0]
+        G, M = query_cartesian.shape[0], self._eigen_val.shape[0]
         albo_weights = weights.new_zeros((G, M)).scatter_(1, index=x_idx, src=weights)
 
         return albo_weights
