@@ -1,5 +1,3 @@
-import trimesh
-
 import numpy as np
 import mitsuba as mi
 
@@ -22,7 +20,7 @@ class VertexColoursRenderer(BaseRenderer):
 
     def mesh_to_mitsuba(
         self,
-        mesh: trimesh.Trimesh,
+        mesh: Trimesh,
         vertex_colours: Union[None, Float[Tensor, "V 3"]] = None,
         **kwargs
     ) -> mi.Mesh:

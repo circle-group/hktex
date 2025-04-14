@@ -1,5 +1,3 @@
-import trimesh
-
 import numpy as np
 import mitsuba as mi
 from dataclasses import dataclass
@@ -21,7 +19,7 @@ class UVTextureRenderer(BaseRenderer):
 
     def mesh_to_mitsuba(
         self,
-        mesh: trimesh.Trimesh,
+        mesh: Trimesh,
         tex_img: Union[None, Float[Tensor, "W H 3"]] = None,
         **kwargs,
     ) -> mi.Mesh:

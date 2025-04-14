@@ -37,3 +37,5 @@ from omegaconf import DictConfig
 
 # PyTorch Tensor type
 from torch import Tensor
+
+from trimesh import Trimesh

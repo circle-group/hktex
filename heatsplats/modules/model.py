@@ -166,3 +166,8 @@ class Model(BaseModule):
         for k, v in self.state_dict().items():
             np_dict[k] = v.detach().cpu().numpy()
         np.savez_compressed(filename, **np_dict)
+
+    def load_torch(self, filename):
+        self.load_state_dict(
+            torch.load(filename, map_location=self.device, weights_only=True)
+        )
