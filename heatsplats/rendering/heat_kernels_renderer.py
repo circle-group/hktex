@@ -1,5 +1,5 @@
 import torch
-import drjit
+import drjit as dr
 import mitsuba as mi
 import numpy as np
 
@@ -19,10 +19,10 @@ class HeatKernelsTexture(mi.Texture):
         self.eigalbo_interp: EigenAlboInterpolation = None
 
     def eval(self, si, active=True, dirs=None, norms=None, albedo=None):
-        mi_out = self._eval_in_torch(si.p, si.prim_index)
-        return mi.Vector3f(mi_out)
+        mi_out: dr.scalar.TensorXf = self._eval_in_torch(si.p, si.prim_index)
+        return dr.unravel(mi.Vector3f, mi_out.array)
 
-    @drjit.wrap(source="drjit", target="torch")
+    @dr.wrap(source="drjit", target="torch")
     @torch.no_grad()
     def _eval_in_torch(self, pts, face_ids, batch_size=1024):
 
@@ -36,6 +36,21 @@ class HeatKernelsTexture(mi.Texture):
             device=pts.device,
         )
 
+        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
+            angles=self.model.angles, scales=self.model.anisotropies
+        )
+
+        kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
+        barycentric_coords = self.mesh.cartesian_to_barycentric(
+            self.model.kernel_locations, kernel_vert_idx
+        )
+
+        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
+            albo_weights=albo_weights,
+            barycentric_coords=barycentric_coords,
+            vert_idx=kernel_vert_idx,
+        )
+
         for i in range(0, P, batch_size):
             # Slice the current batch. IT handles also when the smaller batch is smaller
 
@@ -45,25 +60,10 @@ class HeatKernelsTexture(mi.Texture):
             pts_tri_vert_idx = self.mesh.get_face_vertices(face_ids_batch)
             pts_barys = self.mesh.cartesian_to_barycentric(pts_batch, pts_tri_vert_idx)
 
-            albo_weights = self.eigalbo_interp.interpolate_anisotropies(
-                angles=self.model.angles, scales=self.model.anisotropies
-            )
             evals, pts_evecs, pts_mass = self.eigalbo_interp.barycentric_albo_points(
                 albo_weights=albo_weights,
                 barycentric_coords=pts_barys,
                 vert_idx=pts_tri_vert_idx,
-            )
-
-            kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
-            barycentric_coords = self.mesh.cartesian_to_barycentric(
-                self.model.kernel_locations, kernel_vert_idx
-            )
-            self.model.save_barycentric_locations(barycentric_coords)
-
-            kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
-                albo_weights=albo_weights,
-                barycentric_coords=barycentric_coords,
-                vert_idx=kernel_vert_idx,
             )
 
             colours_batch = torch.zeros(
@@ -81,13 +81,13 @@ class HeatKernelsTexture(mi.Texture):
                 (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
             )
 
-            colours_batch = utils.heat_diffusion_reduce(
+            colours_batch = utils.heat_diffusion(
                 colours_batch,
                 pts_mass,
                 evals,
                 pts_evecs,
                 self.model.diff_times,
-            )
+            ).sum(dim=0)
             colours_batch = colours_batch[: pts_batch.shape[0]]
             colours_batch = self.model(colours_batch)
 

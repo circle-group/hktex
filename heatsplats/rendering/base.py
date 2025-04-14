@@ -213,14 +213,16 @@ class BaseRenderer(BaseObject):
         self._camera_dict = self.set_centre_looking_camera(**overrides)
         self.configure_scene()
 
+    @staticmethod
     def mega_kernel(state: bool = False):
-        drjit.set_flag(drjit.JitFlag.LoopRecord, state)
+        drjit.set_flag(drjit.JitFlag.SymbolicLoops, state)
 
-        drjit.set_flag(drjit.JitFlag.VCallRecord, state)
+        drjit.set_flag(drjit.JitFlag.SymbolicCalls, state)
         # drjit.set_flag(drjit.JitFlag.SymbolicCalls, state)
 
-        drjit.set_flag(drjit.JitFlag.VCallOptimize, state)
+        drjit.set_flag(drjit.JitFlag.OptimizeCalls, state)
 
+    @staticmethod
     def flush_cache():
         for _ in range(5):  # Not sure why but calling it once is not enough
             drjit.flush_malloc_cache()
