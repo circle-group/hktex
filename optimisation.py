@@ -82,7 +82,12 @@ def main(args, extras) -> Dict[str, Any]:
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
 
-    from heatsplats.utils import ExperimentConfig, load_config, seed_everything
+    from heatsplats.utils import (
+        ExperimentConfig,
+        load_config,
+        seed_everything,
+        save_config_snapshot,
+    )
 
     # parse YAML config to OmegaConf
     cfg: ExperimentConfig
@@ -96,7 +101,35 @@ def main(args, extras) -> Dict[str, Any]:
 
     trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(cfg.trainer, datamodule)
 
+    # Add output logs
+    if cfg.optim.save_logs:
+        fh = logging.FileHandler(os.path.join(cfg.trial_dir, "logs.txt"))
+        fh.setLevel(logging.INFO)
+        if args.verbose:
+            fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+        logger.addHandler(fh)
+
+    # Save raw and parsed config
+    save_config_snapshot(os.path.join(cfg.trial_dir, "configs"), cfg, args.config)
+
+    # Save args and extras
+    def write_to_text(file, lines):
+        with open(file, "w") as f:
+            for line in lines:
+                f.write(line + "\n")
+
+    write_to_text(
+        os.path.join(cfg.trial_dir, "cmd.txt"),
+        ["python " + " ".join(sys.argv), str(args), str(extras)],
+    )
+
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
+
+    if cfg.optim.save_model:
+        save_dir = os.path.join(cfg.trial_dir, "ckpts")
+        os.makedirs(save_dir, exist_ok=True)
+        trainer.save_model(os.path.join(save_dir, cfg.optim.save_model_name))
 
     return {
         "optimisation": trainer,

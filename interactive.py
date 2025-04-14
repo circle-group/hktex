@@ -30,13 +30,14 @@ if __name__ == "__main__":
         "verbose": False,
     }
     extras_dict = {
-        "data.mesh_path": "../objects/bob/bob_tri.obj",
+        "data.mesh_path": "../objects/spot/spot_triangulated.obj",
+        # "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
         # "trainer.tracer.n_debug_traces": 400,
-        "optim.iters": 500,
+        "optim.iters": 5000,
         "data.batch_size": 1024,
         # "data.sample_all_vertices": False,
-        "trainer.model.n_sources": 400,
+        "trainer.model.n_sources": 512,
         # "trainer.model.kernel_dim": 3,
         # "trainer.model.out_net": False,
         # "trainer.model.normalize_colours": False,

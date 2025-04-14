@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
+import os
 import matplotlib.pyplot as plt
+import drjit as dr
 import mitsuba as mi
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from heatsplats.utils import load_mesh
+from heatsplats.utils import load_mesh, load_config, ExperimentConfig
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
@@ -29,27 +31,41 @@ if __name__ == "__main__":
     bitmap2 = mi.Bitmap(image).convert(srgb_gamma=True)
 
     # Test HeatKernelsRenderer
-    fname = "../objects/bob/bob_tri.obj"
+    # experiment = None
+    experiment = "outputs/uv-texture-fitting/spot_triangulated@20250414-142841"
+    if experiment is None:
+        fname = "../objects/bob/bob_tri.obj"
+        model_cfg = {
+            "weights": None,
+            "n_sources": 400,
+            "out_dim": 3,
+            "kernel_dim": 32,
+            "out_net": True,
+            "normalize_colours": False,
+        }
+        eigalbo_config = {
+            "k_eig": 256,
+            "use_precomputed": True,
+            "precompute_anisotropies": [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100],
+            "precompute_angles_every_deg": 30,
+            "mesh_path": "../objects/bob/bob_tri.obj",
+            "precomputed_name": "eigen_albo",
+        }
+        ckpt_name = "outputs/hk_bob.pt"
+    else:
+        cfg_path = os.path.join(experiment, "configs/parsed.yaml")
+        main_cfg: ExperimentConfig = load_config(cfg_path)
+        fname = main_cfg.data["mesh_path"]
+        model_cfg = main_cfg.trainer["model"]
+        eigalbo_config = main_cfg.trainer["eigen_albo"]
+        ckpt_name = os.path.join(
+            main_cfg.trial_dir, "ckpts", main_cfg.optim.save_model_name
+        )
+    # dr.set_log_level(dr.LogLevel.Info)
     tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=False)
     our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
-    model_cfg = {
-        "weights": None,
-        "n_sources": 400,
-        "out_dim": 3,
-        "kernel_dim": 32,
-        "out_net": True,
-        "normalize_colours": False,
-    }
-    eigalbo_config = {
-        "k_eig": 256,
-        "use_precomputed": True,
-        "precompute_anisotropies": [1, 2.5, 5, 7.5, 10, 25, 50, 75, 100],
-        "precompute_angles_every_deg": 30,
-        "mesh_path": "../objects/bob/bob_tri.obj",
-        "precomputed_name": "eigen_albo",
-    }
     model = Model(model_cfg, our_mesh)
-    model.load_torch("outputs/hk_bob.pt")
+    model.load_torch(ckpt_name)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
     hk_renderer = HeatKernelsRenderer(dict())
     hk_renderer.mega_kernel(False)

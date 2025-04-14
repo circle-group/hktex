@@ -87,7 +87,7 @@ class BaseObject(Updateable):
         self, cfg: Optional[Union[dict, DictConfig]] = None, *args, **kwargs
     ) -> None:
         super().__init__()
-        self.cfg = parse_structured(self.Config, cfg)
+        self.cfg = parse_structured(self.Config, cfg, merge_defaults=True)
         self.device = get_device()
         self.configure(*args, **kwargs)
 
@@ -106,7 +106,7 @@ class BaseModule(nn.Module, Updateable):
         self, cfg: Optional[Union[dict, DictConfig]] = None, *args, **kwargs
     ) -> None:
         super().__init__()
-        self.cfg = parse_structured(self.Config, cfg)
+        self.cfg = parse_structured(self.Config, cfg, merge_defaults=True)
         self.device = get_device()
         self.configure(*args, **kwargs)
         if self.cfg.weights is not None:

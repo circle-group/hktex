@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass, field
+import shutil
 
 import yaml
 from omegaconf import OmegaConf, DictConfig
@@ -55,6 +56,10 @@ def C_max(value: Any) -> float:
 @dataclass
 class OptimConfig:
     iters: int = 5000
+
+    save_logs: bool = True
+    save_model: bool = True
+    save_model_name: str = "model.pt"
 
 
 @dataclass
@@ -111,6 +116,7 @@ def load_config(
     *yamls: Union[str, bytes, os.PathLike],
     cli_args: list = [],
     from_string=False,
+    merge_defaults=True,
     **kwargs
 ) -> Any:
     if from_string:
@@ -118,6 +124,8 @@ def load_config(
     else:
         yaml_confs = [OmegaConf.load(f) for f in yamls]
     cli_conf = OmegaConf.from_cli(cli_args)
+    if merge_defaults:
+        yaml_confs.insert(0, ExperimentConfig)
     cfg = OmegaConf.merge(*yaml_confs, cli_conf, kwargs)
     OmegaConf.resolve(cfg)
     assert isinstance(cfg, DictConfig)
@@ -134,6 +142,18 @@ def dump_config(path: str, config) -> None:
         OmegaConf.save(config=config, f=fp)
 
 
-def parse_structured(fields: Any, cfg: Optional[Union[dict, DictConfig]] = None) -> Any:
+def parse_structured(
+    fields: Any,
+    cfg: Optional[Union[dict, DictConfig]] = None,
+    merge_defaults: bool = False,
+) -> Any:
+    if merge_defaults:
+        cfg = OmegaConf.merge(fields, cfg)
     scfg = OmegaConf.structured(fields(**cfg))
     return scfg
+
+
+def save_config_snapshot(savedir, config, config_path):
+    os.makedirs(savedir, exist_ok=True)
+    dump_config(os.path.join(savedir, "parsed.yaml"), config)
+    shutil.copyfile(config_path, os.path.join(savedir, "raw.yaml"))

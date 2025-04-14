@@ -255,3 +255,6 @@ class BaseTrainer(BaseObject):
             utils.big_trimesh_pcl(traces_starts, None, radius=0.005),
             *[trimesh.load_path(t, colors=[[255, 0, 0, 255]]) for t in traces],
         ]
+
+    def save_model(self, filename):
+        self.model.save_torch(filename)
