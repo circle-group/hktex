@@ -14,7 +14,7 @@ mamba install pytorch-gpu=2.5.1 torchvision -c conda-forge
 mamba install pytorch_geometric -c conda-forge
 mamba install cuda-compiler -c conda-forge
 
-pip install trimesh Pillow rtree "pyglet<2"
+pip install trimesh Pillow rtree "pyglet<2" imageio
 pip install robust_laplacian point-cloud-utils libigl potpourri3d
 pip install mitsuba
 pip install termcolor tqdm matplotlib

@@ -7,7 +7,7 @@ import mitsuba as mi
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from heatsplats.utils import load_mesh, load_config, ExperimentConfig
+from heatsplats.utils import load_mesh, load_config, ExperimentConfig, show_video
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
@@ -22,6 +22,7 @@ if __name__ == "__main__":
     mi_mesh = uv_texture_renderer.mesh_to_mitsuba(mesh)
     image = uv_texture_renderer.render(mi_mesh)
     bitmap = mi.Bitmap(image).convert(srgb_gamma=True)
+    frames = uv_texture_renderer.rotating_video(mi_mesh, n_frames=20)
 
     # Test VertexColoursRenderer
     mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=True)
@@ -32,7 +33,7 @@ if __name__ == "__main__":
 
     # Test HeatKernelsRenderer
     # experiment = None
-    experiment = "outputs/uv-texture-fitting/spot_triangulated@20250414-142841"
+    experiment = "outputs/uv-texture-fitting/spot_triangulated@20250414-174255"
     if experiment is None:
         fname = "../objects/bob/bob_tri.obj"
         model_cfg = {

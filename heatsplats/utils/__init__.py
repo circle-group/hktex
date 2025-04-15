@@ -11,3 +11,4 @@ from .lbo import *
 from .diffusion import *
 from .distances import *
 from .torch_geodesics import *
+from .video import *
