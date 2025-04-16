@@ -93,7 +93,7 @@ def main(args, extras) -> Dict[str, Any]:
     # parse YAML config to OmegaConf
     cfg: ExperimentConfig
     cfg = load_config(
-        args.config, "configs/rendering.yaml", cli_args=extras, n_gpus=n_gpus
+        args.config, args.rendering_config, cli_args=extras, n_gpus=n_gpus
     )
 
     seed_everything(cfg.seed)
@@ -153,6 +153,11 @@ def main(args, extras) -> Dict[str, Any]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, help="path to config file")
+    parser.add_argument(
+        "--rendering_config",
+        default="configs/rendering.yaml",
+        help="path to rendering config file",
+    )
     parser.add_argument(
         "--gpu",
         default="0",
