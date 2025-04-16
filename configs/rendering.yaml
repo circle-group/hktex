@@ -1,0 +1,39 @@
+renderer:
+  n_rotating_frames: 20
+  point_batching: 1024  # used only to render heat kernels, not GTs
+
+  camera_config:
+    camera_distance: 3.0
+    azimuth_deg: 180.0
+    elevation_deg: 0.0
+    camera_type: perspective
+    img_width: 256
+    img_height: 256
+    sampler_type: multijitter
+    sample_count: 4
+    fov: 40.0
+    aperture_radius: None
+    focus_distance: None
+    near_clip: 0.01
+    far_clip: 1000.0
+
+  emitter_config:
+    envmap_path: None
+    envmap_scale: 1.0
+    radiance: 1.0
+
+  integrator_config:
+    type: path
+    hide_emitters: False
+
+  ground_plane_config:
+    activated: True
+    rotation_axis: [1, 0, 0]
+    rotation_angle: -90
+    scale: 10
+    translation: [0, 0, -0.1]
+    checkerboard: False
+    plane_colour: [0.3, 0.3, 0.3]
+
+  mitsuba_mesh_config:
+    twosided: False

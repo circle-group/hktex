@@ -89,6 +89,8 @@ class ExperimentConfig:
 
     optim: OptimConfig = field(default_factory=OptimConfig)
 
+    renderer: dict = field(default_factory=dict)
+
     variables: dict = field(default_factory=dict)
 
     def __post_init__(self):

@@ -9,7 +9,7 @@ from IPython import get_ipython
 from optimisation import main
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import big_trimesh_pcl
+from heatsplats.utils import big_trimesh_pcl, show_video
 
 try:
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # Jupyter Notebook
@@ -76,9 +76,14 @@ if __name__ == "__main__":
         init_mesh, vertex_colors=init_colours
     )
 
+    gt_renderings, result_renderings, combined_renderings = out["renderings"]
+
     print(f"You can now visualise the followings:")
     print(f"  - Initial mesh: init_mesh.show()")
     print(f"  - GT mesh: gt_mesh.show()")
     print(f"  - Optimised mesh: v_mesh.show()")
     print(f"  - Optimised mesh with final kernel positions: v_scene.show()")
     print(f"  - Optimised mesh with traces: v_scene_traces.show()")
+    print(f"  - GT renderings: show_video(gt_renderings)")
+    print(f"  - Optimised mesh renderings: show_video(result_renderings)")
+    print(f"  - Combined renderings: show_video(combined_renderings)")

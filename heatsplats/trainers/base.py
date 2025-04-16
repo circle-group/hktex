@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import mitsuba as mi
+
 import heatsplats
 from heatsplats.modules import (
     Mesh,
@@ -20,6 +22,7 @@ from heatsplats.modules import (
     EigenAlboInterpolation,
 )
 from heatsplats.data import MeshSamplerDataModule
+from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 
 import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
@@ -38,6 +41,8 @@ class BaseTrainer(BaseObject):
         model: dict = field(default_factory=dict)
 
         optimizers: list = field(default_factory=list)
+
+        renderer: dict = field(default_factory=dict)
 
     cfg: Config
 
@@ -215,6 +220,54 @@ class BaseTrainer(BaseObject):
         v_colours = v_colours[:V]
         v_colours = self.model(v_colours)
         return v_colours
+
+    @abstractmethod
+    def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        """
+        Render the ground truth mesh. Defined in subclases as the GT mesh could have
+        vertex_colours, uv_textures, or nothing (if texture comes from images).
+
+        Args:
+            rotating_frames (int): Number of frames for rotation.
+                If 1, render a single image.
+        Returns:
+            mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
+        """
+        pass
+
+    def render_result(
+        self, rotating_frames: int = 10
+    ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        """
+        Render the mesh with the resultsing heat kernel texture. This is always rendered
+        with the heat kernel texture, so it is not defined in subclasses.
+        Args:
+            rotating_frames (int): Number of frames for rotation.
+                If 1, render a single image.
+        Returns:
+            mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
+        """
+        renderer = HeatKernelsRenderer(self.cfg.renderer)
+
+        renderer.mega_kernel(False)
+
+        mi_mesh = renderer.mesh_to_mitsuba(
+            self.datamodule.mesh, self.mesh, self.model, self.eigalbo_interp
+        )
+
+        if rotating_frames == 1:
+            img = renderer.render(mi_mesh, denoise=True)
+            out = mi.Bitmap(img).convert(
+                pixel_format=mi.Bitmap.PixelFormat.RGB,
+                component_format=mi.Struct.Type.UInt8,
+                srgb_gamma=True,
+            )
+        else:
+            out = renderer.rotating_video(mi_mesh, rotating_frames)
+
+        renderer.flush_cache()
+
+        return out
 
     @property
     def kernel_centres(self):

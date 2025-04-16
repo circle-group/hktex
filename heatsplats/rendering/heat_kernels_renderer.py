@@ -17,6 +17,7 @@ class HeatKernelsTexture(mi.Texture):
         self.mesh: Mesh = None
         self.model: Model = None
         self.eigalbo_interp: EigenAlboInterpolation = None
+        self.point_batching: int = None
 
     def eval(self, si, active=True, dirs=None, norms=None, albedo=None):
         mi_out: dr.scalar.TensorXf = self._eval_in_torch(si.p, si.prim_index)
@@ -96,9 +97,6 @@ class HeatKernelsTexture(mi.Texture):
 
         return colours
 
-    def eval_1(self, si, active=True):
-        return mi.Float(self.eval(si)[0])
-
     def to_string(self):
         return "HeatKernelTexture"
 
@@ -113,7 +111,7 @@ class HeatKernelsRenderer(BaseRenderer):
 
     @dataclass
     class Config(BaseRenderer.Config):
-        pass
+        point_batching: int = 1024
 
     cfg: Config
 
@@ -130,6 +128,7 @@ class HeatKernelsRenderer(BaseRenderer):
         hk_texture.model = model
         hk_texture.mesh = mesh
         hk_texture.eigalbo_interp = eigalbo_interp
+        hk_texture.point_batching = self.cfg.point_batching
 
         bsdf_dict = {
             "type": "principled",

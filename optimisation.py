@@ -9,6 +9,7 @@ import torch
 import heatsplats
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.trainers import BaseTrainer
+from heatsplats.utils.video import save_video, combine_videos
 from heatsplats.utils.typing import *
 
 
@@ -91,7 +92,9 @@ def main(args, extras) -> Dict[str, Any]:
 
     # parse YAML config to OmegaConf
     cfg: ExperimentConfig
-    cfg = load_config(args.config, cli_args=extras, n_gpus=n_gpus)
+    cfg = load_config(
+        args.config, "configs/rendering.yaml", cli_args=extras, n_gpus=n_gpus
+    )
 
     seed_everything(cfg.seed)
 
@@ -126,15 +129,24 @@ def main(args, extras) -> Dict[str, Any]:
 
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
 
+    gt_renderings = trainer.render_gt(cfg.renderer.n_rotating_frames)
+    result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
+    if cfg.renderer.n_rotating_frames > 1:
+        combined_renderings = combine_videos(gt_renderings, result_renderings)
+    else:
+        combined_renderings = None
+
     if cfg.optim.save_model:
         save_dir = os.path.join(cfg.trial_dir, "ckpts")
         os.makedirs(save_dir, exist_ok=True)
         trainer.save_model(os.path.join(save_dir, cfg.optim.save_model_name))
+        save_video(combined_renderings, os.path.join(save_dir, "gt_vs_out.mp4"))
 
     return {
         "optimisation": trainer,
         "datamodule": datamodule,
         "colours": (v_colours, gt_colours, init_colours),
+        "renderings": (gt_renderings, result_renderings, combined_renderings),
     }
 
 

@@ -29,7 +29,7 @@ class CameraConfig:
 @dataclass
 class EmitterConfig:
     envmap_path: str | None = None
-    scale: float = 1.0
+    envmap_scale: float = 1.0
     radiance: float = 1.0
 
 
@@ -116,7 +116,7 @@ class BaseRenderer(BaseObject):
 
     def configure_emitter(self) -> dict:
         envmap_path = self.cfg.emitter_config.envmap_path
-        scale = self.cfg.emitter_config.scale
+        scale = self.cfg.emitter_config.envmap_scale
 
         # Other emitters are possible, but require positiong the lights in
         # the correct position
