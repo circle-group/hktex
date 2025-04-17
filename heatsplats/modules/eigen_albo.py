@@ -151,6 +151,17 @@ class EigenAlboInterpolation(BaseObject):
         angles: Float[Tensor, "G"],
         scales: Float[Tensor, "G"],
     ) -> Float[Tensor, "G M"]:
+        """
+        Computes the interpolation weights for the precomputed anisotropic eigenvalues
+        and eigenvectors. The weights are computed according to the distance between the
+        precomputed and the desired angles and anisotropies (scales).
+
+        G: number of heat kernels
+        M: number of precomputed anisotropic eigenproperties
+
+        Returns:
+            Float[Tensor, "G M"]: weights to combine precomputed albo eigenproperties.
+        """
         query_cartesian = self._make_cartesian_query(angles, scales)
         diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
         squared_distance = (diff * diff).sum(-1, keepdim=True)
@@ -171,6 +182,33 @@ class EigenAlboInterpolation(BaseObject):
         albo_weights: Float[Tensor, "G M"],
         vert_idx: Optional[Int[Tensor, "P"]] = None,
     ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+        """
+        Gather the eigenvalues and eigenvectors of the Anisotropic Laplacian at the
+        vertices of the mesh. if 'vert_idx' is provided the values refer to a subset of
+        vertices. The precomputed albo eigenproperties are weighted according to the
+        'albo_weights' provided. These weights are computed with
+        'interpolate_anisotropies' and proportional to the distance between the queried
+        andclosest precomputed anisotropic eigenproperties.
+
+        G: number of heat kernels
+        M: number of precomputed anisotropic eigenproperties
+        P: number of vertices
+        K: number of eigenvalues/eigenvectors
+
+        Args:
+            albo_weights (Float[Tensor, "G M"]): weights to combine precomputed albo
+                eigenproperties. The weights are computed with 'interpolate_anisotropies'
+
+            vert_idx (Optional[Int[Tensor, "P"]], optional): Defaults to None.
+                If provided, the eigenvalues and eigenvectors are computed only for the
+                vertices with the provided indices.
+                If None, the eigenvalues and eigenvectors are computed for all vertices.
+
+        Returns:
+            Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+                The eigenvalues and eigenvectors of the Anisotropic Laplacian at the
+                desired vertices as well as the mass vector.
+        """
         G, M = albo_weights.shape[0], self._eigen_val.shape[0]
         assert albo_weights.shape[1] == M
 
@@ -193,6 +231,33 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "P 3"],
         vert_idx: Int[Tensor, "P 3"],
     ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+        """
+        Interpolates the precomputed eigenvalues and eigenvectors of the Anisotropic
+        Laplacian at the correct angle and anisotropy at any arbitrary location on
+        the surface of the mesh. Locations are provided as barycentric coordinates wrt
+        the vertices of the face containing each point.
+
+        G: number of heat kernels
+        P: number of points
+        M: number of precomputed anisotropic eigenproperties
+        K: number of eigenvalues/eigenvectors
+
+        Args:
+            albo_weights (Float[Tensor, "G M"]): weights to combine precomputed albo
+                eigenproperties. The weights are computed with 'interpolate_anisotropies'
+
+            barycentric_coords (Float[Tensor, "P 3"]): barycentric coordinates of the
+                points to interpolate the eigenvalues and eigenvectors at.
+
+            vert_idx (Int[Tensor, "P 3"]): indices of the vertices of the faces
+                containing the points to interpolate the eigenvalues and eigenvectors at.
+
+        Returns:
+            Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+                The eigenvalues and eigenvectors of the Anisotropic Laplacian
+                for all heat kernels at the desired points as well as
+                the corresponding mass vectors.
+        """
         G, P = albo_weights.shape[0], barycentric_coords.shape[0]
         M = self._eigen_val.shape[0]
         assert vert_idx.shape[0] == P and albo_weights.shape[1] == M
@@ -224,6 +289,17 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "G 3"],
         vert_idx: Int[Tensor, "G 3"],
     ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G"]]:
+        """
+        Conceptuallly similar to 'barycentric_albo_points', but instead of interpolating
+        the eigenvalues and eigenvectors for diffusing all heat kernels at arbitrary
+        points on the surface of the mesh, it interpolates eigenvalues and eigenvectors
+        only at kernel locations.
+        Since kernels can be placed anywhere on the surface of the mesh, the main
+        difference is in the required shapes of the inputs and outputs.
+
+        It does not return evals as they have usually been computed with
+        'barycentric_albo_points' and are not location specific.
+        """
         G, M = albo_weights.shape[0], self._eigen_val.shape[0]
         assert barycentric_coords.shape[0] == G and vert_idx.shape[0] == G
         assert albo_weights.shape[1] == M
