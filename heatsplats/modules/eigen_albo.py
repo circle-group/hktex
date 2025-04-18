@@ -7,7 +7,13 @@ import torch.linalg as linalg
 from tqdm import tqdm
 
 import heatsplats
-from heatsplats.utils import get_anisotropic_lbo, compute_eig_laplacian, BaseObject
+from heatsplats.utils import (
+    get_anisotropic_lbo,
+    compute_eig_laplacian,
+    compute_mesh_laplacian,
+    interpolate_barycentric_attr_from_trivertidx,
+    BaseObject,
+)
 from heatsplats.utils.typing import *
 
 from .mesh import Mesh
@@ -34,7 +40,7 @@ class EigenAlboInterpolation(BaseObject):
     def configure(self, mesh: Mesh):
         self._mesh = mesh
 
-        _all_eigen, _smp_coords, _mass = self.precompute_all_eigen()
+        _iso_eigen, _all_eigen, _smp_coords, _mass = self.precompute_all_eigen()
 
         M = _all_eigen.shape[0]
 
@@ -44,6 +50,8 @@ class EigenAlboInterpolation(BaseObject):
         )
 
         k_eig = self.cfg.k_eig
+        self._iso_eigen_val = _iso_eigen[:k_eig].contiguous()
+        self._iso_eigen_vec = _iso_eigen[k_eig:].view(-1, k_eig).contiguous()
         self._eigen_val = _all_eigen[:, :k_eig].contiguous()
         self._eigen_vec = _all_eigen[:, k_eig:].view(M, -1, k_eig).contiguous()
 
@@ -65,21 +73,24 @@ class EigenAlboInterpolation(BaseObject):
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
         if fpath is None or not self.cfg.use_precomputed:
-            all_eigen, sampling_coords, mass = self._precompute_all_eigen()
+            all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen()
         else:
             fpath_base = fpath.rsplit(".", 1)[0]
             precomputed_path = f"{fpath_base}_{self.cfg.precomputed_name}.pt"
             heatsplats.info(f"Loading precomputed albo eigen from {precomputed_path}")
             try:
                 precomputed = torch.load(precomputed_path, weights_only=True)
+                iso_eigen = precomputed["iso_eigen"]
                 all_eigen = precomputed["all_eigen"]
                 sampling_coords = precomputed["sampling_coords"]
                 mass = precomputed["mass"]
             except (FileNotFoundError, KeyError):
                 heatsplats.info(f"Precomputed albo eigen not found")
-                all_eigen, sampling_coords, mass = self._precompute_all_eigen()
+                iso_eigen = self._precompute_iso_eigen()
+                all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen()
                 torch.save(
                     {
+                        "iso_eigen": iso_eigen,
                         "all_eigen": all_eigen,
                         "sampling_coords": sampling_coords,
                         "mass": mass,
@@ -87,12 +98,13 @@ class EigenAlboInterpolation(BaseObject):
                     precomputed_path,
                 )
         return (
+            iso_eigen.to(torch.float32).to(self.device),
             all_eigen.to(torch.float32).to(self.device),
             sampling_coords.to(torch.float32).to(self.device),
             mass.to(torch.float32).to(self.device),
         )
 
-    def _precompute_all_eigen(
+    def _precompute_all_aniso_eigen(
         self,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         all_eigen = []
@@ -124,6 +136,18 @@ class EigenAlboInterpolation(BaseObject):
         polar_smp_coords = torch.stack(sampling_coords)
 
         return torch.stack(all_eigen), polar_smp_coords, mass
+
+    def _precompute_iso_eigen(self) -> torch.Tensor:
+        # Compute eigenvalues and eigenvectors obtained eigendecomposing
+        # the Isotropic Laplacian
+        lapl, mass = compute_mesh_laplacian(
+            self._mesh.verts.cpu().numpy(), self._mesh.faces.cpu().numpy()
+        )
+        eval, evecs = compute_eig_laplacian(lapl, mass, self.cfg.k_eig)
+
+        flat_evecs = torch.tensor(evecs).flatten()
+        iso_eigen_flat = torch.cat([torch.tensor(eval), flat_evecs])
+        return iso_eigen_flat
 
     def _make_cartesian_query(
         self,
@@ -324,3 +348,29 @@ class EigenAlboInterpolation(BaseObject):
         mass_interp = linalg.vecdot(bary_W, mass)
 
         return evec_interp, mass_interp
+
+    def barycentric_ilbo_evec_points(
+        self,
+        barycentric_coords: Float[Tensor, "P 3"],
+        vert_idx: Int[Tensor, "P 3"],
+    ) -> Float[Tensor, "P K"]:
+        return interpolate_barycentric_attr_from_trivertidx(
+            vert_idx, barycentric_coords, self._iso_eigen_vec
+        )
+
+    @torch.no_grad()
+    def ilbo_evec_vertices(
+        self,
+        vert_idx: Optional[Int[Tensor, "P"]] = None,
+    ) -> Float[Tensor, "P K"]:
+
+        evecs = self._iso_eigen_vec
+
+        if vert_idx is not None:
+            evecs = evecs[vert_idx]
+
+        return evecs
+
+    @property
+    def iso_evals(self) -> Float[Tensor, "K"]:
+        return self._iso_eigen_val

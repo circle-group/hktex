@@ -8,7 +8,7 @@ import heatsplats
 from heatsplats.utils import (
     parse_structured,
     uniform_sample_triangle,
-    interpolate_barycentric_coords,
+    interpolate_barycentric_attr,
 )
 from heatsplats.utils.typing import *
 
@@ -60,10 +60,10 @@ class UvTextureSamplerDataset(IterableDataset):
             batch_size = self.cfg.batch_size
             face_id = torch.randint(0, self.faces.shape[0], (batch_size,))
             bary_coord = uniform_sample_triangle(torch.rand((batch_size, 2)))
-            pos = interpolate_barycentric_coords(
+            pos = interpolate_barycentric_attr(
                 self.faces, face_id, bary_coord, self.verts
             )
-            uv = interpolate_barycentric_coords(
+            uv = interpolate_barycentric_attr(
                 self.tex_faces, face_id, bary_coord, self.uv
             )
             color = trimesh.visual.uv_to_color(uv, self.tex_img)[:, :3] / 255

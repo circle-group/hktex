@@ -46,6 +46,7 @@ def heat_diffusion(
     evals: Float[Tensor, "B V"],
     evecs: Float[Tensor, "B V K"],
     time: Float[Tensor, "B"],
+    weights_post_diff: Union[None, Float[Tensor, "B V"]] = None,
 ) -> Float[Tensor, "B V D"]:
     # Transform to spectral
     x_spec = to_basis(x, evecs, mass)
@@ -56,6 +57,9 @@ def heat_diffusion(
 
     # Transform back to per-vertex
     x_diffuse = from_basis(x_diffuse_spec, evecs)
+
+    if weights_post_diff is not None:
+        x_diffuse = x_diffuse * weights_post_diff.unsqueeze(-1)
 
     return x_diffuse
 
@@ -67,6 +71,7 @@ def heat_diffusion_reduce(
     evals: Float[Tensor, "B V"],
     evecs: Float[Tensor, "B V K"],
     time: Float[Tensor, "B"],
+    weights_post_diff: Union[None, Float[Tensor, "B V"]] = None,
 ) -> Float[Tensor, "B V D"]:
     # Transform to spectral
     x_spec = to_basis(x, evecs, mass)
@@ -77,6 +82,9 @@ def heat_diffusion_reduce(
 
     # Transform back to per-vertex
     x_diffuse = from_basis(x_diffuse_spec, evecs)
+
+    if weights_post_diff is not None:
+        x_diffuse = x_diffuse * weights_post_diff.unsqueeze(-1)
 
     # reduce
     return x_diffuse.sum(dim=0)

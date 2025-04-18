@@ -41,7 +41,11 @@ class VertexColoursTrainer(BaseTrainer):
             albo_weights=albo_weights, vert_idx=None if all_vertices else vert_idx
         )
 
+        # TODO: only if needed for BH dist weighting
+        iso_evecs = self.eigalbo_interp.ilbo_evec_vertices(vert_idx)
+
         data["evals"] = albo_evals
+        data["pts_iso_evecs"] = iso_evecs
         data["pts_evecs"] = albo_evecs
         data["pts_mass"] = mass
         data["albo_weights"] = albo_weights

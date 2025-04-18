@@ -20,7 +20,8 @@ __all__ = [
     "get_device",
     "load_module_weights",
     "seed_everything",
-    "interpolate_barycentric_coords",
+    "interpolate_barycentric_attr",
+    "interpolate_barycentric_attr_from_trivertidx",
     "normalise_colours",
 ]
 
@@ -59,7 +60,7 @@ def get_all_face_vertices(verts, faces):
     return verts[faces]
 
 
-def interpolate_barycentric_coords(f, fi, bc, attribute):
+def interpolate_barycentric_attr(f, fi, bc, attribute):
     """
     Interpolate an attribute stored at each vertex of a mesh across the faces of a
     triangle mesh using barycentric coordinates
@@ -74,6 +75,22 @@ def interpolate_barycentric_coords(f, fi, bc, attribute):
         [#attribs, dim]-shaped tensor of interpolated attributes.
     """
     return (attribute[f[fi]] * bc[:, :, None]).sum(1)
+
+
+def interpolate_barycentric_attr_from_trivertidx(tri_vert_idx, bc, attribute):
+    """
+    Interpolate an attribute stored at each vertex of a mesh across the faces of a
+    triangle mesh using barycentric coordinates
+
+    Args:
+        tri_vert_idx : [#attribs, 3, 3]-shaped indices of the vertices of the triangles
+        bc: [#attribs, 3]-shaped barycentric coordinates for each attribute
+        attribute: [#vertices, dim]-shaped attributes at each of the mesh vertices
+
+    Returns:
+        [#attribs, dim]-shaped tensor of interpolated attributes.
+    """
+    return (attribute[tri_vert_idx] * bc[:, :, None]).sum(1)
 
 
 def big_trimesh_pcl(points, colours=None, radius=0.015):

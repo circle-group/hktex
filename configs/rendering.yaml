@@ -1,6 +1,6 @@
 renderer:
   n_rotating_frames: 20
-  point_batching: 1024  # used only to render heat kernels, not GTs
+  point_batching: 2048  # used only to render heat kernels, not GTs
 
   camera_config:
     camera_distance: 3.0
