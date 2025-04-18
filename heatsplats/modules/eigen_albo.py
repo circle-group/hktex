@@ -392,7 +392,6 @@ class EigenAlboInterpolation(BaseObject):
                 pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
             )
             weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
-            weights = weights / weights.sum(dim=1, keepdim=True)
             weights: Float[Tensor, "B P+1"] = torch.cat(
                 (weights, torch.ones((weights.shape[0], 1), device=weights.device)),
                 dim=1,

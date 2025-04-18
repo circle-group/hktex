@@ -133,8 +133,10 @@ class BaseTrainer(BaseObject):
 
             # PS: biharmonic_dist_weights = None if 'enable_distance_weighting' == False
             # in eigalbo_interp config
-            biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
-                data["pts_iso_evecs"], kernel_barycentric_coords, kernel_vert_idx
+            biharmonic_dist_weights: Float[Tensor, "B P+1"] = (
+                self.eigalbo_interp.compute_biharmonic_weights(
+                    data["pts_iso_evecs"], kernel_barycentric_coords, kernel_vert_idx
+                )
             )
 
             colours = utils.heat_diffusion_reduce(
