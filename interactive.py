@@ -26,6 +26,7 @@ if __name__ == "__main__":
         # "config": "configs/vertex_colour_texture_fitting.yaml",
         # "config": "configs/known_vertex_colour_fitting.yaml",
         "config": "configs/uv_texture_fitting.yaml",
+        "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
         "verbose": False,
     }
@@ -33,7 +34,7 @@ if __name__ == "__main__":
         "data.mesh_path": "../objects/spot/spot_triangulated.obj",
         # "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
-        # "trainer.tracer.n_debug_traces": 400,
+        "trainer.tracer.n_debug_traces": 100,
         "optim.iters": 5000,
         "data.batch_size": 1024,
         # "data.sample_all_vertices": False,
@@ -78,12 +79,12 @@ if __name__ == "__main__":
 
     gt_renderings, result_renderings, combined_renderings = out["renderings"]
 
-    print(f"You can now visualise the followings:")
-    print(f"  - Initial mesh: init_mesh.show()")
-    print(f"  - GT mesh: gt_mesh.show()")
-    print(f"  - Optimised mesh: v_mesh.show()")
-    print(f"  - Optimised mesh with final kernel positions: v_scene.show()")
-    print(f"  - Optimised mesh with traces: v_scene_traces.show()")
-    print(f"  - GT renderings: show_video(gt_renderings)")
-    print(f"  - Optimised mesh renderings: show_video(result_renderings)")
-    print(f"  - Combined renderings: show_video(combined_renderings)")
+    print("You can now visualise the followings:")
+    print("  - Initial mesh: init_mesh.show()")
+    print("  - GT mesh: gt_mesh.show()")
+    print("  - Vert coloured optimised mesh: v_mesh.show()")
+    print("  - Vert coloured optimised mesh with final kernel pos: v_scene.show()")
+    print("  - Vert coloured optimised mesh with traces: v_scene_traces.show()")
+    print("  - GT renderings: show_video(gt_renderings)")
+    print("  - Optimised mesh renderings: show_video(result_renderings)")
+    print("  - Combined renderings: show_video(combined_renderings)")
