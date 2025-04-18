@@ -110,14 +110,14 @@ class BaseTrainer(BaseObject):
             )
 
             kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
-            barycentric_coords = self.mesh.cartesian_to_barycentric(
+            kernel_barycentric_coords = self.mesh.cartesian_to_barycentric(
                 self.model.kernel_locations, kernel_vert_idx
             )
-            self.model.save_barycentric_locations(barycentric_coords)
+            self.model.save_barycentric_locations(kernel_barycentric_coords)
 
             kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
                 albo_weights=albo_weights,
-                barycentric_coords=barycentric_coords,
+                barycentric_coords=kernel_barycentric_coords,
                 vert_idx=kernel_vert_idx,
             )
 
@@ -131,11 +131,11 @@ class BaseTrainer(BaseObject):
                 (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
             )
 
-            # TODO: only if needed for BH dist weighting otherwise set to None
-            biharmonic_dist_weights = self.compute_biharmonic_weights(
-                data["pts_iso_evecs"], barycentric_coords, kernel_vert_idx
+            # PS: biharmonic_dist_weights = None if 'enable_distance_weighting' == False
+            # in eigalbo_interp config
+            biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
+                data["pts_iso_evecs"], kernel_barycentric_coords, kernel_vert_idx
             )
-            # biharmonic_dist_weights = None
 
             colours = utils.heat_diffusion_reduce(
                 colours,
@@ -182,26 +182,6 @@ class BaseTrainer(BaseObject):
         v_colours = self.compute_vertex_colours()
         return v_colours, gt_colours, init_colours
 
-    def compute_biharmonic_weights(
-        self,
-        pts_iso_evecs: Float[Tensor, "P K"],
-        kernel_bary: Float[Tensor, "G 3"],
-        kernel_vert_idx: Float[Tensor, "G 3"],
-    ) -> Float[Tensor, "B P+1"]:
-        iso_evals = self.eigalbo_interp.iso_evals
-        kernel_iso_evecs = self.eigalbo_interp.barycentric_ilbo_evec_points(
-            kernel_bary, kernel_vert_idx
-        )
-        pts_kernel_dist: Float[Tensor, "B P"] = utils.compute_biharmonic_distance(
-            pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
-        )
-        weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
-        weights = weights / weights.sum(dim=1, keepdim=True)
-        weights: Float[Tensor, "B P+1"] = torch.cat(
-            (weights, torch.ones((weights.shape[0], 1), device=weights.device)), dim=1
-        )
-        return weights
-
     def compute_vertex_colours(self):
         B, V = self.model.N_sources, self.mesh.N_verts
         v_colours: Float[Tensor, "B V L"] = torch.zeros(
@@ -237,12 +217,19 @@ class BaseTrainer(BaseObject):
             (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
         )
 
+        biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
+            self.eigalbo_interp.ilbo_evec_vertices(),
+            barycentric_coords,
+            kernel_vert_idx,
+        )
+
         v_colours = utils.heat_diffusion_reduce(
             v_colours,
             mass,
             albo_evals,
             albo_evecs,
             self.model.diff_times,
+            biharmonic_dist_weights,
         )
         v_colours = v_colours[:V]
         v_colours = self.model(v_colours)

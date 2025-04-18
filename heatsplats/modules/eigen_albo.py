@@ -12,6 +12,7 @@ from heatsplats.utils import (
     compute_eig_laplacian,
     compute_mesh_laplacian,
     interpolate_barycentric_attr_from_trivertidx,
+    compute_biharmonic_distance,
     BaseObject,
 )
 from heatsplats.utils.typing import *
@@ -34,6 +35,7 @@ class EigenAlboInterpolation(BaseObject):
         precompute_angles_every_deg: int = 30
         mesh_path: Optional[str] = None
         precomputed_name: str = "eigen_albo"
+        enable_distance_weighting: bool = False
 
     cfg: Config
 
@@ -354,22 +356,50 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "P 3"],
         vert_idx: Int[Tensor, "P 3"],
     ) -> Float[Tensor, "P K"]:
-        return interpolate_barycentric_attr_from_trivertidx(
-            vert_idx, barycentric_coords, self._iso_eigen_vec
-        )
+        if self.cfg.enable_distance_weighting:
+            return interpolate_barycentric_attr_from_trivertidx(
+                vert_idx, barycentric_coords, self._iso_eigen_vec
+            )
+        else:
+            return None
 
     @torch.no_grad()
     def ilbo_evec_vertices(
         self,
         vert_idx: Optional[Int[Tensor, "P"]] = None,
     ) -> Float[Tensor, "P K"]:
+        if self.cfg.enable_distance_weighting:
+            evecs = self._iso_eigen_vec
+            if vert_idx is not None:
+                evecs = evecs[vert_idx]
+            return evecs
 
-        evecs = self._iso_eigen_vec
+        else:
+            return None
 
-        if vert_idx is not None:
-            evecs = evecs[vert_idx]
-
-        return evecs
+    def compute_biharmonic_weights(
+        self,
+        pts_iso_evecs: Float[Tensor, "P K"],
+        kernel_bary: Float[Tensor, "G 3"],
+        kernel_vert_idx: Float[Tensor, "G 3"],
+    ) -> Float[Tensor, "B P+1"]:
+        if self.cfg.enable_distance_weighting:
+            iso_evals = self.iso_evals
+            kernel_iso_evecs = self.barycentric_ilbo_evec_points(
+                kernel_bary, kernel_vert_idx
+            )
+            pts_kernel_dist: Float[Tensor, "B P"] = compute_biharmonic_distance(
+                pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
+            )
+            weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
+            weights = weights / weights.sum(dim=1, keepdim=True)
+            weights: Float[Tensor, "B P+1"] = torch.cat(
+                (weights, torch.ones((weights.shape[0], 1), device=weights.device)),
+                dim=1,
+            )
+            return weights
+        else:
+            return None
 
     @property
     def iso_evals(self) -> Float[Tensor, "K"]:
