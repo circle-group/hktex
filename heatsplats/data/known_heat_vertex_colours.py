@@ -48,7 +48,7 @@ class KnownHeatVertexColoursDataModule(MeshSamplerDataModule):
         self.n_sources = n_sources
 
         if n_sources == 3:
-            self.source_idxs = torch.tensor([3804, 0, 4274])
+            self.source_idxs = torch.tensor([992, 1150, 875])
 
             self.gt_splats = {
                 "angles": torch.tensor([45.0, 18.3, 10.0]),

@@ -23,7 +23,7 @@ trainer:
   eigen_albo: 
     k_eig: 256
     mesh_path: ${data.mesh_path}
-    enable_distance_weighting: False
+    distance_weighting: none 
 
   model: 
     n_sources: 80

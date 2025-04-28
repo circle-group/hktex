@@ -83,7 +83,7 @@ class HeatKernelsTexture(mi.Texture):
             )
 
             # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
-            # if 'enable_distance_weighting' == False in eigalbo_interp config
+            # if 'distance_weighting' == "none" in eigalbo_interp config
             pts_iso_evecs = self.eigalbo_interp.barycentric_ilbo_evec_points(
                 pts_barys, pts_tri_vert_idx
             )

@@ -131,7 +131,7 @@ class BaseTrainer(BaseObject):
                 (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
             )
 
-            # PS: biharmonic_dist_weights = None if 'enable_distance_weighting' == False
+            # PS: biharmonic_dist_weights = None if 'distance_weighting' == "none"
             # in eigalbo_interp config
             biharmonic_dist_weights: Float[Tensor, "B P+1"] = (
                 self.eigalbo_interp.compute_biharmonic_weights(

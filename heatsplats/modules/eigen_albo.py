@@ -35,7 +35,7 @@ class EigenAlboInterpolation(BaseObject):
         precompute_angles_every_deg: int = 30
         mesh_path: Optional[str] = None
         precomputed_name: str = "eigen_albo"
-        enable_distance_weighting: bool = False
+        distance_weighting: str = "none"
 
     cfg: Config
 
@@ -356,7 +356,7 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "P 3"],
         vert_idx: Int[Tensor, "P 3"],
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.enable_distance_weighting:
+        if self.cfg.distance_weighting is not "none":
             return interpolate_barycentric_attr_from_trivertidx(
                 vert_idx, barycentric_coords, self._iso_eigen_vec
             )
@@ -368,7 +368,7 @@ class EigenAlboInterpolation(BaseObject):
         self,
         vert_idx: Optional[Int[Tensor, "P"]] = None,
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.enable_distance_weighting:
+        if self.cfg.distance_weighting is not "none":
             evecs = self._iso_eigen_vec
             if vert_idx is not None:
                 evecs = evecs[vert_idx]
@@ -383,7 +383,7 @@ class EigenAlboInterpolation(BaseObject):
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
     ) -> Float[Tensor, "B P+1"]:
-        if self.cfg.enable_distance_weighting:
+        if self.cfg.distance_weighting is not "none":
             iso_evals = self.iso_evals
             kernel_iso_evecs = self.barycentric_ilbo_evec_points(
                 kernel_bary, kernel_vert_idx
@@ -391,7 +391,21 @@ class EigenAlboInterpolation(BaseObject):
             pts_kernel_dist: Float[Tensor, "B P"] = compute_biharmonic_distance(
                 pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
             )
-            weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
+
+            if self.cfg.distance_weighting == "inverse":
+                weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
+                weights = weights / weights.sum(dim=0, keepdim=True)
+
+            elif "gaussian" in self.cfg.distance_weighting:
+                std = float(self.cfg.distance_weighting.split("_")[-1])
+                assert std > 0, "Standard deviation must be positive"
+                weights = torch.exp(-(pts_kernel_dist**2) / (2 * std**2))
+
+            else:
+                raise ValueError(
+                    f"Unknown distance weighting: {self.cfg.distance_weighting}"
+                )
+
             weights: Float[Tensor, "B P+1"] = torch.cat(
                 (weights, torch.ones((weights.shape[0], 1), device=weights.device)),
                 dim=1,

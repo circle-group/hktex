@@ -44,7 +44,7 @@ class UvTextureTrainer(BaseTrainer):
             vert_idx=pts_tri_vert_idx,
         )
 
-        # iso_evecs=None if 'enable_distance_weighting'==False in eigalbo_interp config
+        # iso_evecs=None if 'distance_weighting' == "none" in eigalbo_interp config
         iso_evecs = self.eigalbo_interp.barycentric_ilbo_evec_points(
             barys, pts_tri_vert_idx
         )
