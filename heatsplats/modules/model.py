@@ -85,18 +85,15 @@ class Model(BaseModule):
         anisotropies = torch.randn(self.N_sources, **factory_kwargs)
         diff_times = torch.rand(self.N_sources, **factory_kwargs)
 
-        # Sample face and barycentric location on face
-        kernel_face_ids = torch.randint(
-            0, mesh.N_faces, (self.N_sources,), device=self.device
+        # Uniformly sample many points on the mesh surface
+        # and then use farthest point sampling to select the kernel locations
+        fids, bary = utils.uniform_sampling(
+            mesh.verts, mesh.faces, max(3 * self.N_sources, 10_000)
         )
-        kernel_locations = utils.uniform_sample_triangle(
-            torch.rand((self.N_sources, 2), **factory_kwargs)
-        )
-        # Convert to cartesian coordinates
-        kernel_vert_idx = mesh.get_face_vertices(kernel_face_ids)
-        kernel_locations = mesh.barycentric_to_cartesian(
-            kernel_locations, kernel_vert_idx
-        )
+        pos = mesh.barycentric_to_cartesian(bary, mesh.get_face_vertices(fids))
+        mask = utils.farthest_point_sampling(pos, self.N_sources)
+        kernel_locations = pos[mask]
+        kernel_face_ids = fids[mask]
 
         self._kernel_colours = torch.nn.Parameter(kernel_colours)
         self._angles = torch.nn.Parameter(angles)

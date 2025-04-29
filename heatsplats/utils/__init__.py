@@ -5,10 +5,10 @@ from .config import *
 from .misc import *
 from .base import *
 
-from .fps import *
+from .sampling import *
 from .mesh import *
 from .lbo import *
 from .diffusion import *
 from .distances import *
-from .torch_geodesics import *
+from .cart_bary import *
 from .video import *

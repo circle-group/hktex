@@ -9,7 +9,7 @@ from heatsplats.utils import (
     parse_structured,
     uniform_sample_triangle,
     interpolate_barycentric_attr,
-    compute_face_areas,
+    uniform_sampling,
 )
 from heatsplats.utils.typing import *
 
@@ -63,14 +63,14 @@ class UvTextureSamplerDataset(IterableDataset):
 
             if self.cfg.sampling_method == "random":
                 face_id = torch.randint(0, self.faces.shape[0], (batch_size,))
+                bary_coord = uniform_sample_triangle(torch.rand((batch_size, 2)))
             elif self.cfg.sampling_method == "uniform":
-                prob = compute_face_areas(self.verts, self.faces.T)
-                prob = prob / prob.sum()
-                face_id = torch.multinomial(prob, batch_size, replacement=True)
+                face_id, bary_coord = uniform_sampling(
+                    self.verts, self.faces, batch_size
+                )
             else:
                 raise ValueError(f"Unknown sampling method: {self.cfg.sampling_method}")
 
-            bary_coord = uniform_sample_triangle(torch.rand((batch_size, 2)))
             pos = interpolate_barycentric_attr(
                 self.faces, face_id, bary_coord, self.verts
             )

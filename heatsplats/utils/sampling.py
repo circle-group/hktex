@@ -1,6 +1,16 @@
 import torch
 
-__all__ = ["farthest_point_sampling", "cross", "dot", "norm2"]
+from heatsplats.utils import compute_face_areas
+from .typing import *
+
+__all__ = [
+    "farthest_point_sampling",
+    "uniform_sampling",
+    "uniform_sample_triangle",
+    "cross",
+    "dot",
+    "norm2",
+]
 
 
 def cross(vec_1: torch.Tensor, vec_2: torch.Tensor) -> torch.Tensor:
@@ -44,3 +54,22 @@ def farthest_point_sampling(points: torch.Tensor, n_sample: int) -> torch.Tensor
         chosen_mask[i] = True
 
     return chosen_mask
+
+
+def uniform_sample_triangle(uniform_samples: Float[Tensor, "B 2"]):
+    su0 = uniform_samples[:, 0].sqrt()
+    b0 = 1 - su0
+    b1 = uniform_samples[:, 1] * su0
+    return torch.stack((b0, b1, 1 - b0 - b1), dim=1)
+
+
+def uniform_sampling(
+    verts: torch.Tensor, faces: torch.Tensor, n_samples: int
+) -> torch.Tensor:
+    prob = compute_face_areas(verts, faces.T)
+    prob = prob / prob.sum()
+    face_ids = torch.multinomial(prob, n_samples, replacement=True)
+
+    bary = uniform_sample_triangle(torch.rand((n_samples, 2), device=verts.device))
+
+    return face_ids, bary
