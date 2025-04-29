@@ -11,6 +11,7 @@ data:
   
   batch_size: 64
   num_workers: 0
+  sampling_method: "uniform"
 
 trainer_type: trainers.uv-texture
 trainer:
