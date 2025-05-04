@@ -58,7 +58,7 @@ def compute_tot_area(pos, faces):
 def compute_face_areas(pos, faces):
     side_1 = pos[faces[1]] - pos[faces[0]]
     side_2 = pos[faces[2]] - pos[faces[0]]
-    return side_1.cross(side_2).norm(p=2, dim=1).abs() / 2
+    return side_1.cross(side_2, dim=1).norm(p=2, dim=1).abs() / 2
 
 
 def get_all_face_vertices(verts, faces):

@@ -54,7 +54,7 @@ if __name__ == "__main__":
     mesh: trimesh.Trimesh = datamodule.mesh
     v_colours, gt_colours, init_colours = out["colours"]
 
-    v_colours = (v_colours * 255).to(dtype=torch.uint8)
+    v_colours = (v_colours.clamp(min=0, max=1) * 255).to(dtype=torch.uint8)
     v_colours = v_colours.squeeze().detach().cpu().numpy()
 
     gt_colours = (gt_colours * 255).to(dtype=torch.uint8)

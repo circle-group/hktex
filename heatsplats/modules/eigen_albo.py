@@ -383,7 +383,7 @@ class EigenAlboInterpolation(BaseObject):
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
     ) -> Float[Tensor, "B P+1"]:
-        if self.cfg.distance_weighting is not "none":
+        if self.cfg.distance_weighting != "none":
             iso_evals = self.iso_evals
             kernel_iso_evecs = self.barycentric_ilbo_evec_points(
                 kernel_bary, kernel_vert_idx
