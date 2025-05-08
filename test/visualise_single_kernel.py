@@ -35,8 +35,26 @@ if __name__ == "__main__":
     trainer.model.load_torch(ckpt_name)
     correct_v_colours = trainer.compute_vertex_colours()
 
+    # Find interesting kernels
+    print(
+        f"diff times = [{trainer.model.diff_times.min()},"
+        f"{trainer.model.diff_times.max()}] -> ",
+        f"[{trainer.model.diff_times.argmin()},{trainer.model.diff_times.argmax()}]",
+    )
+    print(
+        f"anisotropies = [{trainer.model.anisotropies.min()},"
+        f"{trainer.model.anisotropies.max()}] -> ",
+        f"[{trainer.model.anisotropies.argmin()},{trainer.model.anisotropies.argmax()}]",
+    )
+    print(
+        f"angles = [{trainer.model.angles.min()}," f"{trainer.model.angles.max()}] -> ",
+        f"[{trainer.model.angles.argmin()},{trainer.model.angles.argmax()}]",
+    )
+
     # Perturb selected kernel and get new colours
-    kernel_idx = 12
+    kernel_idx = 34
+    print(f"Perturbing kernel {kernel_idx}")
+
     with torch.no_grad():
         trainer.model._kernel_colours[kernel_idx, :] = torch.zeros_like(
             trainer.model._kernel_colours[kernel_idx, :]

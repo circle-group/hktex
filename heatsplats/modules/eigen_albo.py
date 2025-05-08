@@ -356,7 +356,7 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "P 3"],
         vert_idx: Int[Tensor, "P 3"],
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.distance_weighting is not "none":
+        if self.cfg.distance_weighting != "none":
             return interpolate_barycentric_attr_from_trivertidx(
                 vert_idx, barycentric_coords, self._iso_eigen_vec
             )
@@ -368,7 +368,7 @@ class EigenAlboInterpolation(BaseObject):
         self,
         vert_idx: Optional[Int[Tensor, "P"]] = None,
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.distance_weighting is not "none":
+        if self.cfg.distance_weighting != "none":
             evecs = self._iso_eigen_vec
             if vert_idx is not None:
                 evecs = evecs[vert_idx]

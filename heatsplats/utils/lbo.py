@@ -172,7 +172,10 @@ def compute_eig_laplacian(
     while True:
         try:
             evals, evecs = scipy.sparse.linalg.eigsh(
-                lapl_eigsh.astype(np.float32), k=k_eig, M=mass_mat, sigma=eigs_sigma
+                lapl_eigsh.astype(np.float32),
+                k=k_eig,
+                M=mass_mat.astype(np.float32),
+                sigma=eigs_sigma,
             )
             evals = np.clip(evals, a_min=0.0, a_max=float("inf"))
             break
