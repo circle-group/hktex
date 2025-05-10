@@ -336,18 +336,14 @@ class EigenAlboInterpolation(BaseObject):
             M, _, K = eigen_vec.shape
 
             eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(M, G, 3, K)  # M, G, 3, K
-            eigen_vec = eigen_vec.permute(1, 0, 2, 3)  # G, M, 3, K
             mass = mass[:, vert_idx.view(-1)].view(G, 3)  # G, 3
-
-        # G,M x G,M,3,K -> G,3,K
-        evecs = linalg.vecdot(
-            albo_weights.unsqueeze(-1).unsqueeze(-1), eigen_vec, dim=1
-        )
 
         bary_W = barycentric_coords  # B, 3
 
-        evec_interp = torch.einsum("bt,btk->bk", bary_W, evecs)
         mass_interp = linalg.vecdot(bary_W, mass)
+
+        evecs = torch.einsum("gm,mgck->gck", albo_weights, eigen_vec)  # G, 3, K
+        evec_interp = torch.matmul(bary_W.unsqueeze(1), evecs).squeeze(1)  # G, K
 
         return evec_interp, mass_interp
 
