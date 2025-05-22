@@ -100,6 +100,12 @@ class HeatKernelsTexture(mi.Texture):
 
             colours_batch = colours_batch / (colours_batch[:, p, :].unsqueeze(1) + 1e-8)
             colours_batch = colours_batch[:, :p, :]
+
+            colours_batch = utils.soft_step(
+                colours_batch, sharpness=self.model.sharpnesses
+            )
+
+            colours_batch = colours_batch * self.model.opacities.view(-1, 1, 1)
             colours_batch = colours_batch * self.model.kernel_colours.unsqueeze(1)
             colours_batch = colours_batch.sum(dim=0)
             colours_batch = self.model(colours_batch)

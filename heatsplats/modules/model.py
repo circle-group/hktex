@@ -37,6 +37,8 @@ class Model(BaseModule):
     _angles: Float[Tensor, "G"]
     _anisotropies: Float[Tensor, "G"]
     _diff_times: Float[Tensor, "G"]
+    _sharpnesses: Float[Tensor, "G"]
+    _opacities: Float[Tensor, "G"]
     _kernel_locations: Float[Tensor, "G 3"]
     _kernel_face_ids: Int[Tensor, "G"]
 
@@ -56,7 +58,9 @@ class Model(BaseModule):
         self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
         self._angle_scale, self._angle_offset = torch.pi, torch.pi / 2
         self._angle_act = lambda x: self._angle_scale * x + self._angle_offset
-        self._anis_act = lambda x: torch.exp(x)
+        self._anis_act = lambda x: torch.exp(x)  # TODO: why exp?
+        self._sharpness_act = lambda x: torch.sigmoid(x) * (100 - 10) + 10
+        self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
         self._colour_act = lambda x: x
 
         self.out_net = None
@@ -83,7 +87,9 @@ class Model(BaseModule):
             )
         angles = torch.randn(self.N_sources, **factory_kwargs)
         anisotropies = torch.randn(self.N_sources, **factory_kwargs)
-        diff_times = torch.rand(self.N_sources, **factory_kwargs)
+        diff_times = torch.rand(self.N_sources, **factory_kwargs) * (0.5 - (-3)) + (-3)
+        sharpnesses = torch.rand(self.N_sources, **factory_kwargs) * 10 - 5
+        opacities = torch.rand(self.N_sources, **factory_kwargs)
 
         # Uniformly sample many points on the mesh surface
         # and then use farthest point sampling to select the kernel locations
@@ -99,6 +105,8 @@ class Model(BaseModule):
         self._angles = torch.nn.Parameter(angles)
         self._anisotropies = torch.nn.Parameter(anisotropies)
         self._diff_times = torch.nn.Parameter(diff_times)
+        self._sharpnesses = torch.nn.Parameter(sharpnesses)
+        self._opacities = torch.nn.Parameter(opacities)
         self._kernel_locations = nn.Parameter(kernel_locations)
         self._kernel_face_ids = nn.Buffer(kernel_face_ids, persistent=True)
 
@@ -107,6 +115,8 @@ class Model(BaseModule):
             "angles",
             "anisotropies",
             "diff_times",
+            "sharpnesses",
+            "opacities",
         ]
 
     @property
@@ -124,6 +134,14 @@ class Model(BaseModule):
     @property
     def diff_times(self) -> Float[Tensor, "G"]:
         return self._diff_time_scaler_func(self._diff_times)
+
+    @property
+    def sharpnesses(self) -> Float[Tensor, "G"]:
+        return self._sharpness_act(self._sharpnesses)
+
+    @property
+    def opacities(self) -> Float[Tensor, "G"]:
+        return self._opacity_act(self._opacities)
 
     @property
     def kernel_locations(self) -> Float[Tensor, "G 3"]:
@@ -152,6 +170,8 @@ class Model(BaseModule):
             + colored(f"Anisotropies: {anisotropies}, ", "green")
             + colored(f"Diff times: {diff_times}, ", "blue")
             + colored(f"Kernel colours: {kernel_colours}", "red")
+            + colored(f"Opacities: {self.opacities}", "magenta")
+            + colored(f"Sharpnesses: {self.sharpnesses}", "cyan")
         )
 
     def save_barycentric_locations(self, barycentric_coords):

@@ -159,6 +159,10 @@ class BaseTrainer(BaseObject):
                 colours[:, P, :].unsqueeze(1) + 1e-8
             )  # P is source => hottest
             colours = colours[:, :P, :]
+
+            colours = utils.soft_step(colours, sharpness=self.model.sharpnesses)
+
+            colours = colours * self.model.opacities.view(-1, 1, 1)
             colours = colours * self.model.kernel_colours.unsqueeze(1)
             colours = colours.sum(dim=0)
 
@@ -248,6 +252,10 @@ class BaseTrainer(BaseObject):
             v_colours[:, V, :].unsqueeze(1) + 1e-8
         )  # V = source => hottest
         v_colours = v_colours[:, :V, :]
+
+        v_colours = utils.soft_step(v_colours, sharpness=self.model.sharpnesses)
+
+        v_colours = v_colours * self.model.opacities.view(-1, 1, 1)
         v_colours = v_colours * self.model.kernel_colours.unsqueeze(1)
         v_colours = v_colours.sum(dim=0)
 

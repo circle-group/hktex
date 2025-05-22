@@ -24,6 +24,7 @@ __all__ = [
     "interpolate_barycentric_attr",
     "interpolate_barycentric_attr_from_trivertidx",
     "normalise_colours",
+    "soft_step",
 ]
 
 
@@ -187,3 +188,29 @@ def normalise_colours(colours: Float[Tensor, "B 3"]):
     cmin, cmax = colours.min(), colours.max()
     colours = (colours - cmin) / (cmax - cmin)
     return colours
+
+
+def soft_step(
+    x: Float[Tensor, "G B 1"],
+    epsilon: float = 0.8,
+    sharpness: Union[float, Float[Tensor, "G"]] = 10.0,
+):
+    # epsilon sets the threshold location.
+    # sharpness controls how abrupt the transition is. Higher = closer to hard threshold
+    # This function outputs values in (0, 1)
+    if isinstance(sharpness, torch.Tensor):
+        sharpness = sharpness.view(-1, 1, 1)
+    return torch.sigmoid(sharpness * (x - epsilon))
+
+
+class SoftStep:
+    def __init__(self, epsilon=0.8, sharpness=10.0, normlise=False):
+        self.epsilon = epsilon
+        self.sharpness = sharpness
+        if normlise:
+            self.normalization_factor = torch.sigmoid(sharpness * (1 - epsilon))
+        else:
+            self.normalization_factor = 1.0
+
+    def __call__(self, x):
+        return soft_step(x, self.epsilon, self.sharpness) / self.normalization_factor
