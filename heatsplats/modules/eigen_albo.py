@@ -378,13 +378,13 @@ class EigenAlboInterpolation(BaseObject):
         pts_iso_evecs: Float[Tensor, "P K"],
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
-    ) -> Float[Tensor, "B P+1"]:
+    ) -> Float[Tensor, "G P+1"]:
         if self.cfg.distance_weighting != "none":
             iso_evals = self.iso_evals
             kernel_iso_evecs = self.barycentric_ilbo_evec_points(
                 kernel_bary, kernel_vert_idx
             )
-            pts_kernel_dist: Float[Tensor, "B P"] = compute_biharmonic_distance(
+            pts_kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
                 pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
             )
 
@@ -402,13 +402,75 @@ class EigenAlboInterpolation(BaseObject):
                     f"Unknown distance weighting: {self.cfg.distance_weighting}"
                 )
 
-            weights: Float[Tensor, "B P+1"] = torch.cat(
+            weights: Float[Tensor, "G P+1"] = torch.cat(
                 (weights, torch.ones((weights.shape[0], 1), device=weights.device)),
                 dim=1,
             )
             return weights
         else:
             return None
+
+    @torch.no_grad()
+    def compute_biharmonic_dist_kde_mass(
+        self,
+        pts_iso_evecs: Float[Tensor, "P K"],
+        kernel_bary: Float[Tensor, "G 3"],
+        kernel_vert_idx: Float[Tensor, "G 3"],
+        sigma: float = None,
+        total_area_normalise: bool = True,
+    ) -> Float[Tensor, "G P+1"]:
+
+        iso_evals = self.iso_evals
+        kernel_iso_evecs = self.barycentric_ilbo_evec_points(
+            kernel_bary, kernel_vert_idx
+        )
+        pts2kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
+            pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
+        )
+        pts2pts_dist: Float[Tensor, "P P"] = compute_biharmonic_distance(
+            pts_iso_evecs, pts_iso_evecs, iso_evals, pairwise=True
+        )
+
+        G, P = pts2kernel_dist.shape
+
+        # Initialize the distances matrix with zeros
+        # The diagonal for the kernels (self-distance) is 0 (already initialized)
+        distances = torch.zeros((G, P + 1, P + 1), device=self.device)
+
+        # Fill the top-left P x P block with pts2pts_dist (same for all G)
+        distances[:, :P, :P] = pts2pts_dist.unsqueeze(0)
+
+        # Fill the last row (kernels to points) and last column (points to kernels)
+        distances[:, :P, P] = pts2kernel_dist  # Gaussian to points
+        distances[:, P, :P] = pts2kernel_dist  # Points to Gaussian
+
+        N = P + 1
+
+        if sigma is None:
+            # Mask out zeros on the diagonal to compute median of non-zero distances
+            mask = ~torch.eye(N, device=self.device, dtype=torch.bool).unsqueeze(0)
+            masked_distances = distances[mask.expand(G, -1, -1)].view(G, N * (N - 1))
+            # Median over non-diagonal distances per batch
+            sigma = masked_distances.median(dim=1).values  # [G]
+        else:
+            # Use scalar sigma and broadcast to all batches
+            sigma = torch.full((G,), sigma, device=self.device, dtype=distances.dtype)
+
+        # Compute Gaussian kernel matrix: K[b, i, j] = exp(-D[g, i, j]^2 / sigma[g]^2)
+        sigma2 = sigma.view(G, 1, 1) ** 2  # [G, 1, 1]
+        K = torch.exp(-(distances**2) / sigma2)  # [G, N, N]
+
+        # Estimate density rho[g, i] = sum_j K[g, i, j]
+        rho = K.sum(dim=2)  # [G, N] => [G, P+1]
+
+        # Inverse density as an approximation of mass
+        mass: Float[Tensor, "G P+1"] = 1.0 / (rho + 1e-12)  # [G, P+1]
+
+        if total_area_normalise:
+            # Normalize per batch to sum up to total_area
+            mass = mass * (self._mesh.tot_area / mass.sum(dim=1, keepdim=True))
+
+        return mass
 
     @property
     def iso_evals(self) -> Float[Tensor, "K"]:

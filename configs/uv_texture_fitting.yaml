@@ -37,6 +37,8 @@ trainer:
         model._angles: {}
         model._anisotropies: {}
         model._diff_times: {}
+        model._sharpnesses: {}
+        model._opacities: {}
         model.out_net: {}
     - name: GeodesicOpt
       args:

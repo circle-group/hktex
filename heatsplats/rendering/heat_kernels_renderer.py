@@ -88,6 +88,17 @@ class HeatKernelsTexture(mi.Texture):
             biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
                 pts_iso_evecs, kernel_barycentric_coords, kernel_vert_idx
             )
+            # biharmonic_dist_weights = None
+
+            # pts_mass: Float[Tensor, "B p+1"] = (
+            #     self.eigalbo_interp.compute_biharmonic_dist_kde_mass(
+            #         pts_iso_evecs,
+            #         kernel_barycentric_coords,
+            #         kernel_vert_idx,
+            #         sigma=0.05,
+            #         total_area_normalise=False,
+            #     )
+            # )
 
             colours_batch = utils.heat_diffusion(
                 colours_batch,

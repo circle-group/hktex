@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import heatsplats
-from heatsplats.utils import cart_to_bary_coords, bary_to_cart_coords
+from heatsplats.utils import cart_to_bary_coords, bary_to_cart_coords, compute_tot_area
 from heatsplats.utils.typing import *
 
 __all__ = ["Mesh"]
@@ -16,6 +16,7 @@ class Mesh(nn.Module):
     verts: Float[Tensor, "V 3"]
     faces: Int[Tensor, "F 3"]
     fnorms: Float[Tensor, "F 3"]
+    tot_area: Float[Tensor, "1"]
 
     N_verts: int
     N_faces: int
@@ -32,6 +33,7 @@ class Mesh(nn.Module):
         self.verts = nn.Buffer(torch.tensor(vertices, dtype=torch.float, device=device))
         self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int64, device=device))
         self.fnorms = nn.Buffer(torch.tensor(fnorms, dtype=torch.float, device=device))
+        self.tot_area = compute_tot_area(self.verts, self.faces)
 
         self.N_verts = self.verts.shape[0]
         self.N_faces = self.faces.shape[0]
