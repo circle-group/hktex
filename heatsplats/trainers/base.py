@@ -301,14 +301,20 @@ class BaseTrainer(BaseObject):
 
     @staticmethod
     def plot_errors(errors_lists):
-        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
-        ax.plot(errors_lists["loss"], label="Loss")
-        ax.set_title("Loss per step")
-        ax.set_xlabel("Iteration")
-        ax.set_ylabel("Loss")
+        axes[0].plot(errors_lists["loss"], label="Loss")
+        axes[0].set_title("Loss per step")
+        axes[0].set_xlabel("Iteration")
+        axes[0].set_ylabel("Loss")
+        axes[0].legend()
 
-        ax.legend()
+        axes[1].plot(errors_lists["loss"], label="Loss")
+        axes[1].set_yscale("log")  # Set y-axis to log scale
+        axes[1].set_title("Loss per Step (Log Scale)")
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Loss (Log Scale)")
+        axes[1].legend()
 
         plt.tight_layout()
         plt.show()
