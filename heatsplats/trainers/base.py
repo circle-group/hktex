@@ -104,10 +104,7 @@ class BaseTrainer(BaseObject):
 
             P = pos.shape[0]
 
-            colours: Float[Tensor, "B P L"] = torch.zeros(
-                [B, P, self.model.kernel_dim],
-                device=self.device,
-            )
+            colours: Float[Tensor, "B P 1"] = torch.zeros([B, P, 1], device=self.device)
 
             kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
             kernel_barycentric_coords = self.mesh.cartesian_to_barycentric(
@@ -121,8 +118,8 @@ class BaseTrainer(BaseObject):
                 vert_idx=kernel_vert_idx,
             )
 
-            colours: Float[Tensor, "B P+1 L"] = torch.cat(
-                (colours, self.model.kernel_colours.unsqueeze(1)), dim=1
+            colours: Float[Tensor, "B P+1 1"] = torch.cat(
+                (colours, torch.ones([B, 1, 1], device=self.device)), dim=1
             )
             pts_evecs: Float[Tensor, "B P+1 K"] = torch.cat(
                 ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
@@ -139,7 +136,17 @@ class BaseTrainer(BaseObject):
                 )
             )
 
-            colours = utils.heat_diffusion_reduce(
+            # pts_mass: Float[Tensor, "B P+1"] = (
+            #     self.eigalbo_interp.compute_biharmonic_dist_kde_mass(
+            #         data["pts_iso_evecs"],
+            #         kernel_barycentric_coords,
+            #         kernel_vert_idx,
+            #         sigma=None,
+            #         total_area_normalise=True,
+            #     )
+            # )
+
+            colours = utils.heat_diffusion(
                 colours,
                 pts_mass,
                 evals,
@@ -147,7 +154,13 @@ class BaseTrainer(BaseObject):
                 self.model.diff_times,
                 biharmonic_dist_weights,
             )
-            colours = colours[:P]
+
+            colours = colours / (
+                colours[:, P, :].unsqueeze(1) + 1e-8
+            )  # P is source => hottest
+            colours = colours[:, :P, :]
+            colours = colours * self.model.kernel_colours.unsqueeze(1)
+            colours = colours.sum(dim=0)
 
             # Postprocess
             colours = self.model(colours)
@@ -186,10 +199,7 @@ class BaseTrainer(BaseObject):
 
     def compute_vertex_colours(self):
         B, V = self.model.N_sources, self.mesh.N_verts
-        v_colours: Float[Tensor, "B V L"] = torch.zeros(
-            [B, V, self.model.kernel_dim],
-            device=self.device,
-        )
+        v_colours: Float[Tensor, "B V 1"] = torch.zeros([B, V, 1], device=self.device)
 
         albo_weights = self.eigalbo_interp.interpolate_anisotropies(
             angles=self.model.angles, scales=self.model.anisotropies
@@ -209,8 +219,9 @@ class BaseTrainer(BaseObject):
             vert_idx=kernel_vert_idx,
         )
 
-        v_colours: Float[Tensor, "B V+1 L"] = torch.cat(
-            (v_colours, self.model.kernel_colours.unsqueeze(1)), dim=1
+        v_colours: Float[Tensor, "B P+1 1"] = torch.cat(
+            (v_colours, torch.ones([B, 1, 1], device=self.device)),
+            dim=1,
         )
         albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
             ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
@@ -225,7 +236,7 @@ class BaseTrainer(BaseObject):
             kernel_vert_idx,
         )
 
-        v_colours = utils.heat_diffusion_reduce(
+        v_colours = utils.heat_diffusion(
             v_colours,
             mass,
             albo_evals,
@@ -233,7 +244,13 @@ class BaseTrainer(BaseObject):
             self.model.diff_times,
             biharmonic_dist_weights,
         )
-        v_colours = v_colours[:V]
+        v_colours = v_colours / (
+            v_colours[:, V, :].unsqueeze(1) + 1e-8
+        )  # V = source => hottest
+        v_colours = v_colours[:, :V, :]
+        v_colours = v_colours * self.model.kernel_colours.unsqueeze(1)
+        v_colours = v_colours.sum(dim=0)
+
         v_colours = self.model(v_colours)
         return v_colours
 

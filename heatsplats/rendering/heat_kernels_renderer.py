@@ -67,14 +67,12 @@ class HeatKernelsTexture(mi.Texture):
                 vert_idx=pts_tri_vert_idx,
             )
 
-            colours_batch = torch.zeros(
-                [B, pts_batch.shape[0], self.model.kernel_dim],
-                device=pts.device,
+            p = pts_batch.shape[0]
+            colours_batch = torch.zeros([B, p, 1], device=pts.device)
+            colours_batch: Float[Tensor, "B p+1 L"] = torch.cat(
+                (colours_batch, torch.ones([B, 1, 1], device=pts.device)), dim=1
             )
 
-            colours_batch: Float[Tensor, "B p+1 L"] = torch.cat(
-                (colours_batch, self.model.kernel_colours.unsqueeze(1)), dim=1
-            )
             pts_evecs: Float[Tensor, "B p+1 K"] = torch.cat(
                 ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
             )
@@ -98,8 +96,12 @@ class HeatKernelsTexture(mi.Texture):
                 pts_evecs,
                 self.model.diff_times,
                 biharmonic_dist_weights,
-            ).sum(dim=0)
-            colours_batch = colours_batch[: pts_batch.shape[0]]
+            )
+
+            colours_batch = colours_batch / (colours_batch[:, p, :].unsqueeze(1) + 1e-8)
+            colours_batch = colours_batch[:, :p, :]
+            colours_batch = colours_batch * self.model.kernel_colours.unsqueeze(1)
+            colours_batch = colours_batch.sum(dim=0)
             colours_batch = self.model(colours_batch)
 
             # Store the batch results
