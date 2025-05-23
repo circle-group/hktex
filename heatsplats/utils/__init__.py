@@ -12,3 +12,4 @@ from .diffusion import *
 from .distances import *
 from .cart_bary import *
 from .video import *
+from .image import *

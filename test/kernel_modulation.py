@@ -15,6 +15,8 @@ from heatsplats.utils import (
     soft_step,
     combine_videos,
     show_video,
+    combine_images,
+    show_image,
 )
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
@@ -163,3 +165,22 @@ if __name__ == "__main__":
 
     combined_video = combine_videos(video_vert, video)
     print("show combined videos (vert left) with: show_video(combined_video)")
+
+    # Change kernel angles
+    hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
+    model._angle_scale = 1
+    model._angle_offset = 0
+
+    hk_renderer.mega_kernel(False)
+    images = []
+    for angle in [0, 10, 20, 30, 45, 60, 90, 180]:
+        model._angles = torch.nn.Parameter(
+            torch.deg2rad(torch.tensor([angle, angle], device=device))
+        )
+        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+        images.append(hk_renderer.render(mi_mesh, denoise=True))
+    hk_renderer.flush_cache()
+
+    combined_image = combine_images(*images)
+
+    print(f"show all angles with: show_image(combined_image)")
