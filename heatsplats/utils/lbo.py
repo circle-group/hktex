@@ -15,10 +15,11 @@ __all__ = [
     "compute_mesh_laplacian",
     "compute_point_cloud_laplacian",
     "compute_eig_laplacian",
+    "get_anisotropic_lbo_old",
 ]
 
 
-def get_anisotropic_lbo(
+def get_anisotropic_lbo_old(
     pos: torch.Tensor,
     face: torch.Tensor,
     face_normals: Optional[torch.Tensor] = None,
@@ -123,6 +124,143 @@ def get_anisotropic_lbo(
         -sparse_torch_to_np(torch.sparse_coo_tensor(edge_index, edge_weight)),
         area_deg.cpu().numpy(),
     )
+
+
+def get_anisotropic_lbo(
+    pos: torch.Tensor,
+    face: torch.Tensor,
+    face_normals: Optional[torch.Tensor] = None,
+    rotation_angle: Optional[float] = 0.0,
+    anisotropy: Optional[float] = 0.0,
+    local_direction=None,
+) -> Tuple[scipy.sparse.csc_matrix, np.ndarray]:
+    """
+    Computes the anisotropic Laplace-Beltrami operator.
+
+    Args:
+        pos: Vertex positions, shape (N, 3).
+        face: Face indices, shape (3, F).
+        face_normals: Optional pre-computed face normals, accepts both (3, F) and (F, 3) shapes.
+        rotation_angle: Optional rotation angle in radians.
+        anisotropy: Optional anisotropy parameter.
+
+    Returns:
+        A tuple containing the stiffness matrix (W) and mass matrix diagonal (A_diag).
+    """
+    # --- 1. Setup and Input Conversion ---
+    device = pos.device
+    n_verts = pos.shape[0]
+    n_faces = face.shape[1]
+
+    face_t = face.T
+
+    face_vertices = pos[face_t]
+    v0, v1, v2 = face_vertices[:, 0], face_vertices[:, 1], face_vertices[:, 2]
+
+    N = face_normals.to(device)
+    N = N / torch.norm(N, dim=1, keepdim=True).clamp(min=1e-9)
+
+    # --- 3. Anisotropic Diffusion Tensor ---
+    np_pos = pos.cpu().numpy()
+    np_faces_t = face_t.cpu().numpy()
+
+    if local_direction is not None:
+        pd1 = local_direction
+    else:
+        pd1, _, _, _ = igl.principal_curvature(np_pos, np_faces_t)
+    Umax_vert = torch.from_numpy(pd1).to(device, dtype=torch.float32)
+
+    # Interpolate vertex-based directions to faces -> shape is (F, 3)
+    Umax_face = Umax_vert[face_t].mean(dim=1)
+
+    # Project Umax onto the face's tangent plane
+    Umax_face = Umax_face - torch.sum(Umax_face * N, dim=1, keepdim=True) * N
+    Umax_face = Umax_face / torch.norm(Umax_face, dim=1, keepdim=True).clamp(min=1e-9)
+    Umin_face_derived = torch.cross(N, Umax_face, dim=1)
+    Umin_face_derived = Umin_face_derived / torch.norm(
+        Umin_face_derived, dim=1, keepdim=True
+    ).clamp(min=1e-9)
+
+    # Apply Rodrigues' rotation if needed
+    if rotation_angle != 0.0:
+        ca = torch.cos(torch.tensor(rotation_angle, device=device))
+        sa = torch.sin(torch.tensor(rotation_angle, device=device))
+
+        def rotate_vector(vec, axis, c, s):
+            # Full Rodrigues' rotation formula
+            return (
+                vec * c
+                + torch.cross(axis, vec, dim=1) * s
+                + axis * torch.sum(axis * vec, dim=1, keepdim=True) * (1 - c)
+            )
+
+        Umin_final = rotate_vector(Umin_face_derived, N, ca, sa)
+        Umax_final = rotate_vector(Umax_face, N, ca, sa)
+    else:
+        Umin_final, Umax_final = Umin_face_derived, Umax_face
+
+    # Define per-face diffusion tensor D
+    D = torch.zeros((n_faces, 2), device=device, dtype=torch.float32)
+    D[:, 0] = 1.0 / (1.0 + torch.tensor(anisotropy))
+    D[:, 1] = 1.0
+
+    # --- 4. Construct Stiffness Matrix W ---
+    i_s, j_s, val_s = [], [], []
+
+    # Loop over the three edges of each triangle
+    for k in range(3):
+        # Get the indices of the three vertices for this edge configuration
+        p_k0 = face_t[:, k]
+        p_k1 = face_t[:, (k + 1) % 3]
+        p_k2 = face_t[:, (k + 2) % 3]
+
+        # Vectors corresponding to the edges opposite vertices p_k0 and p_k1
+        e1 = pos[p_k1] - pos[p_k2]
+        e2 = pos[p_k0] - pos[p_k2]
+        e1_norm = e1 / torch.norm(e1, dim=1, keepdim=True).clamp(min=1e-9)
+        e2_norm = e2 / torch.norm(e2, dim=1, keepdim=True).clamp(min=1e-9)
+
+        # Anisotropic dot product
+        term1 = torch.sum(e1_norm * Umin_final, dim=1) * torch.sum(
+            e2_norm * Umin_final, dim=1
+        )
+        term2 = torch.sum(e1_norm * Umax_final, dim=1) * torch.sum(
+            e2_norm * Umax_final, dim=1
+        )
+        anisotropic_dot_prod = D[:, 0] * term1 + D[:, 1] * term2
+
+        # The sine of the angle between e1 and e2
+        angle_sin = torch.norm(torch.cross(e1_norm, e2_norm, dim=1), dim=1).clamp(
+            min=1e-9
+        )
+
+        weight = 0.5 * anisotropic_dot_prod / angle_sin
+
+        # Add symmetric off-diagonal entries
+        i_s.extend([p_k0, p_k1])
+        j_s.extend([p_k1, p_k0])
+        val_s.extend([-weight, -weight])
+
+    W = scipy.sparse.csc_matrix(
+        (
+            torch.cat(val_s).cpu().numpy(),
+            (torch.cat(i_s).cpu().numpy(), torch.cat(j_s).cpu().numpy()),
+        ),
+        shape=(n_verts, n_verts),
+    )
+    W.setdiag(W.diagonal() - W.sum(axis=1).A1)
+
+    # --- 5. Construct Mass Matrix Diagonal ---
+    tri_areas = 0.5 * torch.norm(torch.cross(v1 - v0, v2 - v0, dim=1), dim=1)
+    area_indices = torch.flatten(face_t)  # Flattening (F, 3) tensor
+    area_vals = tri_areas.repeat_interleave(3) / 3.0
+
+    vertex_areas = torch.zeros(n_verts, device=device).scatter_add_(
+        0, area_indices, area_vals
+    )
+    A_diag = vertex_areas.cpu().numpy()
+
+    return W, A_diag
 
 
 def compute_mesh_laplacian(
