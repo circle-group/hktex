@@ -4,6 +4,7 @@ import os
 import matplotlib.pyplot as plt
 import drjit as dr
 import mitsuba as mi
+import time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -33,7 +34,7 @@ if __name__ == "__main__":
 
     # Test HeatKernelsRenderer
     # experiment = None
-    experiment = "outputs/uv-texture-fitting/spot_triangulated@20250414-174255"
+    experiment = "outputs/uv-texture-fitting/spot_triangulated@20250429-180141"
     if experiment is None:
         fname = "../objects/bob/bob_tri.obj"
         model_cfg = {
@@ -70,7 +71,10 @@ if __name__ == "__main__":
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
     hk_renderer = HeatKernelsRenderer(dict())
     hk_renderer.mega_kernel(False)
+    t0 = time.time()
     mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
-    image = hk_renderer.render(mi_mesh)
+    image = hk_renderer.render(mi_mesh, denoise=True)
+    t1 = time.time()
+    print(f"Rendering time: {t1 - t0:.2f} seconds")
     hk_renderer.flush_cache()
     bitmap3 = mi.Bitmap(image).convert(srgb_gamma=True)
