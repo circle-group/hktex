@@ -5,6 +5,7 @@ from .config import *
 from .misc import *
 from .base import *
 
+from .local_reference_frames import *
 from .sampling import *
 from .mesh import *
 from .lbo import *
