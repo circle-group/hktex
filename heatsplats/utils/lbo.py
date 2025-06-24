@@ -1,5 +1,7 @@
 import numpy as np
 import scipy.sparse
+import scipy.linalg
+import scipy.optimize
 
 import torch
 
@@ -16,6 +18,7 @@ __all__ = [
     "compute_point_cloud_laplacian",
     "compute_eig_laplacian",
     "get_anisotropic_lbo_old",
+    "align_eigen",
 ]
 
 
@@ -326,3 +329,64 @@ def compute_eig_laplacian(
                 eps * 10**failcount
             )
     return evals, evecs
+
+
+def align_eigen(evecs_ref, evecs_to_align, evals_to_align, align_rotation=True):
+    """
+    Aligns a set of eigenvectors and eigenvalues to a reference set.
+
+    This function solves the sign and permutation ambiguities between two sets
+    of eigenvectors. It first finds the optimal ordering using the Hungarian
+    algorithm (linear_sum_assignment) and then finds the optimal rotation
+    using Orthogonal Procrustes analysis (via SVD).
+
+    Parameters:
+    - evecs_ref (np.ndarray): The reference eigenvector matrix (shape n_verts x k).
+    - evecs_to_align (np.ndarray): The eigenvector matrix to align (shape n_verts x k).
+    - evals_to_align (np.ndarray): The eigenvalues corresponding to evecs_to_align (shape k).
+
+    Returns:
+    - evecs_aligned (np.ndarray): The aligned eigenvector matrix.
+    - evals_aligned (np.ndarray): The aligned eigenvalues.
+    """
+    # --- Step 1: Find the optimal permutation using the Hungarian algorithm ---
+    # The cost matrix measures the squared Euclidean distance between all pairs of
+    # eigenvectors from the two sets.
+    cost_matrix = np.sum(
+        (evecs_ref[:, :, np.newaxis] - evecs_to_align[:, np.newaxis, :]) ** 2, axis=0
+    )
+
+    # linear_sum_assignment finds the permutation that minimizes the total cost.
+    # It returns the optimal row and column indices.
+    _, permuted_indices = scipy.optimize.linear_sum_assignment(cost_matrix)
+
+    # Reorder the eigenvectors to be aligned according to the optimal permutation.
+    evecs_permuted = evecs_to_align[:, permuted_indices]
+
+    if align_rotation:
+        # --- Step 2: Find the optimal rotation using Orthogonal Procrustes ---
+        # This method finds the rotation matrix R that minimizes
+        # ||evecs_ref - evecs_permuted @ R||^2.
+        correlation_matrix = evecs_permuted.T @ evecs_ref
+        U, _, Vt = scipy.linalg.svd(correlation_matrix)
+        rotation_matrix = U @ Vt
+
+        # Apply the optimal rotation.
+        evecs_rotated = evecs_permuted @ rotation_matrix
+    else:
+        evecs_rotated = evecs_permuted
+
+    # --- Step 3: Correct the signs ---
+    # After global rotation, individual eigenvectors might still be flipped.
+    # We check the sign of the dot product between corresponding vectors.
+    signs = np.sign(np.sum(evecs_ref * evecs_rotated, axis=0))
+
+    # Multiply by the signs to ensure they point in the same direction.
+    # A sign of 0 (if vectors are perfectly orthogonal) is treated as +1.
+    signs[signs == 0] = 1
+    evecs_aligned = evecs_rotated * signs
+
+    # Ensure the eigenvalues are aligned with the permuted indices.
+    evals_aligned = evals_to_align[[np.argsort(permuted_indices)]]
+
+    return evecs_aligned, evals_aligned[0, :]
