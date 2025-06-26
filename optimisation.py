@@ -12,6 +12,10 @@ from heatsplats.trainers import BaseTrainer
 from heatsplats.utils.video import save_video, combine_videos
 from heatsplats.utils.typing import *
 
+from heatsplats.utils import repr_patches
+
+__all__ = ["repr_patches", "show_video"]
+
 
 class ColoredFilter(logging.Filter):
     """

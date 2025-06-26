@@ -11,6 +11,11 @@ from heatsplats.data import MeshSamplerDataModule
 from heatsplats.trainers import BaseTrainer
 from heatsplats.utils import big_trimesh_pcl, show_video
 
+from heatsplats.utils import repr_patches
+
+__all__ = ["repr_patches", "show_video"]
+
+
 try:
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # Jupyter Notebook
         print("Running in a Jupyter Notebook. Enabling autoreload...")

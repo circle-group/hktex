@@ -13,7 +13,6 @@ import trimesh
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 from heatsplats.modules import Mesh
 from heatsplats.utils import (
     load_mesh,
@@ -26,6 +25,9 @@ from heatsplats.utils import (
     show_image,
 )
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
+from heatsplats.utils import repr_patches
+
+__all__ = ["repr_patches"]
 
 
 def get_albo_evecs(mesh, angle_deg, scale, k_eig=256):
