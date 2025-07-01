@@ -123,7 +123,7 @@ if __name__ == "__main__":
     img_evecs_to_align = render_evecs(tri_mesh, evecs_to_align, vc_renderer, k_ranges)
 
     evecs_aligned, _ = align_eigen(
-        evecs_base, evecs_to_align, evals_to_align, align_rotation=True
+        evecs_base, evecs_to_align, evals_to_align, mass, align_rotation=True
     )
     img_evecs_aligned = render_evecs(tri_mesh, evecs_aligned, vc_renderer, k_ranges)
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
             our_mesh, angle_deg=a, scale=10
         )
         evecs_aligned, evals_aligned = align_eigen(
-            evecs_base, evecs_to_align, evals_to_align, align_rotation=True
+            evecs_base, evecs_to_align, evals_to_align, mass, align_rotation=True
         )
         set_of_images.append(
             render_evecs(tri_mesh, evecs_aligned, vc_renderer, k_ranges)

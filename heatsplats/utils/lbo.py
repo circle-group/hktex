@@ -331,7 +331,9 @@ def compute_eig_laplacian(
     return evals, evecs
 
 
-def align_eigen(evecs_ref, evecs_to_align, evals_to_align, align_rotation=True):
+def align_eigen(
+    evecs_ref, evecs_to_align, evals_to_align, mass_matrix, align_rotation=True
+):
     """
     Aligns a set of eigenvectors and eigenvalues to a reference set.
 
@@ -344,17 +346,20 @@ def align_eigen(evecs_ref, evecs_to_align, evals_to_align, align_rotation=True):
     - evecs_ref (np.ndarray): The reference eigenvector matrix (shape n_verts x k).
     - evecs_to_align (np.ndarray): The eigenvector matrix to align (shape n_verts x k).
     - evals_to_align (np.ndarray): The eigenvalues corresponding to evecs_to_align (shape k).
+    - mass_matrix (np.ndarray or scipy.sparse.spmatrix): The mass matrix which defines
+        the inner product.
 
     Returns:
     - evecs_aligned (np.ndarray): The aligned eigenvector matrix.
     - evals_aligned (np.ndarray): The aligned eigenvalues.
     """
-    # --- Step 1: Find the optimal permutation using the Hungarian algorithm ---
-    # The cost matrix measures the squared Euclidean distance between all pairs of
-    # eigenvectors from the two sets.
-    cost_matrix = np.sum(
-        (evecs_ref[:, :, np.newaxis] - evecs_to_align[:, np.newaxis, :]) ** 2, axis=0
-    )
+    # Find optimal permutation:
+    # maximize the absolute value of the M-weighted inner product: |u_i^T @ M @ v_j|.
+    # NB. The inner product u.T @ M @ v measures how much the vector v projects onto the
+    # vector u in the mass weighted space. Its value is maximized when the vectors
+    # are perfectly aligned.
+    m_inner_products = evecs_ref.T * mass_matrix @ evecs_to_align
+    cost_matrix = -np.abs(m_inner_products)
 
     # linear_sum_assignment finds the permutation that minimizes the total cost.
     # It returns the optimal row and column indices.
@@ -364,10 +369,12 @@ def align_eigen(evecs_ref, evecs_to_align, evals_to_align, align_rotation=True):
     evecs_permuted = evecs_to_align[:, permuted_indices]
 
     if align_rotation:
-        # --- Step 2: Find the optimal rotation using Orthogonal Procrustes ---
-        # This method finds the rotation matrix R that minimizes
-        # ||evecs_ref - evecs_permuted @ R||^2.
-        correlation_matrix = evecs_permuted.T @ evecs_ref
+        # Find optimal rotation using M-weighted Orthogonal Procrustes:
+        # finds the rotation matrix R that minimizes ||evecs_ref - evecs_permuted @ R||_M^2,
+        # where ||.||_M is the M-weighted Frobenius norm.
+        # The solution is found via the SVD of the M-weighted correlation matrix.
+
+        correlation_matrix = evecs_permuted.T * mass_matrix @ evecs_ref
         U, _, Vt = scipy.linalg.svd(correlation_matrix)
         rotation_matrix = U @ Vt
 
@@ -376,10 +383,12 @@ def align_eigen(evecs_ref, evecs_to_align, evals_to_align, align_rotation=True):
     else:
         evecs_rotated = evecs_permuted
 
-    # --- Step 3: Correct the signs ---
-    # After global rotation, individual eigenvectors might still be flipped.
-    # We check the sign of the dot product between corresponding vectors.
-    signs = np.sign(np.sum(evecs_ref * evecs_rotated, axis=0))
+    # Correct the signs using M-weighted inner product:
+    # check the sign of the M-weighted dot product between corresponding vectors.
+
+    # Efficiently calculate the diagonal of evecs_ref.T @ mass_matrix @ evecs_rotated
+    m_dot_products = np.sum(evecs_ref * (mass_matrix[:, None] * evecs_rotated), axis=0)
+    signs = np.sign(m_dot_products)
 
     # Multiply by the signs to ensure they point in the same direction.
     # A sign of 0 (if vectors are perfectly orthogonal) is treated as +1.
