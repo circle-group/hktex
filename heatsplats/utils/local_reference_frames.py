@@ -1,11 +1,15 @@
 import torch
 
+from typing import Tuple
+
 __all__ = [
     "compute_aligned_frame",
 ]
 
 
-def get_adjacency(num_verts: int, faces: torch.Tensor):
+def get_adjacency(
+    num_verts: int, faces: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
     edges = torch.cat([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]], dim=0)
 
     sym_edges = torch.cat([edges, edges.flip(1)], dim=0)
@@ -21,7 +25,7 @@ def compute_aligned_frame(
     faces: torch.Tensor,
     normals: torch.Tensor,
     num_iterations: int = 20,
-):
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes a smooth, axis-aligned local reference frame for each vertex of a mesh.
 

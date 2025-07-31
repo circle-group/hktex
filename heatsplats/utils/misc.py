@@ -25,6 +25,7 @@ __all__ = [
     "interpolate_barycentric_attr_from_trivertidx",
     "normalise_colours",
     "soft_step",
+    "rescaled_soft_step",
 ]
 
 
@@ -201,6 +202,35 @@ def soft_step(
     if isinstance(sharpness, torch.Tensor):
         sharpness = sharpness.view(-1, 1, 1)
     return torch.sigmoid(sharpness * (x - epsilon))
+
+
+def rescaled_soft_step(
+    x: Tensor,
+    epsilon: Union[float, Tensor] = 0.8,
+    sharpness: Union[float, Tensor] = 10.0,
+):
+    """
+    A soft step function that maps input [0, 1] to output [0, 1].
+
+    This function is guaranteed to be 0 at x=0 and 1 at x=1.
+    """
+    if isinstance(sharpness, torch.Tensor):
+        sharpness = sharpness.view(-1, 1, 1)
+    if isinstance(epsilon, torch.Tensor):
+        epsilon = epsilon.view(-1, 1, 1)
+
+    # Calculate the sigmoid values at x, 0, and 1
+    y = torch.sigmoid(sharpness * (x - epsilon))
+    y0 = torch.sigmoid(sharpness * (0.0 - epsilon))
+    y1 = torch.sigmoid(sharpness * (1.0 - epsilon))
+
+    # Rescale the output to be exactly in the [0, 1] range
+    # Add a small constant to the denominator to avoid division by zero
+    rescaled_y = (y - y0) / (y1 - y0 + 1e-8)
+
+    # Clamp the output to ensure it's strictly within [0, 1] due to potential
+    # floating point inaccuracies.
+    return torch.clamp(rescaled_y, 0.0, 1.0)
 
 
 class SoftStep:

@@ -11,6 +11,8 @@ from heatsplats.utils import (
     get_anisotropic_lbo,
     compute_eig_laplacian,
     compute_mesh_laplacian,
+    align_eigen,
+    compute_aligned_frame,
     interpolate_barycentric_attr_from_trivertidx,
     compute_biharmonic_distance,
     BaseObject,
@@ -36,6 +38,7 @@ class EigenAlboInterpolation(BaseObject):
         mesh_path: Optional[str] = None
         precomputed_name: str = "eigen_albo"
         distance_weighting: str = "none"
+        local_frames: str = "principal_curvatures"
 
     cfg: Config
 
@@ -72,10 +75,23 @@ class EigenAlboInterpolation(BaseObject):
                 f"Eigen Albo Interpolation requires mesh path when using precomputed, falling back to non-precomputed"
             )
 
+        if "axis_aligned" in self.cfg.local_frames:
+            iterations = int(self.cfg.local_frames.split("_")[-1][:-4])
+            local_direction, _, _ = compute_aligned_frame(
+                self._mesh.verts, self._mesh.faces, self._mesh.vnorms, iterations
+            )
+        elif self.cfg.local_frames == "principal_curvatures":
+            local_direction = None
+        else:
+            raise ValueError(f"Unknown local frames: {self.cfg.local_frames}")
+
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
         if fpath is None or not self.cfg.use_precomputed:
-            all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen()
+            iso_eigen, iso_evecs = self._precompute_iso_eigen()
+            all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen(
+                iso_eigen, local_direction
+            )
         else:
             fpath_base = fpath.rsplit(".", 1)[0]
             precomputed_path = f"{fpath_base}_{self.cfg.precomputed_name}.pt"
@@ -88,8 +104,10 @@ class EigenAlboInterpolation(BaseObject):
                 mass = precomputed["mass"]
             except (FileNotFoundError, KeyError):
                 heatsplats.info(f"Precomputed albo eigen not found")
-                iso_eigen = self._precompute_iso_eigen()
-                all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen()
+                iso_eigen, iso_evecs = self._precompute_iso_eigen()
+                all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen(
+                    iso_evecs, local_direction
+                )
                 torch.save(
                     {
                         "iso_eigen": iso_eigen,
@@ -108,16 +126,19 @@ class EigenAlboInterpolation(BaseObject):
 
     def _precompute_all_aniso_eigen(
         self,
+        evecs_base: Optional[torch.Tensor] = None,
+        local_direction: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         all_eigen = []
         sampling_coords = []
 
+        evecs_base_prev = None
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         heatsplats.info("Computing all eigendecompositions")
         for angle in tqdm(range(0, 180, self.cfg.precompute_angles_every_deg)):
             angle = math.radians(angle)
-            for scale in self.cfg.precompute_anisotropies:
+            for i, scale in enumerate(self.cfg.precompute_anisotropies):
                 sampling_coords.append(torch.tensor([angle, scale]))
 
                 lapl, mass = get_anisotropic_lbo(
@@ -126,12 +147,23 @@ class EigenAlboInterpolation(BaseObject):
                     self._mesh.fnorms,
                     rotation_angle=angle,
                     anisotropy=float(scale),
+                    local_direction=local_direction,
                 )
 
                 eval, evecs = compute_eig_laplacian(lapl, mass, self.cfg.k_eig)
 
+                if evecs_base is not None:
+                    evecs, eval = align_eigen(
+                        evecs_base, evecs, eval, mass, align_rotation=True
+                    )
+                    evecs_base = evecs
+                    if i == 0:
+                        evecs_base_prev = evecs
+
                 flat_evecs = torch.tensor(evecs).flatten()
                 all_eigen.append(torch.cat([torch.tensor(eval), flat_evecs]))
+
+            evecs_base = evecs_base_prev
 
         mass = torch.tensor(mass).unsqueeze(0).contiguous()
 
@@ -149,7 +181,7 @@ class EigenAlboInterpolation(BaseObject):
 
         flat_evecs = torch.tensor(evecs).flatten()
         iso_eigen_flat = torch.cat([torch.tensor(eval), flat_evecs])
-        return iso_eigen_flat
+        return iso_eigen_flat, evecs
 
     def _make_cartesian_query(
         self,
@@ -191,6 +223,7 @@ class EigenAlboInterpolation(BaseObject):
         query_cartesian = self._make_cartesian_query(angles, scales)
         diff = self._smp_coords_cartesian.unsqueeze(1) - query_cartesian.unsqueeze(0)
         squared_distance = (diff * diff).sum(-1, keepdim=True)
+
         dist, idx = squared_distance.topk(k=4, largest=False, dim=0)
         x_idx = idx.squeeze().t()  # B, 4
         dist = dist.squeeze().t()  # B, 4

@@ -26,6 +26,7 @@ class Mesh(nn.Module):
         vertices: Float[Any, "V 3"],
         faces: Int[Any, "F 3"],
         fnorms: Float[Any, "F 3"],
+        vnorms: Optional[Float[Any, "V 3"]],
         device=None,
     ):
         super().__init__()
@@ -33,6 +34,7 @@ class Mesh(nn.Module):
         self.verts = nn.Buffer(torch.tensor(vertices, dtype=torch.float, device=device))
         self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int64, device=device))
         self.fnorms = nn.Buffer(torch.tensor(fnorms, dtype=torch.float, device=device))
+        self.vnorms = nn.Buffer(torch.tensor(vnorms, dtype=torch.float, device=device))
         self.tot_area = compute_tot_area(self.verts, self.faces)
 
         self.N_verts = self.verts.shape[0]
@@ -68,5 +70,6 @@ class Mesh(nn.Module):
             vertices=trimesh.vertices,
             faces=trimesh.faces,
             fnorms=trimesh.face_normals,
+            vnorms=trimesh.vertex_normals,
             **kwargs
         )

@@ -17,7 +17,6 @@ __all__ = [
     "compute_mesh_laplacian",
     "compute_point_cloud_laplacian",
     "compute_eig_laplacian",
-    "get_anisotropic_lbo_old",
     "align_eigen",
 ]
 
@@ -135,7 +134,7 @@ def get_anisotropic_lbo(
     face_normals: Optional[torch.Tensor] = None,
     rotation_angle: Optional[float] = 0.0,
     anisotropy: Optional[float] = 0.0,
-    local_direction=None,
+    local_direction: Optional[torch.Tensor] = None,
 ) -> Tuple[scipy.sparse.csc_matrix, np.ndarray]:
     """
     Computes the anisotropic Laplace-Beltrami operator.
@@ -146,6 +145,8 @@ def get_anisotropic_lbo(
         face_normals: Optional pre-computed face normals, accepts both (3, F) and (F, 3) shapes.
         rotation_angle: Optional rotation angle in radians.
         anisotropy: Optional anisotropy parameter.
+        local_direction: Optional local direction for each vertex serving as a reference
+            frame for the anisotropic diffusion tensor.
 
     Returns:
         A tuple containing the stiffness matrix (W) and mass matrix diagonal (A_diag).
@@ -168,10 +169,10 @@ def get_anisotropic_lbo(
     np_faces_t = face_t.cpu().numpy()
 
     if local_direction is not None:
-        pd1 = local_direction
+        Umax_vert = local_direction.to(device, dtype=torch.float32)
     else:
         pd1, _, _, _ = igl.principal_curvature(np_pos, np_faces_t)
-    Umax_vert = torch.from_numpy(pd1).to(device, dtype=torch.float32)
+        Umax_vert = torch.from_numpy(pd1).to(device, dtype=torch.float32)
 
     # Interpolate vertex-based directions to faces -> shape is (F, 3)
     Umax_face = Umax_vert[face_t].mean(dim=1)

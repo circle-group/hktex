@@ -40,13 +40,15 @@ if __name__ == "__main__":
         # "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
         "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 5000,
+        "optim.iters": 20_000,
         "data.batch_size": 1024,
         # "data.sample_all_vertices": False,
         "trainer.model.n_sources": 512,
         # "trainer.model.kernel_dim": 3,
-        # "trainer.model.out_net": False,
-        # "trainer.model.normalize_colours": False,
+        "trainer.model.out_net": False,
+        "trainer.model.normalize_colours": False,
+        "data.sampling_method": "uniform",
+        "renderer.point_batching": 1024,
     }
 
     args = argparse.Namespace(**args_dict)

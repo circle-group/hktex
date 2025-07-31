@@ -30,13 +30,14 @@ class Model(BaseModule):
         kernel_dim: int = 32
         out_net: bool = True
         normalize_colours: bool = False
+        diff_time: float = 1e-2
 
     cfg: Config
 
     _kernel_colours: Float[Tensor, "G D"]
     _angles: Float[Tensor, "G"]
     _anisotropies: Float[Tensor, "G"]
-    _diff_times: Float[Tensor, "G"]
+    _thresholds: Float[Tensor, "G"]
     _sharpnesses: Float[Tensor, "G"]
     _opacities: Float[Tensor, "G"]
     _kernel_locations: Float[Tensor, "G 3"]
@@ -55,11 +56,11 @@ class Model(BaseModule):
         self.kernel_dim = self.cfg.kernel_dim
         self.normalize_colours = self.cfg.normalize_colours
 
-        self._diff_time_scaler_func = lambda x: 10 ** (4 * torch.tanh(x) - 2)
+        self._thresholds_act = lambda x: 0.1 + (0.9 - 1e-8) * torch.sigmoid(x)
         self._angle_scale, self._angle_offset = torch.pi, torch.pi / 2
         self._angle_act = lambda x: self._angle_scale * x + self._angle_offset
         self._anis_act = lambda x: torch.exp(x)  # TODO: why exp?
-        self._sharpness_act = lambda x: torch.sigmoid(x) * (100 - 10) + 10
+        self._sharpness_act = lambda x: 5.0 + 95.0 * torch.sigmoid(x)
         self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
         self._colour_act = lambda x: x
 
@@ -87,8 +88,8 @@ class Model(BaseModule):
             )
         angles = torch.randn(self.N_sources, **factory_kwargs)
         anisotropies = torch.randn(self.N_sources, **factory_kwargs)
-        diff_times = torch.rand(self.N_sources, **factory_kwargs) * (0.5 - (-3)) + (-3)
-        sharpnesses = torch.rand(self.N_sources, **factory_kwargs) * 10 - 5
+        sharpnesses = -5.0 + 10.0 * torch.rand(self.N_sources, **factory_kwargs)
+        thresholds = -5.0 + 10.0 * torch.rand(self.N_sources, **factory_kwargs)
         opacities = torch.rand(self.N_sources, **factory_kwargs)
 
         # Uniformly sample many points on the mesh surface
@@ -104,7 +105,7 @@ class Model(BaseModule):
         self._kernel_colours = torch.nn.Parameter(kernel_colours)
         self._angles = torch.nn.Parameter(angles)
         self._anisotropies = torch.nn.Parameter(anisotropies)
-        self._diff_times = torch.nn.Parameter(diff_times)
+        self._thresholds = torch.nn.Parameter(thresholds)
         self._sharpnesses = torch.nn.Parameter(sharpnesses)
         self._opacities = torch.nn.Parameter(opacities)
         self._kernel_locations = nn.Parameter(kernel_locations)
@@ -114,8 +115,8 @@ class Model(BaseModule):
             "kernel_colours",
             "angles",
             "anisotropies",
-            "diff_times",
             "sharpnesses",
+            "thresholds",
             "opacities",
         ]
 
@@ -133,7 +134,11 @@ class Model(BaseModule):
 
     @property
     def diff_times(self) -> Float[Tensor, "G"]:
-        return self._diff_time_scaler_func(self._diff_times)
+        return self.cfg.diff_time * torch.ones(self.N_sources, device=self.device)
+
+    @property
+    def thresholds(self) -> Float[Tensor, "G"]:
+        return self._thresholds_act(self._thresholds)
 
     @property
     def sharpnesses(self) -> Float[Tensor, "G"]:
@@ -168,10 +173,10 @@ class Model(BaseModule):
         return (
             colored(f"Angles: {angles}, ", "yellow")
             + colored(f"Anisotropies: {anisotropies}, ", "green")
-            + colored(f"Diff times: {diff_times}, ", "blue")
             + colored(f"Kernel colours: {kernel_colours}", "red")
             + colored(f"Opacities: {self.opacities}", "magenta")
             + colored(f"Sharpnesses: {self.sharpnesses}", "cyan")
+            + colored(f"Thresholds: {self.thresholds}", "blue")
         )
 
     def save_barycentric_locations(self, barycentric_coords):

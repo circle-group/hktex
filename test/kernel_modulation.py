@@ -17,11 +17,14 @@ from heatsplats.utils import (
     heat_diffusion,
     normalise_colours,
     soft_step,
+    rescaled_soft_step,
     combine_videos,
     show_video,
     combine_images,
     show_image,
 )
+from heatsplats.utils import repr_patches
+
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
 from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
@@ -29,8 +32,8 @@ from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
 
 if __name__ == "__main__":
 
-    # fname = "../objects/spot/spot_triangulated.obj"
-    fname = "../objects/square_mesh.ply"
+    fname = "../objects/spot/spot_triangulated.obj"
+    # fname = "../objects/square_mesh.ply"
     model_cfg = {
         "weights": None,
         "n_sources": 2,
@@ -42,21 +45,21 @@ if __name__ == "__main__":
     eigalbo_config = {
         "k_eig": 256,
         "use_precomputed": True,
-        "precompute_anisotropies": [1, 10, 50, 100],
-        "precompute_angles_every_deg": 5,
+        # "precompute_anisotropies": [1, 10, 50, 100],
+        # "precompute_angles_every_deg": 5,
         "mesh_path": fname,
-        "precomputed_name": "eigen_albo",
+        # "precomputed_name": "eigen_albo",
         "distance_weighting": "none",  # "gaussian_0.5",
     }
     device = "cuda:0"
 
-    # tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=True)
-    tri_mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=False)
+    tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=True)
+    # tri_mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=False)
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
     model = Model(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
 
-    model._diff_times = torch.nn.Parameter(torch.tensor([0.5, 0.8], device=device))
+    # model._diff_times = torch.nn.Parameter(torch.tensor([0.5, 0.8], device=device))
     model._angles = torch.nn.Parameter(
         torch.deg2rad(torch.tensor([45.0, 10.0], device=device))
     )
@@ -66,18 +69,21 @@ if __name__ == "__main__":
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
-    # model._kernel_locations = torch.nn.Parameter(
-    #     torch.tensor(
-    #         [[-0.3444, -0.5293, -0.0918], [-0.3068, 0.0106, 0.7313]], device=device
-    #     )
-    # )
+    model._kernel_locations = torch.nn.Parameter(
+        torch.tensor(
+            [[-0.3444, -0.5293, -0.0918], [-0.3068, 0.0106, 0.7313]], device=device
+        )
+    )
     model._opacities = torch.nn.Parameter(
         torch.tensor([1.0, 1.0], dtype=torch.float, device=device)
     )
     model._sharpnesses = torch.nn.Parameter(
-        torch.tensor([1, 1], dtype=torch.float, device=device)
+        torch.tensor([20, 20], dtype=torch.float, device=device)
     )
-    # model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
+    model._thresholds = torch.nn.Parameter(
+        torch.tensor([0.2, 0.999], dtype=torch.float, device=device)
+    )
+    model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
     # model._diff_times = torch.nn.Parameter(model._diff_times / 10)
     # model._diff_times = torch.nn.Parameter(model._diff_times.clamp(max=0.5))
@@ -134,7 +140,9 @@ if __name__ == "__main__":
     v_colours = v_colours / (v_colours[:, V, :].unsqueeze(1) + 1e-8)
     v_colours = v_colours[:, :V, :]
 
-    # v_colours = soft_step(v_colours, 0.8, sharpness=model.sharpnesses)
+    v_colours = rescaled_soft_step(
+        v_colours, epsilon=model.thresholds, sharpness=model.sharpnesses
+    )
 
     v_colours = v_colours * model.opacities.view(-1, 1, 1)
     v_colours = v_colours * model.kernel_colours.unsqueeze(1)
@@ -173,10 +181,10 @@ if __name__ == "__main__":
     print("show combined videos (vert left) with: show_video(combined_video)")
 
     # Change kernel angles
-    # hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
-    # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": -90}})
-    hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": 0}})
-    vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
+    hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
+    vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": -90}})
+    # hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": 0}})
+    # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
     model._angle_scale = 1
     model._angle_offset = 0
 
@@ -217,6 +225,11 @@ if __name__ == "__main__":
         )
         v_colours = v_colours / (v_colours[:, V, :].unsqueeze(1) + 1e-8)
         v_colours = v_colours[:, :V, :]
+
+        v_colours = rescaled_soft_step(
+            v_colours, epsilon=model.thresholds, sharpness=model.sharpnesses
+        )
+
         v_colours = v_colours * model.opacities.view(-1, 1, 1)
         v_colours = v_colours * model.kernel_colours.unsqueeze(1)
         v_colours = v_colours.sum(dim=0)

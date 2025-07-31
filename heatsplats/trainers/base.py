@@ -160,7 +160,9 @@ class BaseTrainer(BaseObject):
             )  # P is source => hottest
             colours = colours[:, :P, :]
 
-            colours = utils.soft_step(colours, sharpness=self.model.sharpnesses)
+            colours = utils.rescaled_soft_step(
+                colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
+            )
 
             colours = colours * self.model.opacities.view(-1, 1, 1)
             colours = colours * self.model.kernel_colours.unsqueeze(1)
@@ -253,7 +255,9 @@ class BaseTrainer(BaseObject):
         )  # V = source => hottest
         v_colours = v_colours[:, :V, :]
 
-        v_colours = utils.soft_step(v_colours, sharpness=self.model.sharpnesses)
+        v_colours = utils.rescaled_soft_step(
+            v_colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
+        )
 
         v_colours = v_colours * self.model.opacities.view(-1, 1, 1)
         v_colours = v_colours * self.model.kernel_colours.unsqueeze(1)

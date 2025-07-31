@@ -16,11 +16,11 @@ from heatsplats.modules import Mesh
 from heatsplats.utils import (
     load_mesh,
     get_anisotropic_lbo,
-    get_anisotropic_lbo_old,
     compute_mesh_laplacian,
     compute_eig_laplacian,
     heat_diffusion,
     soft_step,
+    rescaled_soft_step,
     combine_images,
     show_image,
 )
