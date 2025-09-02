@@ -146,6 +146,10 @@ class HeatKernelsRenderer(BaseRenderer):
 
     cfg: Config
 
+    def configure(self):
+        super().configure()
+        self._tile_size = self.cfg.camera_config.tile_size_heatkernels
+
     def mesh_to_mitsuba(
         self,
         tri_mesh: Trimesh,

@@ -16,6 +16,8 @@ renderer:
     focus_distance: null
     near_clip: 0.01
     far_clip: 1000.0
+    tile_size: null
+    tile_size_heatkernels: 16
 
   emitter_config:
     envmap_path: null

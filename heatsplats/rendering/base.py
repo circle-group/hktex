@@ -1,12 +1,15 @@
 import drjit
+import torch
 import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
 import numpy as np
 from dataclasses import dataclass, field, replace, asdict
+from tqdm import tqdm
 from abc import abstractmethod
 from heatsplats.utils import BaseObject
+from heatsplats.utils.typing import *
 
 
 @dataclass
@@ -24,6 +27,8 @@ class CameraConfig:
     focus_distance: float | None = None
     near_clip: float = 0.01
     far_clip: float = 1000.0
+    tile_size: int | None = None
+    tile_size_heatkernels: int | None = None
 
 
 @dataclass
@@ -80,21 +85,12 @@ class BaseRenderer(BaseObject):
         self._emitter_dict = self.configure_emitter()
         self._ground_plane_dict = self.configure_default_ground_plane()
         self._initial_rendering_scene_dict = self.configure_scene()
+        self._tile_size = self.cfg.camera_config.tile_size
 
     @staticmethod
     @abstractmethod
     def mesh_to_mitsuba(**kwargs):
         pass
-
-    def render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
-        scene_dict = self.configure_scene()
-        scene_dict["mesh"] = mi_mesh
-        scene = mi.load_dict(scene_dict)
-        image = mi.render(scene)
-        if denoise:
-            denoiser = mi.OptixDenoiser(input_size=image.shape[:2])
-            image = denoiser(image)
-        return image
 
     def reset_scene(self):
         self.configure()
@@ -190,19 +186,24 @@ class BaseRenderer(BaseObject):
         config_dict = camera_config.copy()
         config_dict.update(overrides)
 
-        camera_pos = mi.ScalarTransform4f().rotate(
-            [0, 0, 1], config_dict["elevation_deg"]
-        ).rotate([0, 1, 0], config_dict["azimuth_deg"]) @ mi.ScalarPoint3f(
-            [0, 0, config_dict["camera_distance"]]
-        )
+        if "to_world" in config_dict:
+            to_world = config_dict["to_world"]
+        else:
+            camera_pos = mi.ScalarTransform4f().rotate(
+                [0, 0, 1], config_dict["elevation_deg"]
+            ).rotate([0, 1, 0], config_dict["azimuth_deg"]) @ mi.ScalarPoint3f(
+                [0, 0, config_dict["camera_distance"]]
+            )
+            to_world = mi.ScalarTransform4f().look_at(
+                origin=camera_pos, target=[0, 0, 0], up=[0, 1, 0]
+            )
+
         camera_dict = {
             "type": config_dict["camera_type"],
             "fov": config_dict["fov"],
             "near_clip": config_dict["near_clip"],
             "far_clip": config_dict["far_clip"],
-            "to_world": mi.ScalarTransform4f().look_at(
-                origin=camera_pos, target=[0, 0, 0], up=[0, 1, 0]
-            ),
+            "to_world": to_world,
             "film": {
                 "type": "hdrfilm",
                 "rfilter": {"type": "box"},
@@ -218,10 +219,77 @@ class BaseRenderer(BaseObject):
             camera_dict["aperture_radius"] = config_dict["aperture_radius"]
             camera_dict["focus_distance"] = config_dict["focus_distance"]
 
+        for k, v in config_dict.items():
+            if "crop" in k:
+                camera_dict["film"][k] = v
+
         return camera_dict
 
     def change_camera_param(self, **overrides):
         self._camera_dict = self.set_centre_looking_camera(**overrides)
+
+    def render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
+        if self._tile_size is None:
+            return self._render(mi_mesh, denoise)
+        else:
+            return self._render_tiled(mi_mesh, denoise, self._tile_size)
+
+    def _render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
+        scene_dict = self.configure_scene()
+        scene_dict["mesh"] = mi_mesh
+        scene = mi.load_dict(scene_dict)
+        image = mi.render(scene)
+        if denoise:
+            denoiser = mi.OptixDenoiser(input_size=image.shape[:2])
+            image = denoiser(image)
+        return image
+
+    def _render_tiled(
+        self, mi_mesh: mi.Mesh, denoise: bool = True, tile_size: Optional[int] = None
+    ) -> drjit.cuda.ad.TensorXf:
+        film_size = mi.ScalarVector2u(
+            self._camera_dict["film"]["width"], self._camera_dict["film"]["height"]
+        )
+
+        # Create a tensor to hold the final image and fill it with tiles
+        final_tensor = torch.zeros(
+            (film_size.y, film_size.x, 3), dtype=torch.float32, device="cuda"
+        )
+
+        # Create all the sensors for tiled rendering
+        i = 0
+        for y_offset in range(0, film_size.y, tile_size):
+            for x_offset in range(0, film_size.x, tile_size):
+                w = min(tile_size, film_size.x - x_offset)
+                h = min(tile_size, film_size.y - y_offset)
+
+                # Modify the sensor's properties for the current tile
+                self.change_camera_param(
+                    to_world=self._camera_dict["to_world"],
+                    crop_offset_x=x_offset,
+                    crop_offset_y=y_offset,
+                    crop_width=w,
+                    crop_height=h,
+                )
+
+                rendered_tile = self._render(mi_mesh, denoise=False)
+                tile_tensor = mi.TensorXf(rendered_tile).torch()
+                h, w, _ = tile_tensor.shape
+                final_tensor[y_offset : y_offset + h, x_offset : x_offset + w] = (
+                    tile_tensor
+                )
+                i += 1
+                torch.cuda.empty_cache()
+
+        final_tensor = mi.TensorXf(final_tensor)
+
+        if denoise:
+            denoiser = mi.OptixDenoiser(input_size=final_tensor.shape[:2])
+            final_tensor = denoiser(final_tensor)
+
+        self.reset_scene()
+
+        return final_tensor
 
     def rotating_video(self, mi_mesh: mi.Mesh, n_frames: int = 90) -> list[mi.Bitmap]:
         denoiser = mi.OptixDenoiser(
@@ -235,7 +303,11 @@ class BaseRenderer(BaseObject):
         azimuth = self.cfg.camera_config.azimuth_deg
         elevation = self.cfg.camera_config.elevation_deg
         frames = []
-        for i in range(n_frames):
+        for i in tqdm(
+            range(n_frames),
+            desc=f"Rendering video frames with tiles of size {self._tile_size}",
+            leave=False,
+        ):
             self.change_camera_param(
                 azimuth_deg=azimuth + (i / n_frames) * 360,
                 elevation_deg=elevation,

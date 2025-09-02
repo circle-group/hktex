@@ -135,6 +135,7 @@ def main(args, extras) -> Dict[str, Any]:
 
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
 
+    torch.cuda.empty_cache()
     gt_renderings = trainer.render_gt(cfg.renderer.n_rotating_frames)
     result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
     if cfg.renderer.n_rotating_frames > 1:
