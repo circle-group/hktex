@@ -93,6 +93,7 @@ class BaseTrainer(BaseObject):
 
         errors_lists = {k: [] for k in self.model.splat_param_keys}
         errors_lists["loss"] = []
+        self.plot_model_histograms()
 
         for i in (pbar := tqdm(range(n_iter))):
             data = next(data_iter)
@@ -203,7 +204,8 @@ class BaseTrainer(BaseObject):
         heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
-        v_colours = self.compute_vertex_colours()
+        self.plot_model_histograms()
+        v_colours = self.compute_vertex_colours()  # TODO: may go out of memory, batch!
         return v_colours, gt_colours, init_colours
 
     def compute_vertex_colours(self):
@@ -347,6 +349,27 @@ class BaseTrainer(BaseObject):
         axes[1].set_xlabel("Iteration")
         axes[1].set_ylabel("Loss (Log Scale)")
         axes[1].legend()
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_model_histograms(self):
+        props = {
+            "sharpnesses": self.model.sharpnesses,
+            "opacities": self.model.opacities,
+            "thresholds": self.model.thresholds,
+            "anisotropies": self.model.anisotropies,
+            "angles (deg)": self.model.angles * 180 / torch.pi,
+        }
+
+        plt.figure(figsize=(15, 8))
+        for i, (name, tensor) in enumerate(props.items(), 1):
+            plt.subplot(2, 3, i)
+            arr = tensor.detach().cpu().numpy()
+            plt.hist(arr, bins=30)
+            plt.title(name)
+            plt.xlabel("Value")
+            plt.ylabel("Frequency")
 
         plt.tight_layout()
         plt.show()
