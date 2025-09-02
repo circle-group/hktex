@@ -53,6 +53,9 @@ class BaseTrainer(BaseObject):
     ):
         super().configure()
 
+        if "renderer_cfg" in kwargs:
+            self.cfg.renderer = kwargs["renderer_cfg"]
+
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)

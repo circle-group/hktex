@@ -12,13 +12,13 @@ renderer:
     sampler_type: multijitter
     sample_count: 4
     fov: 40.0
-    aperture_radius: None
-    focus_distance: None
+    aperture_radius: null
+    focus_distance: null
     near_clip: 0.01
     far_clip: 1000.0
 
   emitter_config:
-    envmap_path: None
+    envmap_path: null
     envmap_scale: 1.0
     radiance: 1.0
 

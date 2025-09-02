@@ -68,6 +68,8 @@ class BaseRenderer(BaseObject):
         mitsuba_mesh_config: MitsubaMeshConfig = field(
             default_factory=MitsubaMeshConfig
         )
+        n_rotating_frames: int = 4
+        point_batching: int | None = None
 
     cfg: Config
 

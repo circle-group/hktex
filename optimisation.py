@@ -106,7 +106,9 @@ def main(args, extras) -> Dict[str, Any]:
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(cfg.trainer, datamodule)
+    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+        cfg.trainer, datamodule, renderer_cfg=cfg.renderer
+    )
 
     # Add output logs
     if cfg.optim.save_logs:
