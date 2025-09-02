@@ -186,7 +186,6 @@ if __name__ == "__main__":
     # hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": 0}})
     # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
     model._angle_scale = 1
-    model._angle_offset = 0
 
     hk_renderer.mega_kernel(False)
     images = []
