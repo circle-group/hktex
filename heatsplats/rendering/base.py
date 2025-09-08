@@ -178,16 +178,19 @@ class BaseRenderer(BaseObject):
         Returns:
             dict: A dictionary representing the camera configuration.
         """
-
         # Use the provided CameraConfig or default to a new instance
         camera_config = camera_config or asdict(CameraConfig())
 
+        camera_keys = set(camera_config.keys())
+        cam_overrides = {k: v for k, v in overrides.items() if k in camera_keys}
+        extra_overrides = {k: v for k, v in overrides.items() if k not in camera_keys}
+
         # Apply overrides to the CameraConfig
         config_dict = camera_config.copy()
-        config_dict.update(overrides)
+        config_dict.update(cam_overrides)
 
-        if "to_world" in config_dict:
-            to_world = config_dict["to_world"]
+        if "to_world" in extra_overrides:
+            to_world = extra_overrides["to_world"]
         else:
             camera_pos = mi.ScalarTransform4f().rotate(
                 [0, 0, 1], config_dict["elevation_deg"]
@@ -219,14 +222,16 @@ class BaseRenderer(BaseObject):
             camera_dict["aperture_radius"] = config_dict["aperture_radius"]
             camera_dict["focus_distance"] = config_dict["focus_distance"]
 
-        for k, v in config_dict.items():
+        for k, v in extra_overrides.items():
             if "crop" in k:
                 camera_dict["film"][k] = v
 
         return camera_dict
 
     def change_camera_param(self, **overrides):
-        self._camera_dict = self.set_centre_looking_camera(**overrides)
+        self._camera_dict = self.set_centre_looking_camera(
+            self.cfg.camera_config, **overrides
+        )
 
     def render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
         if self._tile_size is None:

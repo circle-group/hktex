@@ -129,6 +129,12 @@ def load_config(
     if merge_defaults:
         yaml_confs.insert(0, ExperimentConfig)
     cfg = OmegaConf.merge(*yaml_confs, cli_conf, kwargs)
+
+    # Replace "None" strings with None
+    cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+    cfg_dict = convert_none_strings(cfg_dict)
+    cfg = OmegaConf.create(cfg_dict)
+
     OmegaConf.resolve(cfg)
     assert isinstance(cfg, DictConfig)
     scfg = parse_structured(ExperimentConfig, cfg)
@@ -153,6 +159,17 @@ def parse_structured(
         cfg = OmegaConf.merge(fields, cfg)
     scfg = OmegaConf.structured(fields(**cfg))
     return scfg
+
+
+def convert_none_strings(obj):
+    if isinstance(obj, dict):
+        return {k: convert_none_strings(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_none_strings(v) for v in obj]
+    elif obj == "None":
+        return None
+    else:
+        return obj
 
 
 def save_config_snapshot(savedir, config, config_path):
