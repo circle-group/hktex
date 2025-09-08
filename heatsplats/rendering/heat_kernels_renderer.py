@@ -112,7 +112,7 @@ class HeatKernelsTexture(mi.Texture):
             colours_batch = colours_batch / (colours_batch[:, p, :].unsqueeze(1) + 1e-8)
             colours_batch = colours_batch[:, :p, :]
 
-            colours_batch = utils.rescaled_soft_step(
+            colours_batch = self.model.kernel_filter_func(
                 colours_batch,
                 epsilon=self.model.thresholds,
                 sharpness=self.model.sharpnesses,

@@ -84,7 +84,7 @@ if __name__ == "__main__":
         init_mesh, vertex_colors=init_colours
     )
 
-    gt_renderings, result_renderings, combined_renderings = out["renderings"]
+    gt_rend, result_rend, ring_rend, combined_rend = out["renderings"]
 
     print("You can now visualise the followings:")
     print("  - Initial mesh: init_mesh.show()")
@@ -92,6 +92,7 @@ if __name__ == "__main__":
     print("  - Vert coloured optimised mesh: v_mesh.show()")
     print("  - Vert coloured optimised mesh with final kernel pos: v_scene.show()")
     print("  - Vert coloured optimised mesh with traces: v_scene_traces.show()")
-    print("  - GT renderings: show_video(gt_renderings)")
-    print("  - Optimised mesh renderings: show_video(result_renderings)")
-    print("  - Combined renderings: show_video(combined_renderings)")
+    print("  - GT renderings: show_video(gt_rend)")
+    print("  - Optimised mesh renderings: show_video(result_rend)")
+    print("  - Kernel ring renderings: show_video(ring_rend)")
+    print("  - Combined renderings: show_video(combined_rend)")

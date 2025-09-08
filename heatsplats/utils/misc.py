@@ -26,6 +26,7 @@ __all__ = [
     "normalise_colours",
     "soft_step",
     "rescaled_soft_step",
+    "box_border",
 ]
 
 
@@ -231,6 +232,37 @@ def rescaled_soft_step(
     # Clamp the output to ensure it's strictly within [0, 1] due to potential
     # floating point inaccuracies.
     return torch.clamp(rescaled_y, 0.0, 1.0)
+
+
+def box_border(
+    x: Tensor,
+    epsilon: Union[float, Tensor] = 0.8,
+    sharpness: Union[float, Tensor] = 10.0,
+    thickness: float = 0.1,
+):
+    """
+    Creates a well-defined, hard border using a box function.
+
+    The output is 1.0 inside the border region and 0.0 elsewhere.
+    This function is not "soft" and has no sharpness parameter.
+
+    Args:
+        x: The input tensor, expected to be in the [0, 1] range.
+        epsilon: The position of the outer edge of the border.
+        thickness: The thickness of the border.
+    """
+    # Reshape epsilon if it's a tensor for safe broadcasting
+    if isinstance(epsilon, torch.Tensor):
+        epsilon = epsilon.view(-1, 1, 1)
+
+    # Calculate the inner epsilon by subtracting the absolute thickness.
+    inner_epsilon = epsilon - thickness
+
+    # Create a boolean mask for values within the desired range.
+    in_range = torch.logical_and(x >= inner_epsilon, x < epsilon)
+
+    # Convert the boolean mask to a float tensor (0.0 or 1.0).
+    return in_range.float()
 
 
 class SoftStep:

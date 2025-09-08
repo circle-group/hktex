@@ -64,6 +64,8 @@ class Model(BaseModule):
         self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
         self._colour_act = lambda x: x
 
+        self.kernel_filter_func = utils.rescaled_soft_step
+
         self.out_net = None
         if self.cfg.out_net:
             self.out_net = nn.Sequential(

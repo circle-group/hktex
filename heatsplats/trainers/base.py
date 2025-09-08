@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from abc import abstractmethod
 import numpy as np
 from termcolor import colored
+from functools import partial
 import trimesh
 import matplotlib.pyplot as plt
 
@@ -164,7 +165,7 @@ class BaseTrainer(BaseObject):
             )  # P is source => hottest
             colours = colours[:, :P, :]
 
-            colours = utils.rescaled_soft_step(
+            colours = self.model.kernel_filter_func(
                 colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
             )
 
@@ -260,7 +261,7 @@ class BaseTrainer(BaseObject):
         )  # V = source => hottest
         v_colours = v_colours[:, :V, :]
 
-        v_colours = utils.rescaled_soft_step(
+        v_colours = self.model.kernel_filter_func(
             v_colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
         )
 
@@ -318,6 +319,44 @@ class BaseTrainer(BaseObject):
         renderer.flush_cache()
 
         return out
+
+    def render_kernel_rings(
+        self, rotating_frames: int = 10, thickness: float = 0.03
+    ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        """
+        Render the mesh with the contour of the resultsing heat kernels.
+        This is always rendered with the heat kernel texture, so it is not defined
+        in subclasses.
+        Args:
+            rotating_frames (int): Number of frames for rotation.
+                If 1, render a single image.
+            thickness (float): Thickness of the contour lines.
+        Returns:
+            mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
+        """
+        # Save original values
+        orig_kernel_filter_func = self.model.kernel_filter_func
+        orig_kernel_colours = self.model._kernel_colours.clone().detach()
+        orig_opacities = self.model._opacities.clone().detach()
+
+        # Override values
+        self.model.kernel_filter_func = partial(utils.box_border, thickness=0.03)
+        self.model._kernel_colours = torch.nn.Parameter(
+            torch.rand_like(self.model._kernel_colours)
+        )
+        self.model._opacities = torch.nn.Parameter(
+            torch.ones_like(self.model._opacities) * 0.5
+        )
+
+        try:
+            rend_rings = self.render_result(rotating_frames)
+        finally:
+            # Restore original values
+            self.model.kernel_filter_func = orig_kernel_filter_func
+            self.model._kernel_colours = torch.nn.Parameter(orig_kernel_colours)
+            self.model._opacities = torch.nn.Parameter(orig_opacities)
+
+        return rend_rings
 
     @property
     def kernel_centres(self):

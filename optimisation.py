@@ -138,8 +138,11 @@ def main(args, extras) -> Dict[str, Any]:
     torch.cuda.empty_cache()
     gt_renderings = trainer.render_gt(cfg.renderer.n_rotating_frames)
     result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
+    ring_renderings = trainer.render_kernel_rings(cfg.renderer.n_rotating_frames)
     if cfg.renderer.n_rotating_frames > 1:
-        combined_renderings = combine_videos(gt_renderings, result_renderings)
+        combined_renderings = combine_videos(
+            gt_renderings, result_renderings, ring_renderings
+        )
     else:
         combined_renderings = None
 
@@ -153,7 +156,12 @@ def main(args, extras) -> Dict[str, Any]:
         "optimisation": trainer,
         "datamodule": datamodule,
         "colours": (v_colours, gt_colours, init_colours),
-        "renderings": (gt_renderings, result_renderings, combined_renderings),
+        "renderings": (
+            gt_renderings,
+            result_renderings,
+            ring_renderings,
+            combined_renderings,
+        ),
     }
 
 
