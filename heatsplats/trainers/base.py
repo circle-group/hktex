@@ -30,6 +30,7 @@ from heatsplats.utils import BaseObject
 from heatsplats.utils.typing import *
 
 from .utils import parse_optimizers
+from heatsplats.density_controllers.utils import parse_density_controllers
 
 
 class BaseTrainer(BaseObject):
@@ -42,6 +43,7 @@ class BaseTrainer(BaseObject):
         model: dict = field(default_factory=dict)
 
         optimizers: list = field(default_factory=list)
+        density_controllers: list = field(default_factory=list)
 
         renderer: dict = field(default_factory=dict)
 
@@ -77,6 +79,9 @@ class BaseTrainer(BaseObject):
         )
 
         self.optimizers = parse_optimizers(self.cfg.optimizers, self)
+        self.density_controllers = parse_density_controllers(
+            self.cfg.density_controllers, self.model, self.optimizers
+        )
 
     def prepare_batch(self, data: dict) -> dict:
         for k, v in data.items():
@@ -88,8 +93,6 @@ class BaseTrainer(BaseObject):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
-        B = self.model.N_sources
-
         heatsplats.debug(f"INITIAL -> {self.model.colored_print_opt_params}")
 
         errors_lists = {k: [] for k in self.model.splat_param_keys}
@@ -97,6 +100,8 @@ class BaseTrainer(BaseObject):
         self.plot_model_histograms()
 
         for i in (pbar := tqdm(range(n_iter))):
+            B = self.model.N_sources
+
             data = next(data_iter)
             data = self.prepare_batch(data)
 
@@ -187,6 +192,9 @@ class BaseTrainer(BaseObject):
             for optimizer in self.optimizers:
                 optimizer.step()
                 optimizer.zero_grad()
+
+            for dc in self.density_controllers:
+                dc.post_backward_step(step=i)
 
             with torch.no_grad():
                 errors = self._errors

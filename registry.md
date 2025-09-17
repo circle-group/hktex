@@ -24,3 +24,9 @@
 | trainers.vertex-colours  |  [vertex_colours.py](./heatsplats/trainers/vertex_colours.py) | VertexColoursTrainer |
 | trainers.stationary-heat-kernels  |  [stat_heat_kernels.py](./heatsplats/trainers/stat_heat_kernels.py) | StationaryHeatKernelsTrainer |
 
+
+## Density Controllers
+
+|   Registry    |     File      |     Class     |
+| ------------- | ------------- | ------------- |
+| density_controllers.opacity  | [opacity.py](./heatsplats/density_controllers/opacity.py) | OpacityController |

@@ -107,7 +107,7 @@ class Model(BaseModule):
         thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon))
 
         # Initialize Anisotropies for uniform output in a chosen range [min_val, max_val]
-        min_val, max_val = 0.1, 20.0
+        min_val, max_val = 0.1, 100.0
         uniform_anisotropies = min_val + (max_val - min_val) * torch.rand(
             self.N_sources, **factory_kwargs
         )

@@ -24,6 +24,10 @@ import logging
 logger = logging.getLogger("heatsplats")
 
 
+def is_debug():
+    return logger.isEnabledFor(logging.DEBUG)
+
+
 def debug(*args, **kwargs):
     logger.debug(*args, **kwargs)
 
