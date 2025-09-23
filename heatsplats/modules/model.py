@@ -57,7 +57,7 @@ class Model(BaseModule):
         self.normalize_colours = self.cfg.normalize_colours
 
         self._thresholds_act = lambda x: 0.1 + (0.9 - 1e-8) * torch.sigmoid(x)
-        self._angle_scale = torch.pi / 2
+        self._angle_scale = torch.pi
         self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
         self._anis_act = lambda x: torch.exp(x)  # TODO: why exp?
         self._sharpness_act = lambda x: 5.0 + 95.0 * torch.sigmoid(x)
@@ -89,7 +89,7 @@ class Model(BaseModule):
                 (self.N_sources, self.out_dim), **factory_kwargs
             )
 
-        opacities = torch.rand(self.N_sources, **factory_kwargs)
+        opacities = torch.rand(self.N_sources, **factory_kwargs) * 2 - 1
 
         # Initialise angles for uniform output in [0, π/2] considering activation
         p = torch.rand(self.N_sources, **factory_kwargs)

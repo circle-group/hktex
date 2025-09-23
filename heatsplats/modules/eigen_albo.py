@@ -72,25 +72,17 @@ class EigenAlboInterpolation(BaseObject):
         fpath = self.cfg.mesh_path
         if self.cfg.use_precomputed and fpath is None:
             heatsplats.warn(
-                f"Eigen Albo Interpolation requires mesh path when using precomputed, falling back to non-precomputed"
+                f"Eigen Albo Interpolation requires mesh path when using precomputed, "
+                f"falling back to non-precomputed"
             )
-
-        if "axis_aligned" in self.cfg.local_frames:
-            iterations = int(self.cfg.local_frames.split("_")[-1][:-4])
-            local_direction, _, _ = compute_aligned_frame(
-                self._mesh.verts, self._mesh.faces, self._mesh.vnorms, iterations
-            )
-        elif self.cfg.local_frames == "principal_curvatures":
-            local_direction = None
-        else:
-            raise ValueError(f"Unknown local frames: {self.cfg.local_frames}")
 
         # Essentially just a wrapper for _precompute_all_eigen which makes sure
         # that the precomputed values are saved and loaded if possible
         if fpath is None or not self.cfg.use_precomputed:
             iso_eigen, iso_evecs = self._precompute_iso_eigen()
+            local_direction = self._compute_local_directions()
             all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen(
-                iso_eigen, local_direction
+                iso_evecs, local_direction
             )
         else:
             fpath_base = fpath.rsplit(".", 1)[0]
@@ -105,6 +97,7 @@ class EigenAlboInterpolation(BaseObject):
             except (FileNotFoundError, KeyError):
                 heatsplats.info(f"Precomputed albo eigen not found")
                 iso_eigen, iso_evecs = self._precompute_iso_eigen()
+                local_direction = self._compute_local_directions()
                 all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen(
                     iso_evecs, local_direction
                 )
@@ -117,12 +110,30 @@ class EigenAlboInterpolation(BaseObject):
                     },
                     precomputed_path,
                 )
+        # Add isotropic eigen as first entry of all_eigen
+        all_eigen = torch.cat([iso_eigen.unsqueeze(0), all_eigen], dim=0)
+        sampling_coords = torch.cat(
+            [torch.tensor([[0.0, 1.0]]), sampling_coords], dim=0
+        )
+
         return (
             iso_eigen.to(torch.float32).to(self.device),
             all_eigen.to(torch.float32).to(self.device),
             sampling_coords.to(torch.float32).to(self.device),
             mass.to(torch.float32).to(self.device),
         )
+
+    def _compute_local_directions(self) -> torch.Tensor:
+        if "axis_aligned" in self.cfg.local_frames:
+            iterations = int(self.cfg.local_frames.split("_")[-1][:-4])
+            local_direction, _, _ = compute_aligned_frame(
+                self._mesh.verts, self._mesh.faces, self._mesh.vnorms, iterations
+            )
+        elif self.cfg.local_frames == "principal_curvatures":
+            local_direction = None
+        else:
+            raise ValueError(f"Unknown local frames: {self.cfg.local_frames}")
+        return local_direction
 
     def _precompute_all_aniso_eigen(
         self,

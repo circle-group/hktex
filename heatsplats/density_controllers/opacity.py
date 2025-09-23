@@ -71,7 +71,11 @@ class OpacityController(BaseDensityController):
 
         def param_fn(name: str, p: Tensor) -> Tensor:
             if name == "_opacities":
-                opacities = torch.clamp(p, max=torch.tensor(value).item())
+                opacities = torch.clamp(
+                    p,
+                    min=torch.tensor(-value).item(),
+                    max=torch.tensor(value).item(),
+                )
                 return torch.nn.Parameter(opacities, requires_grad=p.requires_grad)
             else:
                 raise ValueError(f"Unexpected parameter name: {name}")
@@ -82,4 +86,6 @@ class OpacityController(BaseDensityController):
         self._update_param_with_optimizer(param_fn, optimizer_fn, names=["_opacities"])
 
         if heatsplats.is_debug():
-            heatsplats.debug(colored(f"Reset opacities to <= {value}", "light_blue"))
+            heatsplats.debug(
+                colored(f"Reset opacities to {-value} <= op <= {value}", "light_blue")
+            )
