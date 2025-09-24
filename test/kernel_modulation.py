@@ -55,13 +55,19 @@ if __name__ == "__main__":
     model = Model(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
 
+    # Void all activations for interpretability over ease of optimisation ##############
+    model._angle_act = lambda x: torch.deg2rad(x)
+    model._anis_act = lambda x: x
+    model._opacity_act = lambda x: x
+    model._sharpness_act = lambda x: x
+    model._thresholds_act = lambda x: x
+    model._colour_act = lambda x: x
+
     # Manually set parameters ##########################################################
     model._angles = torch.nn.Parameter(
-        torch.deg2rad(torch.tensor([45.0, 10.0], device=device))
+        torch.deg2rad(torch.tensor([0.0, 0.0], device=device))
     )
-    model._anisotropies = torch.nn.Parameter(
-        torch.log(torch.tensor([98, 52], device=device))
-    )
+    model._anisotropies = torch.nn.Parameter(torch.tensor([10.0, 10.0], device=device))
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
@@ -74,10 +80,10 @@ if __name__ == "__main__":
         torch.tensor([1.0, 1.0], dtype=torch.float, device=device)
     )
     model._sharpnesses = torch.nn.Parameter(
-        torch.tensor([20, 20], dtype=torch.float, device=device)
+        torch.tensor([100.0, 100.0], dtype=torch.float, device=device)
     )
     model._thresholds = torch.nn.Parameter(
-        torch.tensor([0.2, 0.999], dtype=torch.float, device=device)
+        torch.tensor([0.5, 0.5], dtype=torch.float, device=device)
     )
     model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
@@ -113,17 +119,20 @@ if __name__ == "__main__":
     combined_video = combine_videos(video_vert, video)
     print("show combined videos (vert left) with: show_video(combined_video)")
 
-    # Change kernel angles
+    ####################################################################################
+    # Change parameters ################################################################
+    ####################################################################################
+
     hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
     vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": -90}})
     # hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": 0}})
     # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
 
     hk_renderer.mega_kernel(False)
+
+    # Change angles ####################################################################
     images = []
     images_vertices = []
-    model._angle_act = lambda x: torch.deg2rad(x)
-
     for angle in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5]:
         model._angles = torch.nn.Parameter(
             torch.ones_like(model.angles, device=device) * angle
@@ -132,7 +141,6 @@ if __name__ == "__main__":
         mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
         images.append(hk_renderer.render(mi_mesh, denoise=True))
 
-        # Vertex colours ###############################################################
         v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
         out_mesh = tri_mesh.copy()
         out_mesh.visual = trimesh.visual.ColorVisuals(
@@ -141,9 +149,126 @@ if __name__ == "__main__":
         mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
         images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
 
+    model._angles = torch.nn.Parameter(
+        torch.deg2rad(torch.tensor([0.0, 0.0], device=device))
+    )
+
+    combined_img_angles = combine_images(*images)
+    combined_img_v_angles = combine_images(*images_vertices)
+
     hk_renderer.flush_cache()
 
-    combined_image = combine_images(*images)
-    combined_image_vertices = combine_images(*images_vertices)
+    print(f"show all angles with: show_image(combined_img_angles)")
+    print(f"show all angles vertex colours with: show_image(combined_img_v_angles)")
 
-    print(f"show all angles with: show_image(combined_image)")
+    # Change anisotropies ##############################################################
+    images = []
+    images_vertices = []
+    for anis in [5, 10, 50, 100, 200]:
+        model._anisotropies = torch.nn.Parameter(
+            torch.ones_like(model.anisotropies, device=device) * anis
+        )
+
+        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+        images.append(hk_renderer.render(mi_mesh, denoise=True))
+
+        v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
+        out_mesh = tri_mesh.copy()
+        out_mesh.visual = trimesh.visual.ColorVisuals(
+            out_mesh, vertex_colors=v_colours.cpu().detach().numpy()
+        )
+        mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
+        images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
+
+    model._anisotropies = torch.nn.Parameter(torch.tensor([10.0, 10.0], device=device))
+
+    combined_img_anis = combine_images(*images)
+    combined_img_v_anis = combine_images(*images_vertices)
+
+    hk_renderer.flush_cache()
+    print(f"show all anisotropies with: show_image(combined_img_anis)")
+    print(f"show all anisotropies vertex colours with: show_image(combined_img_v_anis)")
+
+    # Change opacities #################################################################
+    images = []
+    images_vertices = []
+    for opac in [0.1, 0.4, 0.7, 1.0]:
+        model._opacities = torch.nn.Parameter(
+            torch.ones_like(model.opacities, device=device) * opac
+        )
+
+        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+        images.append(hk_renderer.render(mi_mesh, denoise=True))
+
+        v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
+        out_mesh = tri_mesh.copy()
+        out_mesh.visual = trimesh.visual.ColorVisuals(
+            out_mesh, vertex_colors=v_colours.cpu().detach().numpy()
+        )
+        mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
+        images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
+
+    model._opacities = torch.nn.Parameter(torch.tensor([1.0, 1.0], device=device))
+
+    combined_img_opac = combine_images(*images)
+    combined_img_v_opac = combine_images(*images_vertices)
+
+    hk_renderer.flush_cache()
+    print(f"show all opacities with: show_image(combined_img_opac)")
+    print(f"show all opacities vertex colours with: show_image(combined_img_v_opac)")
+
+    # Change sharpnesses ###############################################################
+    images = []
+    images_vertices = []
+    for sharp in [5, 10, 50, 100]:
+        model._sharpnesses = torch.nn.Parameter(
+            torch.ones_like(model.sharpnesses, device=device) * sharp
+        )
+
+        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+        images.append(hk_renderer.render(mi_mesh, denoise=True))
+
+        v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
+        out_mesh = tri_mesh.copy()
+        out_mesh.visual = trimesh.visual.ColorVisuals(
+            out_mesh, vertex_colors=v_colours.cpu().detach().numpy()
+        )
+        mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
+        images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
+
+    model._sharpnesses = torch.nn.Parameter(torch.tensor([100.0, 100.0], device=device))
+
+    combined_img_sharp = combine_images(*images)
+    combined_img_v_sharp = combine_images(*images_vertices)
+
+    hk_renderer.flush_cache()
+    print(f"show all sharpnesses with: show_image(combined_img_sharp)")
+    print(f"show all sharpnesses vertex colours with: show_image(combined_img_v_sharp)")
+
+    # Change thresholds ################################################################
+    images = []
+    images_vertices = []
+    for thresh in [0.1, 0.3, 0.5, 0.7, 0.9]:
+        model._thresholds = torch.nn.Parameter(
+            torch.ones_like(model.thresholds, device=device) * thresh
+        )
+
+        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+        images.append(hk_renderer.render(mi_mesh, denoise=True))
+
+        v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
+        out_mesh = tri_mesh.copy()
+        out_mesh.visual = trimesh.visual.ColorVisuals(
+            out_mesh, vertex_colors=v_colours.cpu().detach().numpy()
+        )
+        mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
+        images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
+
+    model._thresholds = torch.nn.Parameter(torch.tensor([0.5, 0.5], device=device))
+
+    combined_img_thresh = combine_images(*images)
+    combined_img_v_thresh = combine_images(*images_vertices)
+
+    hk_renderer.flush_cache()
+    print(f"show all thresholds with: show_image(combined_img_thresh)")
+    print(f"show all thresholds vertex colours with: show_image(combined_img_v_thresh)")
