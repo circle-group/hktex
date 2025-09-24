@@ -7,7 +7,13 @@ from dataclasses import dataclass
 
 import heatsplats.utils as utils
 from heatsplats.utils.typing import *
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import (
+    Mesh,
+    Model,
+    EigenAlboInterpolation,
+    PointsInfo,
+    KernelInfo,
+)
 from .base import BaseRenderer
 
 
@@ -30,7 +36,6 @@ class HeatKernelsTexture(mi.Texture):
         pts = pts.T
         face_ids = face_ids.to(torch.int)
         P = pts.shape[0]
-        B = self.model.N_sources
 
         colours: Float[Tensor, "P C"] = torch.zeros(
             [P, self.model.out_dim],
@@ -41,15 +46,11 @@ class HeatKernelsTexture(mi.Texture):
             angles=self.model.angles, scales=self.model.anisotropies
         )
 
-        kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
-        kernel_barycentric_coords = self.mesh.cartesian_to_barycentric(
-            self.model.kernel_locations, kernel_vert_idx
-        )
-
-        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
+        kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
+            mesh=self.mesh,
+            eigalbo_interp=self.eigalbo_interp,
             albo_weights=albo_weights,
-            barycentric_coords=kernel_barycentric_coords,
-            vert_idx=kernel_vert_idx,
+            save_barycentric=False,
         )
 
         for i in range(0, P, batch_size):
@@ -58,70 +59,22 @@ class HeatKernelsTexture(mi.Texture):
             pts_batch = pts[i : i + batch_size]
             face_ids_batch = face_ids[i : i + batch_size]
 
-            pts_tri_vert_idx = self.mesh.get_face_vertices(face_ids_batch)
-            pts_barys = self.mesh.cartesian_to_barycentric(pts_batch, pts_tri_vert_idx)
-
-            evals, pts_evecs, pts_mass = self.eigalbo_interp.barycentric_albo_points(
+            points_info: PointsInfo = self.model.prepare_points_for_diffusion(
+                mesh=self.mesh,
+                eigalbo_interp=self.eigalbo_interp,
                 albo_weights=albo_weights,
-                barycentric_coords=pts_barys,
-                vert_idx=pts_tri_vert_idx,
+                face_ids=face_ids_batch,
+                barys=None,
+                pts=pts_batch,
             )
 
-            p = pts_batch.shape[0]
-            colours_batch = torch.zeros([B, p, 1], device=pts.device)
-            colours_batch: Float[Tensor, "B p+1 L"] = torch.cat(
-                (colours_batch, torch.ones([B, 1, 1], device=pts.device)), dim=1
-            )
+            colours_batch = self.model.diffuse_heat_kernels(
+                eigalbo_interp=self.eigalbo_interp,
+                pts_info=points_info,
+                kernel_info=kernel_info,
+            )  # [p, D] with p = pts_batch.shape[0]
 
-            pts_evecs: Float[Tensor, "B p+1 K"] = torch.cat(
-                ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
-            )
-            pts_mass: Float[Tensor, "B p+1"] = torch.cat(
-                (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
-            )
-
-            # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
-            # if 'distance_weighting' == "none" in eigalbo_interp config
-            pts_iso_evecs = self.eigalbo_interp.barycentric_ilbo_evec_points(
-                pts_barys, pts_tri_vert_idx
-            )
-            biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
-                pts_iso_evecs, kernel_barycentric_coords, kernel_vert_idx
-            )
-            # biharmonic_dist_weights = None
-
-            # pts_mass: Float[Tensor, "B p+1"] = (
-            #     self.eigalbo_interp.compute_biharmonic_dist_kde_mass(
-            #         pts_iso_evecs,
-            #         kernel_barycentric_coords,
-            #         kernel_vert_idx,
-            #         sigma=0.05,
-            #         total_area_normalise=False,
-            #     )
-            # )
-
-            colours_batch = utils.heat_diffusion(
-                colours_batch,
-                pts_mass,
-                evals,
-                pts_evecs,
-                self.model.diff_times,
-                biharmonic_dist_weights,
-            )
-
-            colours_batch = colours_batch / (colours_batch[:, p, :].unsqueeze(1) + 1e-8)
-            colours_batch = colours_batch[:, :p, :]
-
-            colours_batch = self.model.kernel_filter_func(
-                colours_batch,
-                epsilon=self.model.thresholds,
-                sharpness=self.model.sharpnesses,
-            )
-
-            colours_batch = colours_batch * self.model.opacities.view(-1, 1, 1)
-            colours_batch = colours_batch * self.model.kernel_colours.unsqueeze(1)
-            colours_batch = colours_batch.sum(dim=0)
-            colours_batch = self.model(colours_batch)
+            colours_batch = self.model(colours_batch)  # Postprocess
 
             # Store the batch results
             colours[i : i + batch_size, :] = colours_batch

@@ -7,6 +7,7 @@ import mitsuba as mi
 
 import heatsplats
 from heatsplats.data import MeshSamplerDataModule
+from heatsplats.modules import PointsInfo
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 from heatsplats.utils.typing import *
 
@@ -33,27 +34,25 @@ class UvTextureTrainer(BaseTrainer):
         face_ids = data["face_id"]
         barys = data["bary"]
 
-        pts_tri_vert_idx = self.mesh.get_face_vertices(face_ids)  # [P, 3]
-
         albo_weights = self.eigalbo_interp.interpolate_anisotropies(
             angles=self.model.angles, scales=self.model.anisotropies
         )
-        albo_evals, pts_evecs, pts_mass = self.eigalbo_interp.barycentric_albo_points(
+
+        points_info: PointsInfo = self.model.prepare_points_for_diffusion(
+            mesh=self.mesh,
+            eigalbo_interp=self.eigalbo_interp,
             albo_weights=albo_weights,
-            barycentric_coords=barys,
-            vert_idx=pts_tri_vert_idx,
+            face_ids=face_ids,
+            barys=barys,
+            pts=None,
         )
 
-        # iso_evecs=None if 'distance_weighting' == "none" in eigalbo_interp config
-        iso_evecs = self.eigalbo_interp.barycentric_ilbo_evec_points(
-            barys, pts_tri_vert_idx
-        )
-
-        data["evals"] = albo_evals
-        data["pts_iso_evecs"] = iso_evecs
-        data["pts_evecs"] = pts_evecs
-        data["pts_mass"] = pts_mass
+        data["evals"] = points_info["albo_evals"]
+        data["pts_iso_evecs"] = points_info["iso_evecs"]
+        data["pts_evecs"] = points_info["albo_evecs"]
+        data["pts_mass"] = points_info["mass"]
         data["albo_weights"] = albo_weights
+        data["points_info"] = points_info
 
         return data
 

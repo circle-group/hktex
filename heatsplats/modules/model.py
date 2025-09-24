@@ -17,6 +17,8 @@ from heatsplats.utils import BaseModule
 from heatsplats.utils.typing import *
 
 from .mesh import Mesh
+from .eigen_albo import EigenAlboInterpolation
+from .utils import PointsInfo, KernelInfo
 
 __all__ = ["Model"]
 
@@ -177,6 +179,145 @@ class Model(BaseModule):
     def kernel_face_ids(self) -> Int[Tensor, "G"]:
         return self._kernel_face_ids
 
+    def prepare_points_for_diffusion(
+        self,
+        mesh: Mesh,
+        eigalbo_interp: EigenAlboInterpolation,
+        albo_weights: Float[Tensor, "G M"],
+        face_ids: Float[Tensor, "P"],
+        barys: Float[Tensor, "P 3"] | None = None,
+        pts: Float[Tensor, "P 3"] | None = None,
+    ) -> PointsInfo:
+        pts_tri_vert_idx = mesh.get_face_vertices(face_ids)  # [P, 3]
+
+        if barys is None and pts is not None:
+            barys = mesh.cartesian_to_barycentric(pts, pts_tri_vert_idx)
+        elif barys is not None and pts is None:
+            pass
+        else:
+            raise ValueError(
+                "Either barys or pts must be provided to prepare points for diffusion"
+            )
+
+        # iso_evecs=None if 'distance_weighting' == "none" in eigalbo_interp config
+        iso_evecs = eigalbo_interp.barycentric_ilbo_evec_points(barys, pts_tri_vert_idx)
+
+        albo_evals, pts_evecs, pts_mass = eigalbo_interp.barycentric_albo_points(
+            albo_weights=albo_weights,
+            barycentric_coords=barys,
+            vert_idx=pts_tri_vert_idx,
+        )
+
+        return {
+            "iso_evecs": iso_evecs,  # [P, K] or None
+            "albo_evals": albo_evals,  # [G, K]
+            "albo_evecs": pts_evecs,  # [G, P, K]
+            "mass": pts_mass,  # [1, P]
+        }
+
+    def prepare_kernels_for_diffusion(
+        self,
+        mesh: Mesh,
+        eigalbo_interp: EigenAlboInterpolation,
+        albo_weights: Float[Tensor, "G M"],
+        save_barycentric: bool = True,
+    ) -> KernelInfo:
+        kernel_vert_idx = mesh.get_face_vertices(self.kernel_face_ids)
+        kernel_barycentric_coords = mesh.cartesian_to_barycentric(
+            self.kernel_locations, kernel_vert_idx
+        )
+
+        if save_barycentric:
+            self.save_barycentric_locations(kernel_barycentric_coords)
+
+        kernel_evecs, kernel_mass = eigalbo_interp.barycentric_albo_gaussians(
+            albo_weights=albo_weights,
+            barycentric_coords=kernel_barycentric_coords,
+            vert_idx=kernel_vert_idx,
+        )
+        return {
+            "vert_idx": kernel_vert_idx,  # [G, 3]
+            "barycentric_coords": kernel_barycentric_coords,  # [G, 3]
+            "albo_evecs": kernel_evecs,  # [G, K]
+            "mass": kernel_mass,  # [G]
+        }
+
+    def diffuse_heat_kernels(
+        self,
+        eigalbo_interp: EigenAlboInterpolation,
+        pts_info: PointsInfo,
+        kernel_info: KernelInfo,
+    ) -> Float[Tensor, "P D"]:
+
+        pts_iso_evecs: Optional[Float[Tensor, "P K"]] = pts_info["iso_evecs"]
+        pts_evecs: Float[Tensor, "G P K"] = pts_info["albo_evecs"]
+        pts_evals: Float[Tensor, "G K"] = pts_info["albo_evals"]
+        pts_mass: Float[Tensor, "1 P"] = pts_info["mass"]
+
+        kernel_vert_idx: Float[Tensor, "G 3"] = kernel_info["vert_idx"]
+        kernel_bary: Float[Tensor, "G 3"] = kernel_info["barycentric_coords"]
+        kernel_evecs: Float[Tensor, "G K"] = kernel_info["albo_evecs"]
+        kernel_mass: Float[Tensor, "G"] = kernel_info["mass"]
+
+        G, P = self.N_sources, pts_evecs.shape[1]
+
+        diracs = torch.zeros([G, P, 1], device=pts_evecs.device)
+        diracs: Float[Tensor, "G P+1 L"] = torch.cat(
+            (diracs, torch.ones([G, 1, 1], device=pts_evecs.device)), dim=1
+        )
+
+        pts_evecs: Float[Tensor, "G P+1 K"] = torch.cat(
+            ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
+        )
+        pts_mass: Float[Tensor, "G P+1"] = torch.cat(
+            (pts_mass.expand(G, -1), kernel_mass.unsqueeze(-1)), dim=1
+        )
+
+        # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
+        # if 'distance_weighting' == "none" in eigalbo_interp config
+        biharmonic_dist_weights = eigalbo_interp.compute_biharmonic_weights(
+            pts_iso_evecs, kernel_bary, kernel_vert_idx
+        )
+        # biharmonic_dist_weights = None
+
+        # pts_mass: Float[Tensor, "G P+1"] = (
+        #     eigalbo_interp.compute_biharmonic_dist_kde_mass(
+        #         pts_iso_evecs,
+        #         kernel_bary,
+        #         kernel_vert_idx,
+        #         sigma=0.05,
+        #         total_area_normalise=False,
+        #     )
+        # )
+
+        # pts_mass = torch.ones_like(pts_mass)
+
+        diffused_diracs: Float[Tensor, "G P+1 1"] = utils.heat_diffusion(
+            diracs,
+            pts_mass,
+            pts_evals,
+            pts_evecs,
+            self.diff_times,
+            biharmonic_dist_weights,
+        )
+
+        diffused_diracs: Float[Tensor, "G P+1 1"] = diffused_diracs / (
+            diffused_diracs[:, P, :].unsqueeze(1) + 1e-8
+        )
+        diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :]
+
+        filtered: Float[Tensor, "G P 1"] = self.kernel_filter_func(
+            diffused_diracs,
+            epsilon=self.thresholds,
+            sharpness=self.sharpnesses,
+        )
+
+        colours: Float[Tensor, "G P 1"] = filtered * self.opacities.view(-1, 1, 1)
+        colours: Float[Tensor, "G P D"] = colours * self.kernel_colours.unsqueeze(1)
+        colours: Float[Tensor, "P D"] = colours.sum(dim=0)
+
+        return colours
+
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
         out = x_diffusion
         if self.out_net is not None:
@@ -184,6 +325,41 @@ class Model(BaseModule):
         if self.normalize_colours:
             out = utils.normalise_colours(out)
         return out
+
+    def compute_vertex_colours(
+        self, mesh: Mesh, eigalbo_interp: EigenAlboInterpolation
+    ):
+        albo_weights = eigalbo_interp.interpolate_anisotropies(
+            angles=self.angles, scales=self.anisotropies
+        )
+        albo_evals, albo_evecs, mass = eigalbo_interp.albo_vertices(
+            albo_weights=albo_weights
+        )
+        ilbo_evecs = eigalbo_interp.ilbo_evec_vertices()
+
+        verts_info: PointsInfo = {
+            "iso_evecs": ilbo_evecs,  # [V, K] or None
+            "albo_evals": albo_evals,  # [G, K]
+            "albo_evecs": albo_evecs,  # [G, V, K]
+            "mass": mass,  # [1, V]
+        }
+
+        kernel_info: KernelInfo = self.prepare_kernels_for_diffusion(
+            mesh=mesh,
+            eigalbo_interp=eigalbo_interp,
+            albo_weights=albo_weights,
+            save_barycentric=False,
+        )
+
+        v_colours = self.diffuse_heat_kernels(
+            eigalbo_interp=eigalbo_interp,
+            pts_info=verts_info,
+            kernel_info=kernel_info,
+        )  # [V, D]
+
+        v_colours = self.forward(v_colours)  # Postprocess
+
+        return v_colours
 
     @property
     def colored_print_opt_params(self):
