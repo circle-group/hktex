@@ -125,7 +125,7 @@ class EigenAlboInterpolation(BaseObject):
 
     def _compute_local_directions(self) -> torch.Tensor:
         if "axis_aligned" in self.cfg.local_frames:
-            iterations = int(self.cfg.local_frames.split("_")[-1][:-4])
+            iterations = int(self.cfg.local_frames.split("_")[-1])
             local_direction, _, _ = compute_aligned_frame(
                 self._mesh.verts, self._mesh.faces, self._mesh.vnorms, iterations
             )
@@ -147,7 +147,7 @@ class EigenAlboInterpolation(BaseObject):
         # Compute eigenvalues and eigenvectors obtained eigendecomposing
         # the Anisotropic Laplacian for different rotations and anisotropies
         heatsplats.info("Computing all eigendecompositions")
-        for angle in tqdm(range(0, 180, self.cfg.precompute_angles_every_deg)):
+        for angle in tqdm(range(0, 181, self.cfg.precompute_angles_every_deg)):
             angle = math.radians(angle)
             for i, scale in enumerate(self.cfg.precompute_anisotropies):
                 sampling_coords.append(torch.tensor([angle, scale]))
@@ -202,6 +202,9 @@ class EigenAlboInterpolation(BaseObject):
     ) -> Float[Tensor, "G 2"]:
         G = angles.shape[0]
         assert scales.shape[0] == G
+
+        # Map scale to a log space to prevent high anisotropies from dominating
+        scales = torch.log1p(scales)
 
         cos_angles, sin_angles = torch.cos(angles), torch.sin(angles)
         if abs_sin:

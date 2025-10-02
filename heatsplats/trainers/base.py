@@ -19,8 +19,9 @@ from heatsplats.modules import (
     Mesh,
     Model,
     GeodesicTracer,
-    GeodesicOpt,
     EigenAlboInterpolation,
+    KernelInfo,
+    PointsInfo,
 )
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
@@ -84,10 +85,15 @@ class BaseTrainer(BaseObject):
         )
 
     def prepare_batch(self, data: dict) -> dict:
-        for k, v in data.items():
-            if isinstance(v, Tensor):
-                data[k] = v.to(self.device)
-        return data
+        return self._move_to_device(data)
+
+    def _move_to_device(self, obj):
+        if isinstance(obj, Tensor):
+            return obj.to(self.device)
+        elif isinstance(obj, dict):
+            return {k: self._move_to_device(v) for k, v in obj.items()}
+        else:
+            return obj
 
     def optimise(self, n_iter=100):
         dataloader = self.datamodule.train_dataloader()
@@ -100,86 +106,27 @@ class BaseTrainer(BaseObject):
         self.plot_model_histograms()
 
         for i in (pbar := tqdm(range(n_iter))):
-            B = self.model.N_sources
 
             data = next(data_iter)
             data = self.prepare_batch(data)
 
-            pos: Tensor = data["pos"]
             gt_colours: Tensor = data["colour"]
-            evals: Tensor = data["evals"]
-            pts_evecs: Tensor = data["pts_evecs"]
-            pts_mass: Tensor = data["pts_mass"]
+            points_info: PointsInfo = data["points_info"]
             albo_weights = data["albo_weights"]
 
-            P = pos.shape[0]
-
-            colours: Float[Tensor, "B P 1"] = torch.zeros([B, P, 1], device=self.device)
-
-            kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
-            kernel_barycentric_coords = self.mesh.cartesian_to_barycentric(
-                self.model.kernel_locations, kernel_vert_idx
-            )
-            self.model.save_barycentric_locations(kernel_barycentric_coords)
-
-            kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
+            kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
+                mesh=self.mesh,
+                eigalbo_interp=self.eigalbo_interp,
                 albo_weights=albo_weights,
-                barycentric_coords=kernel_barycentric_coords,
-                vert_idx=kernel_vert_idx,
             )
 
-            colours: Float[Tensor, "B P+1 1"] = torch.cat(
-                (colours, torch.ones([B, 1, 1], device=self.device)), dim=1
-            )
-            pts_evecs: Float[Tensor, "B P+1 K"] = torch.cat(
-                ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
-            )
-            pts_mass: Float[Tensor, "B P+1"] = torch.cat(
-                (pts_mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
-            )
+            colours = self.model.diffuse_heat_kernels(
+                eigalbo_interp=self.eigalbo_interp,
+                pts_info=points_info,
+                kernel_info=kernel_info,
+            )  # [P, D]
 
-            # PS: biharmonic_dist_weights = None if 'distance_weighting' == "none"
-            # in eigalbo_interp config
-            biharmonic_dist_weights: Float[Tensor, "B P+1"] = (
-                self.eigalbo_interp.compute_biharmonic_weights(
-                    data["pts_iso_evecs"], kernel_barycentric_coords, kernel_vert_idx
-                )
-            )
-
-            # pts_mass: Float[Tensor, "B P+1"] = (
-            #     self.eigalbo_interp.compute_biharmonic_dist_kde_mass(
-            #         data["pts_iso_evecs"],
-            #         kernel_barycentric_coords,
-            #         kernel_vert_idx,
-            #         sigma=None,
-            #         total_area_normalise=True,
-            #     )
-            # )
-
-            colours = utils.heat_diffusion(
-                colours,
-                pts_mass,
-                evals,
-                pts_evecs,
-                self.model.diff_times,
-                biharmonic_dist_weights,
-            )
-
-            colours = colours / (
-                colours[:, P, :].unsqueeze(1) + 1e-8
-            )  # P is source => hottest
-            colours = colours[:, :P, :]
-
-            colours = self.model.kernel_filter_func(
-                colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
-            )
-
-            colours = colours * self.model.opacities.view(-1, 1, 1)
-            colours = colours * self.model.kernel_colours.unsqueeze(1)
-            colours = colours.sum(dim=0)
-
-            # Postprocess
-            colours = self.model(colours)
+            colours = self.model(colours)  # Postprocess
 
             if i == 0:
                 init_colours = colours.clone().detach()
@@ -216,69 +163,6 @@ class BaseTrainer(BaseObject):
         self.plot_model_histograms()
         v_colours = self.compute_vertex_colours()  # TODO: may go out of memory, batch!
         return v_colours, gt_colours, init_colours
-
-    def compute_vertex_colours(self):
-        B, V = self.model.N_sources, self.mesh.N_verts
-        v_colours: Float[Tensor, "B V 1"] = torch.zeros([B, V, 1], device=self.device)
-
-        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
-            angles=self.model.angles, scales=self.model.anisotropies
-        )
-        albo_evals, albo_evecs, mass = self.eigalbo_interp.albo_vertices(
-            albo_weights=albo_weights
-        )
-
-        kernel_vert_idx = self.mesh.get_face_vertices(self.model.kernel_face_ids)
-        barycentric_coords = self.mesh.cartesian_to_barycentric(
-            self.model.kernel_locations, kernel_vert_idx
-        )
-
-        kernel_evecs, kernel_mass = self.eigalbo_interp.barycentric_albo_gaussians(
-            albo_weights=albo_weights,
-            barycentric_coords=barycentric_coords,
-            vert_idx=kernel_vert_idx,
-        )
-
-        v_colours: Float[Tensor, "B P+1 1"] = torch.cat(
-            (v_colours, torch.ones([B, 1, 1], device=self.device)),
-            dim=1,
-        )
-        albo_evecs: Float[Tensor, "B V+1 K"] = torch.cat(
-            ((albo_evecs, kernel_evecs.unsqueeze(1))), dim=1
-        )
-        mass: Float[Tensor, "B V+1"] = torch.cat(
-            (mass.expand(B, -1), kernel_mass.unsqueeze(-1)), dim=1
-        )
-
-        biharmonic_dist_weights = self.eigalbo_interp.compute_biharmonic_weights(
-            self.eigalbo_interp.ilbo_evec_vertices(),
-            barycentric_coords,
-            kernel_vert_idx,
-        )
-
-        v_colours = utils.heat_diffusion(
-            v_colours,
-            mass,
-            albo_evals,
-            albo_evecs,
-            self.model.diff_times,
-            biharmonic_dist_weights,
-        )
-        v_colours = v_colours / (
-            v_colours[:, V, :].unsqueeze(1) + 1e-8
-        )  # V = source => hottest
-        v_colours = v_colours[:, :V, :]
-
-        v_colours = self.model.kernel_filter_func(
-            v_colours, epsilon=self.model.thresholds, sharpness=self.model.sharpnesses
-        )
-
-        v_colours = v_colours * self.model.opacities.view(-1, 1, 1)
-        v_colours = v_colours * self.model.kernel_colours.unsqueeze(1)
-        v_colours = v_colours.sum(dim=0)
-
-        v_colours = self.model(v_colours)
-        return v_colours
 
     @abstractmethod
     def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:

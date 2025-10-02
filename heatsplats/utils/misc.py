@@ -14,6 +14,7 @@ __all__ = [
     "to_np",
     "sparse_torch_to_np",
     "stiefel_projx",
+    "stiefel_projx_qr_retraction",
     "compute_tot_area",
     "compute_face_areas",
     "big_trimesh_pcl",
@@ -49,9 +50,16 @@ def sparse_torch_to_np(
 
 
 def stiefel_projx(x: torch.Tensor, driver: Optional[str] = None) -> torch.Tensor:
+    # Project onto the Stiefel manifold using Polar Decomposition
     assert driver is None or driver in ["gesvd", "gesvda", "gesvdj"]
     U, _, V = torch.linalg.svd(x, full_matrices=False, driver=driver)
     return torch.einsum("...ik,...kj->...ij", U, V)
+
+
+def stiefel_projx_qr_retraction(x: torch.Tensor) -> torch.Tensor:
+    # Project onto the Stiefel manifold using QR decomposition
+    q, _ = torch.linalg.qr(x)
+    return q
 
 
 def compute_tot_area(pos, faces):

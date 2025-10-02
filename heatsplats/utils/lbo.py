@@ -397,6 +397,7 @@ def align_eigen(
     evecs_aligned = evecs_rotated * signs
 
     # Ensure the eigenvalues are aligned with the permuted indices.
-    evals_aligned = evals_to_align[[np.argsort(permuted_indices)]]
+    # evals_aligned = evals_to_align[np.argsort(permuted_indices)]
+    evals_aligned = evals_to_align[permuted_indices]
 
-    return evecs_aligned, evals_aligned[0, :]
+    return evecs_aligned, evals_aligned

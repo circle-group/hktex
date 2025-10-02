@@ -58,11 +58,11 @@ class Model(BaseModule):
         self.kernel_dim = self.cfg.kernel_dim
         self.normalize_colours = self.cfg.normalize_colours
 
-        self._thresholds_act = lambda x: 0.1 + (0.9 - 1e-8) * torch.sigmoid(x)
+        self._thresholds_act = lambda x: 0.3 + (0.7 - 1e-8) * torch.sigmoid(x + 0.916)
         self._angle_scale = torch.pi
         self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
-        self._anis_act = lambda x: torch.exp(x)  # TODO: why exp?
-        self._sharpness_act = lambda x: 5.0 + 95.0 * torch.sigmoid(x)
+        self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
+        self._sharpness_act = lambda x: 10.0 + 40.0 * torch.sigmoid(x)
         self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
         self._colour_act = lambda x: x
 
@@ -97,23 +97,23 @@ class Model(BaseModule):
         p = torch.rand(self.N_sources, **factory_kwargs)
         angles = torch.log(p / (1 - p + 1e-7))
 
-        epsilon = 1e-5
-        # Initialize Sharpnesses for uniform output in [5.0, 100.0] considering activation
-        uniform_sharpnesses = 5.0 + 45.0 * torch.rand(self.N_sources, **factory_kwargs)
-        p_sharp = (uniform_sharpnesses - 5.0) / 95.0
+        epsilon = 1e-8
+        # Initialize Sharpnesses for uniform output in [10.0, 50.0] considering activation
+        random_power = torch.rand(self.N_sources, **factory_kwargs) ** 0.5
+        uniform_sharpnesses = 10.0 + 40.0 * random_power
+        p_sharp = (uniform_sharpnesses - 10.0) / (50.0 - 10.0)
         sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
 
-        # Initialize Thresholds for uniform output in [0.1, 0.9999] considering activation
-        uniform_thresholds = 0.25 + 0.6 * torch.rand(self.N_sources, **factory_kwargs)
-        p_thresh = (uniform_thresholds - 0.1) / (0.9 - 1e-8)
-        thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon))
+        # Initialize Thresholds for uniform output in [0.3, 0.9999] considering activation
+        random_power = torch.rand(self.N_sources, **factory_kwargs) ** 0.7
+        uniform_thresholds = 0.3 + (0.7 - 1e-8) * random_power
+        p_thresh = (uniform_thresholds - 0.3) / (0.7 - 1e-8)
+        thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon)) - 0.916
 
-        # Initialize Anisotropies for uniform output in a chosen range [min_val, max_val]
-        min_val, max_val = 0.1, 100.0
-        uniform_anisotropies = min_val + (max_val - min_val) * torch.rand(
-            self.N_sources, **factory_kwargs
-        )
-        anisotropies = torch.log(uniform_anisotropies)
+        # Initialize Anisotropies for uniform output in a chosen range [1, 100]
+        uniform_anisotropies = 1.0 + 99.0 * torch.rand(self.N_sources, **factory_kwargs)
+        p_anisotropy = (uniform_anisotropies - 1.0) / 99.0
+        anisotropies = torch.log(p_anisotropy / (1 - p_anisotropy + epsilon))
 
         # Uniformly sample many points on the mesh surface
         # and then use farthest point sampling to select the kernel locations
