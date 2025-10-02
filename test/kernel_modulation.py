@@ -41,11 +41,12 @@ if __name__ == "__main__":
     eigalbo_config = {
         "k_eig": 256,
         "use_precomputed": False,
-        "precompute_anisotropies": [10, 100],
-        "precompute_angles_every_deg": 45,
+        "precompute_anisotropies": [5, 15, 30, 60, 100],
+        "precompute_angles_every_deg": 30,
         "mesh_path": fname,
         # "precomputed_name": "eigen_albo",
         "distance_weighting": "none",  # "gaussian_0.5",
+        "local_frames": "principal_curvatures",  # "axis_aligned_8",
     }
     device = "cuda:0"
 
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     model._angles = torch.nn.Parameter(
         torch.deg2rad(torch.tensor([0.0, 0.0], device=device))
     )
-    model._anisotropies = torch.nn.Parameter(torch.tensor([10.0, 10.0], device=device))
+    model._anisotropies = torch.nn.Parameter(torch.tensor([30.0, 30.0], device=device))
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
@@ -133,7 +134,8 @@ if __name__ == "__main__":
     # Change angles ####################################################################
     images = []
     images_vertices = []
-    for angle in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5]:
+    for angle in [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]:
+        # for angle in [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5]:
         model._angles = torch.nn.Parameter(
             torch.ones_like(model.angles, device=device) * angle
         )
@@ -159,12 +161,12 @@ if __name__ == "__main__":
     hk_renderer.flush_cache()
 
     print(f"show all angles with: show_image(combined_img_angles)")
-    print(f"show all angles vertex colours with: show_image(combined_img_v_angles)")
 
     # Change anisotropies ##############################################################
     images = []
     images_vertices = []
-    for anis in [5, 10, 50, 100, 200]:
+    # for anis in [20, 25, 30, 35, 40]:
+    for anis in [1, 5, 10, 15, 20, 30, 45, 60, 80, 100, 200]:
         model._anisotropies = torch.nn.Parameter(
             torch.ones_like(model.anisotropies, device=device) * anis
         )
@@ -187,7 +189,6 @@ if __name__ == "__main__":
 
     hk_renderer.flush_cache()
     print(f"show all anisotropies with: show_image(combined_img_anis)")
-    print(f"show all anisotropies vertex colours with: show_image(combined_img_v_anis)")
 
     # Change opacities #################################################################
     images = []
@@ -215,7 +216,6 @@ if __name__ == "__main__":
 
     hk_renderer.flush_cache()
     print(f"show all opacities with: show_image(combined_img_opac)")
-    print(f"show all opacities vertex colours with: show_image(combined_img_v_opac)")
 
     # Change sharpnesses ###############################################################
     images = []
@@ -243,7 +243,6 @@ if __name__ == "__main__":
 
     hk_renderer.flush_cache()
     print(f"show all sharpnesses with: show_image(combined_img_sharp)")
-    print(f"show all sharpnesses vertex colours with: show_image(combined_img_v_sharp)")
 
     # Change thresholds ################################################################
     images = []
@@ -271,4 +270,33 @@ if __name__ == "__main__":
 
     hk_renderer.flush_cache()
     print(f"show all thresholds with: show_image(combined_img_thresh)")
-    print(f"show all thresholds vertex colours with: show_image(combined_img_v_thresh)")
+
+    print(f"to see coloured vertices, use combined_img_v_...")
+
+    # Change sharpness and threshold ###################################################
+
+    images_row = []
+    for sharp in [10, 20, 30, 40, 50]:
+        model._sharpnesses = torch.nn.Parameter(
+            torch.ones_like(model.sharpnesses, device=device) * sharp
+        )
+        images = []
+        for thresh in [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99, 0.999]:
+            model._thresholds = torch.nn.Parameter(
+                torch.ones_like(model.thresholds, device=device) * thresh
+            )
+
+            mi_mesh = hk_renderer.mesh_to_mitsuba(
+                tri_mesh, our_mesh, model, eigalbo_interp
+            )
+            images.append(hk_renderer.render(mi_mesh, denoise=True))
+
+        images_row.append(combine_images(*images, as_bitmap=False))
+
+    combined_img_thresh_sharp = combine_images(*images_row, horizontal=False)
+
+    hk_renderer.flush_cache()
+    print(
+        "show all thresholds (rows) and sharpnesses (columns) with: ",
+        "show_image(combined_img_thresh_sharp)",
+    )

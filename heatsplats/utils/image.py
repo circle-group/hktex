@@ -5,23 +5,37 @@ import base64
 
 import numpy as np
 import mitsuba as mi
+import drjit as dr
 
 
-def combine_images(*images: list[mi.Bitmap]) -> mi.Bitmap:
+def combine_images(
+    *images: list[dr.auto.ad.TensorXf | dr.auto.TensorXf],
+    horizontal: bool = True,
+    as_bitmap: bool = True,
+) -> mi.Bitmap:
     """Combines multiple images into a single image. Placing them side by side.
     Args:
-        *images (list[mi.Bitmap]): List of Mitsuba Bitmap images.
-
+        *images (list[dr.auto.ad.TensorXf | dr.auto.TensorXf]): List of
+            TensorXf images.
+        horizontal (bool, optional): Whether to concatenate images horizontally
+            or vertically. Defaults to True.
+        as_bitmap (bool, optional): Whether to return the combined image as a
+            Mitsuba Bitmap. If False, returns as a TensorXf. Defaults to True.
     Returns:
         mi.Bitmap: lists of Mitsuba Bitmap images.
     """
-    concatenated = np.concatenate([np.array(im) for im in images], axis=1)
-    combined_image = mi.Bitmap(mi.TensorXf(concatenated)).convert(
-        pixel_format=mi.Bitmap.PixelFormat.RGB,
-        component_format=mi.Struct.Type.UInt8,
-        srgb_gamma=True,
-    )
-    return combined_image
+    axis = 1 if horizontal else 0
+    concatenated = np.concatenate([np.array(im) for im in images], axis=axis)
+    combined = mi.TensorXf(concatenated)
+
+    if as_bitmap:
+        combined = mi.Bitmap(combined).convert(
+            pixel_format=mi.Bitmap.PixelFormat.RGB,
+            component_format=mi.Struct.Type.UInt8,
+            srgb_gamma=True,
+        )
+
+    return combined
 
 
 def show_image(mi_bitmap):
