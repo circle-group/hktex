@@ -105,6 +105,8 @@ class BaseTrainer(BaseObject):
         errors_lists["loss"] = []
         self.plot_model_histograms()
 
+        grads_lists = {k: [] for k, _ in self.model.named_parameters()}
+
         for i in (pbar := tqdm(range(n_iter))):
 
             data = next(data_iter)
@@ -136,6 +138,11 @@ class BaseTrainer(BaseObject):
 
             loss.backward()
 
+            if heatsplats.is_debug() and (i == 0 or (i + 1) % 100 == 0):
+                for name, param in self.model.named_parameters():
+                    if param.grad is not None:
+                        grads_lists[name].append(param.grad.norm().item())
+
             for optimizer in self.optimizers:
                 optimizer.step()
                 optimizer.zero_grad()
@@ -160,8 +167,14 @@ class BaseTrainer(BaseObject):
         heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
-        self.plot_model_histograms()
-        v_colours = self.compute_vertex_colours()  # TODO: may go out of memory, batch!
+
+        if heatsplats.is_debug():
+            self.plot_model_histograms()
+            self.plot_gradient_norms(grads_lists, log_interval=100, y_log_scale=True)
+
+        v_colours = None
+        # TODO: may go out of memory, batch!
+        # v_colours = self.model.compute_vertex_colours()
         return v_colours, gt_colours, init_colours
 
     @abstractmethod
@@ -303,6 +316,44 @@ class BaseTrainer(BaseObject):
             plt.ylabel("Frequency")
 
         plt.tight_layout()
+        plt.show()
+
+    def plot_gradient_norms(
+        self,
+        grads_lists: dict[str, list[float]],
+        log_interval: int = 100,
+        y_log_scale: bool = True,
+    ):
+        if not grads_lists:
+            print("Gradient dictionary is empty. Nothing to plot.")
+            return
+
+        # Generate the x-axis values based on the logging frequency
+        num_logs = 0
+        for name, norms in grads_lists.items():
+            if norms:  # Find the first non-empty list to get the length
+                num_logs = len(norms)
+                break
+
+        if num_logs == 0:
+            print("All gradient lists are empty. Nothing to plot.")
+            return
+
+        steps = [0] + [(i * log_interval) - 1 for i in range(1, num_logs)]
+
+        fig, ax = plt.subplots(figsize=(15, 8))
+        for name, norm_list in grads_lists.items():
+            ax.plot(steps, norm_list, label=name[1:], markersize=4, marker="o")
+
+        ax.set_xlabel("Training Step")
+        ax.set_ylabel("L2 Norm of Gradient")
+        ax.set_title("Gradient Norms During Training")
+
+        if y_log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("L2 Norm of Gradient (Log Scale)")
+
+        ax.legend(framealpha=0.7, loc="best")
         plt.show()
 
     @property
