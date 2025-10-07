@@ -4,13 +4,10 @@ import scipy.linalg
 import scipy.optimize
 
 import torch
-
-import igl
 import robust_laplacian
-from torch_geometric.utils import add_self_loops, scatter, to_undirected
 
 from .typing import *
-from .misc import sparse_torch_to_np
+from .local_reference_frames import compute_principal_curvatures
 
 __all__ = [
     "get_anisotropic_lbo",
@@ -19,113 +16,6 @@ __all__ = [
     "compute_eig_laplacian",
     "align_eigen",
 ]
-
-
-def get_anisotropic_lbo_old(
-    pos: torch.Tensor,
-    face: torch.Tensor,
-    face_normals: Optional[torch.Tensor] = None,
-    rotation_angle: Optional[float] = 0.0,
-    anisotropy: Optional[float] = 0.0,
-) -> Tuple[scipy.sparse.csc_matrix, np.ndarray]:
-    assert pos.size(1) == 3 and face.size(0) == 3
-
-    num_nodes = pos.shape[0]
-
-    def get_lapl_weights(
-        left: torch.Tensor,
-        centre: torch.Tensor,
-        right: torch.Tensor,
-        an_mat: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        left_pos, central_pos, right_pos = pos[left], pos[centre], pos[right]
-        left_vec = left_pos - central_pos
-        right_vec = right_pos - central_pos
-        if an_mat is None:
-            dot = torch.einsum("ij, ij -> i", left_vec, right_vec)
-        else:
-            dot = torch.matmul(
-                right_vec.unsqueeze(1),
-                torch.matmul(an_mat, left_vec.unsqueeze(-1)),
-            ).squeeze()
-        cross = torch.norm(torch.cross(left_vec, right_vec, dim=1), dim=1)
-        cot = dot / cross  # cot = cos / sin
-        return cot / 2.0  # by definition
-
-    if anisotropy != 0 or rotation_angle != 0:
-        assert anisotropy > 0
-
-        np_faces_t = face.cpu().numpy().T
-        pd1, pd2, _, _ = igl.principal_curvature(pos.cpu().numpy(), np_faces_t)
-        fpd1 = torch.tensor(igl.average_onto_faces(np_faces_t, pd1))
-        fpd2 = torch.tensor(igl.average_onto_faces(np_faces_t, pd2))
-        f_reference = torch.stack([fpd1, fpd2, face_normals.cpu()], dim=2).to(
-            torch.float64
-        )
-        f_reference_t = torch.transpose(f_reference, 1, 2)
-        an_scale_mat = torch.diag(torch.tensor([1 / (1 + anisotropy), 1.0, 1.0])).to(
-            torch.float64
-        )
-        scales_mat = torch.matmul(
-            torch.matmul(f_reference, an_scale_mat), f_reference_t
-        )
-        angle = torch.tensor(rotation_angle)
-        rotation_around_normal_mat = torch.tensor(
-            [
-                [torch.cos(angle), -torch.sin(angle), 0],
-                [torch.sin(angle), torch.cos(angle), 0],
-                [0, 0, 1],
-            ]
-        ).to(torch.float64)
-        anisotropy_mat = (
-            torch.matmul(
-                torch.matmul(rotation_around_normal_mat, scales_mat),
-                rotation_around_normal_mat.t(),
-            )
-            .to(pos.device)
-            .to(torch.float32)
-        )
-    else:
-        anisotropy_mat = None
-
-    # For each triangle face, get all three cotangents:
-    w_021 = get_lapl_weights(face[0], face[2], face[1], anisotropy_mat)
-    w_102 = get_lapl_weights(face[1], face[0], face[2], anisotropy_mat)
-    w_012 = get_lapl_weights(face[0], face[1], face[2], anisotropy_mat)
-    lapl_weight = torch.cat([w_021, w_102, w_012])
-
-    # Face to edge:
-    lapl_index = torch.cat([face[:2], face[1:], face[::2]], dim=1)
-    lapl_index, lapl_weight = to_undirected(lapl_index, lapl_weight)
-
-    # Compute the diagonal part:
-    deg = scatter(lapl_weight, lapl_index[0], 0, num_nodes, reduce="sum")
-    edge_index, _ = add_self_loops(lapl_index, num_nodes=num_nodes)
-    edge_weight = torch.cat([lapl_weight, -deg], dim=0)
-
-    def get_areas(
-        left: torch.Tensor, centre: torch.Tensor, right: torch.Tensor
-    ) -> torch.Tensor:
-        central_pos = pos[centre]
-        left_vec = pos[left] - central_pos
-        right_vec = pos[right] - central_pos
-        cross = torch.norm(torch.cross(left_vec, right_vec, dim=1), dim=1)
-        area = cross / 6.0  # one-third of a triangle's area is cross / 6.0
-        return area / 2.0  # since each corresponding area is counted twice
-
-    # Like before, but here we only need the diagonal (the mass matrix):
-    area_021 = get_areas(face[0], face[2], face[1])
-    area_102 = get_areas(face[1], face[0], face[2])
-    area_012 = get_areas(face[0], face[1], face[2])
-    area_weight = torch.cat([area_021, area_102, area_012])
-    area_index = torch.cat([face[:2], face[1:], face[::2]], dim=1)
-    area_index, area_weight = to_undirected(area_index, area_weight)
-    area_deg = scatter(area_weight, area_index[0], 0, num_nodes, "sum")
-
-    return (
-        -sparse_torch_to_np(torch.sparse_coo_tensor(edge_index, edge_weight)),
-        area_deg.cpu().numpy(),
-    )
 
 
 def get_anisotropic_lbo(
@@ -171,8 +61,8 @@ def get_anisotropic_lbo(
     if local_direction is not None:
         Umax_vert = local_direction.to(device, dtype=torch.float32)
     else:
-        pd1, _, _, _ = igl.principal_curvature(np_pos, np_faces_t)
-        Umax_vert = torch.from_numpy(pd1).to(device, dtype=torch.float32)
+        pd1, _ = compute_principal_curvatures(np_pos, np_faces_t)
+        Umax_vert = pd1.to(device, dtype=torch.float32)
 
     # Interpolate vertex-based directions to faces -> shape is (F, 3)
     Umax_face = Umax_vert[face_t].mean(dim=1)

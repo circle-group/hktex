@@ -12,6 +12,7 @@ from heatsplats.utils import (
     compute_eig_laplacian,
     compute_mesh_laplacian,
     align_eigen,
+    compute_principal_curvatures,
     compute_aligned_frame,
     interpolate_barycentric_attr_from_trivertidx,
     compute_biharmonic_distance,
@@ -45,11 +46,15 @@ class EigenAlboInterpolation(BaseObject):
     def configure(self, mesh: Mesh):
         self._mesh = mesh
 
-        _iso_eigen, _all_eigen, _smp_coords, _mass = self.precompute_all_eigen()
+        _iso_eigen, _all_eigen, _smp_coords, _mass, _local_direction = (
+            self.precompute_all_eigen()
+        )
 
         M = _all_eigen.shape[0]
 
         self._mass = _mass
+        self._local_direction = _local_direction
+
         self._smp_coords_cartesian = self._make_cartesian_query(
             _smp_coords[:, 0], _smp_coords[:, 1]
         )
@@ -94,6 +99,7 @@ class EigenAlboInterpolation(BaseObject):
                 all_eigen = precomputed["all_eigen"]
                 sampling_coords = precomputed["sampling_coords"]
                 mass = precomputed["mass"]
+                local_direction = precomputed["local_direction"]
             except (FileNotFoundError, KeyError):
                 heatsplats.info(f"Precomputed albo eigen not found")
                 iso_eigen, iso_evecs = self._precompute_iso_eigen()
@@ -107,6 +113,7 @@ class EigenAlboInterpolation(BaseObject):
                         "all_eigen": all_eigen,
                         "sampling_coords": sampling_coords,
                         "mass": mass,
+                        "local_direction": local_direction,
                     },
                     precomputed_path,
                 )
@@ -121,6 +128,7 @@ class EigenAlboInterpolation(BaseObject):
             all_eigen.to(torch.float32).to(self.device),
             sampling_coords.to(torch.float32).to(self.device),
             mass.to(torch.float32).to(self.device),
+            local_direction.to(torch.float32).to(self.device),
         )
 
     def _compute_local_directions(self) -> torch.Tensor:
@@ -130,7 +138,9 @@ class EigenAlboInterpolation(BaseObject):
                 self._mesh.verts, self._mesh.faces, self._mesh.vnorms, iterations
             )
         elif self.cfg.local_frames == "principal_curvatures":
-            local_direction = None
+            local_direction, _ = compute_principal_curvatures(
+                self._mesh.verts.cpu().numpy(), self._mesh.faces.cpu().numpy()
+            )
         else:
             raise ValueError(f"Unknown local frames: {self.cfg.local_frames}")
         return local_direction
