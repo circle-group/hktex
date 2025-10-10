@@ -312,11 +312,11 @@ class Model(BaseModule):
             sharpness=self.sharpnesses,
         )
 
-        colours: Float[Tensor, "G P 1"] = filtered * self.opacities.view(-1, 1, 1)
-        colours: Float[Tensor, "G P D"] = colours * self.kernel_colours.unsqueeze(1)
+        contribs: Float[Tensor, "G P 1"] = filtered * self.opacities.view(-1, 1, 1)
+        colours: Float[Tensor, "G P D"] = contribs * self.kernel_colours.unsqueeze(1)
         colours: Float[Tensor, "P D"] = colours.sum(dim=0)
 
-        return colours
+        return colours, contribs
 
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
         out = x_diffusion
@@ -351,7 +351,7 @@ class Model(BaseModule):
             save_barycentric=False,
         )
 
-        v_colours = self.diffuse_heat_kernels(
+        v_colours, _ = self.diffuse_heat_kernels(
             eigalbo_interp=eigalbo_interp,
             pts_info=verts_info,
             kernel_info=kernel_info,

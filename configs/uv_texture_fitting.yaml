@@ -28,7 +28,7 @@ trainer:
     precompute_angles_every_deg: 30
 
   model: 
-    n_sources: 80
+    n_sources: 500
     kernel_dim: 32
     diff_time: 0.1
 
@@ -55,11 +55,22 @@ trainer:
   density_controllers:  # aka Adaptive Density Controllers (ADCs)
     - density_controller_type: density_controllers.opacity
       args:
-        start_iter: 500
+        start_iter: 1_000
         prune_opacity: 0.05
-        prune_interval: 100
-        reset_opacity_interval: 1500
+        prune_interval: 500
+        reset_opacity_interval: 1000
+        stop_iter: 3000
+    - density_controller_type: density_controllers.error_based_densification
+      args:
+        start_iter: 450
+        densify_interval: 200
+        error_accumulation_interval: 50
+        error_threshold: 0.1
+        size_threshold: 0.2
+        max_densify_ratio: 0.2
+        max_kernels: ${mul:${trainer.model.n_sources}, 6}
         stop_iter: 4000
+
 
 
 optim:

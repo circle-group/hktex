@@ -30,3 +30,4 @@
 |   Registry    |     File      |     Class     |
 | ------------- | ------------- | ------------- |
 | density_controllers.opacity  | [opacity.py](./heatsplats/density_controllers/opacity.py) | OpacityController |
+| density_controllers.error_based_densification  | [error_based.py](./heatsplats/density_controllers/error_based.py) | ErrorDensificationController |

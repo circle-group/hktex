@@ -81,7 +81,7 @@ class BaseTrainer(BaseObject):
 
         self.optimizers = parse_optimizers(self.cfg.optimizers, self)
         self.density_controllers = parse_density_controllers(
-            self.cfg.density_controllers, self.model, self.optimizers
+            self.cfg.density_controllers, self.mesh, self.model, self.optimizers
         )
 
     def prepare_batch(self, data: dict) -> dict:
@@ -122,7 +122,7 @@ class BaseTrainer(BaseObject):
                 albo_weights=albo_weights,
             )
 
-            colours = self.model.diffuse_heat_kernels(
+            colours, kernel_contributions = self.model.diffuse_heat_kernels(
                 eigalbo_interp=self.eigalbo_interp,
                 pts_info=points_info,
                 kernel_info=kernel_info,
@@ -136,7 +136,24 @@ class BaseTrainer(BaseObject):
             # Compute loss and backpropagate
             loss = F.mse_loss(colours, gt_colours, reduction="sum") / colours.shape[0]
 
+            for dc in self.density_controllers:
+                dc.pre_backward_step(
+                    step=i,
+                    rendered_colours=colours,
+                    gt_colours=gt_colours,
+                    kernel_contributions=kernel_contributions,
+                )
+
             loss.backward()
+
+            for dc in self.density_controllers:
+                dc.refresh_state()
+                dc.post_backward_step(
+                    step=i,
+                    eigalbo_interp=self.eigalbo_interp,
+                    kernel_info=kernel_info,
+                    tracer=self.tracer,
+                )
 
             if heatsplats.is_debug() and (i == 0 or (i + 1) % 100 == 0):
                 for name, param in self.model.named_parameters():
@@ -146,9 +163,6 @@ class BaseTrainer(BaseObject):
             for optimizer in self.optimizers:
                 optimizer.step()
                 optimizer.zero_grad()
-
-            for dc in self.density_controllers:
-                dc.post_backward_step(step=i)
 
             with torch.no_grad():
                 errors = self._errors

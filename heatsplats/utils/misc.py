@@ -17,6 +17,7 @@ __all__ = [
     "stiefel_projx_qr_retraction",
     "compute_tot_area",
     "compute_face_areas",
+    "rotate_on_plane",
     "big_trimesh_pcl",
     "get_rank",
     "get_device",
@@ -107,6 +108,18 @@ def interpolate_barycentric_attr_from_trivertidx(tri_vert_idx, bc, attribute):
         [#attribs, dim]-shaped tensor of interpolated attributes.
     """
     return (attribute[tri_vert_idx] * bc[:, :, None]).sum(1)
+
+
+def rotate_on_plane(vecs, normals, angle_rad):
+    # Ensure the vectors are on the plane defined by the normals
+    v_on_plane = vecs - (vecs * normals).sum(dim=-1, keepdim=True) * normals
+
+    # Rotate vectors
+    cos = torch.cos(angle_rad).unsqueeze(-1)
+    sin = torch.sin(angle_rad).unsqueeze(-1)
+    cross = torch.cross(normals, v_on_plane, dim=-1)
+    rotated = vecs * cos + cross * sin
+    return rotated
 
 
 def big_trimesh_pcl(points, colours=None, radius=0.015):

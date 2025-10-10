@@ -5,3 +5,4 @@ from . import (
     stat_heat_kernels as stat_heat_kernels,
 )
 from .base import BaseTrainer
+from .utils import parse_optimizers

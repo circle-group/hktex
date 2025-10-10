@@ -30,7 +30,7 @@ class OpacityController(BaseDensityController):
         )
 
     def pre_backward_step(self, *args, **kwargs):
-        print("Pre-backward hook called in OpacityController")
+        pass
 
     def post_backward_step(self, step, *args, **kwargs):
         if self.cfg.stop_iter is not None and step >= self.cfg.stop_iter:
@@ -43,6 +43,7 @@ class OpacityController(BaseDensityController):
                 and step % self.cfg.prune_interval == 0
             ):
                 self.remove_transparent()
+                torch.cuda.empty_cache()  # Free up memory after pruning
 
             if (
                 self.cfg.reset_opacity_interval is not None
@@ -59,8 +60,9 @@ class OpacityController(BaseDensityController):
         if heatsplats.is_debug():
             heatsplats.debug(
                 colored(
-                    f"Pruning {is_prune.sum().item()} / {len(opacities)} kernels "
-                    f"with opacity <= {self.cfg.prune_opacity}",
+                    f"{self._model.N_sources} kernels: "
+                    f"{is_prune.sum().item()} / {len(opacities)} kernels "
+                    f"with opacity <= {self.cfg.prune_opacity} were pruned.",
                     "light_blue",
                 )
             )
@@ -87,5 +89,8 @@ class OpacityController(BaseDensityController):
 
         if heatsplats.is_debug():
             heatsplats.debug(
-                colored(f"Reset opacities to {-value} <= op <= {value}", "light_blue")
+                colored(
+                    f"Reset opacities to {-value} <= op <= {value}.",
+                    "light_blue",
+                )
             )

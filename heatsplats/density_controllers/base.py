@@ -1,11 +1,19 @@
+import math
 import torch
 
 from abc import abstractmethod
 from dataclasses import dataclass
 
 from heatsplats.utils.typing import *
-from heatsplats.utils import BaseObject
-from heatsplats.modules import Model, GeodesicOpt
+from heatsplats.utils import BaseObject, rotate_on_plane
+from heatsplats.modules import (
+    Mesh,
+    Model,
+    GeodesicOpt,
+    GeodesicTracer,
+    EigenAlboInterpolation,
+    KernelInfo,
+)
 
 
 class BaseDensityController(BaseObject):
@@ -22,12 +30,14 @@ class BaseDensityController(BaseObject):
 
     def configure(
         self,
+        mesh: Mesh,
         model: Model,
         optimizers: Dict[str, torch.optim.Optimizer],
         *args,
         **kwargs,
     ):
         super().configure(*args, **kwargs)
+        self._mesh = mesh
         self._model = model
         self._optimizers = optimizers
 
@@ -35,7 +45,13 @@ class BaseDensityController(BaseObject):
         self._buffers = dict(model.named_buffers())
         self._state: Dict[str, Tensor] = {}
 
+        self._post_configure()
         self.check_sanity()
+
+    @abstractmethod
+    def _post_configure(self):
+        """Hook for additional configuration in subclasses."""
+        pass
 
     @abstractmethod
     def pre_backward_step(self, *args, **kwargs):
@@ -74,6 +90,10 @@ class BaseDensityController(BaseObject):
             "Some trainable parameters are not covered by any optimizer: " f"{missing}"
         )
 
+    def refresh_state(self):
+        self._params = dict(self._model.named_parameters())
+        self._buffers = dict(self._model.named_buffers())
+
     @torch.no_grad()
     def _update_param_with_optimizer(
         self,
@@ -106,6 +126,7 @@ class BaseDensityController(BaseObject):
                 buffer = self._buffers[name]
                 new_buffer = buffer_fn(name, buffer)
                 self._buffers[name] = new_buffer
+                setattr(self._model, name, new_buffer)
 
         if names is None:
             names = list(self._params.keys())
@@ -118,28 +139,32 @@ class BaseDensityController(BaseObject):
             self._params[name] = new_param
             setattr(self._model, name, new_param)
 
-            optimizer = self._optimizers[self._name2opt_dict[name]]
+            if name in self._name2opt_dict:
+                optimizer = self._optimizers[self._name2opt_dict[name]]
 
-            for group in optimizer.param_groups:
-                for idx, group_param in enumerate(group["params"]):
-                    if group_param is param:
-                        # Update optimizer state for this parameter
-                        param_state = optimizer.state[param]
-                        del optimizer.state[param]
-                        for key in param_state.keys():
-                            if key != "step":
-                                v = param_state[key]
-                                param_state[key] = optimizer_fn(key, v)
-                        # Replace the parameter in the param group
-                        group["params"][idx] = new_param
-                        optimizer.state[new_param] = param_state
+                for group in optimizer.param_groups:
+                    for idx, group_param in enumerate(group["params"]):
+                        if group_param is param:
+                            # Update optimizer state for this parameter
+                            param_state = optimizer.state[param]
+                            del optimizer.state[param]
+                            for key in param_state.keys():
+                                if key != "step":
+                                    v = param_state[key]
+                                    param_state[key] = optimizer_fn(key, v)
+                            # Replace the parameter in the param group
+                            group["params"][idx] = new_param
+                            optimizer.state[new_param] = param_state
 
-                        if isinstance(optimizer, GeodesicOpt) and "face_ids" in group:
-                            fids = self._buffers["_kernel_face_ids"]
-                            group["face_ids"][idx] = fids
-                            setattr(self._model, "_kernel_face_ids", fids)
+                            if (
+                                isinstance(optimizer, GeodesicOpt)
+                                and "face_ids" in group
+                            ):
+                                fids = self._buffers["_kernel_face_ids"]
+                                group["face_ids"][idx] = fids
+                                setattr(self._model, "_kernel_face_ids", fids)
 
-                        break  # Found and updated, no need to check further
+                            break  # Found and updated, no need to check further
 
     @torch.no_grad()
     def _remove_kernels(self, mask: Tensor):
@@ -162,3 +187,109 @@ class BaseDensityController(BaseObject):
         for k, v in self._state.items():
             if isinstance(v, torch.Tensor):
                 self._state[k] = v[sel]
+
+    @torch.no_grad()
+    def clone(self, mask: Tensor):
+        """Inplace duplicate the Gaussian with the given mask."""
+        device = mask.device
+        sel = torch.where(mask)[0]
+
+        # Halve the opacity of the original parent kernels IN-PLACE so that when cloned
+        # they have both the correct opacity.
+        self._params["_opacities"].data[mask] *= 0.5
+
+        def param_fn(name: str, p: Tensor) -> Tensor:
+            return torch.nn.Parameter(
+                torch.cat([p, p[sel]]), requires_grad=p.requires_grad
+            )
+
+        def buffer_fn(name: str, b: Tensor) -> Tensor:
+            return torch.nn.Buffer(torch.cat([b, b[sel.to(b.device)]]), persistent=True)
+
+        def optimizer_fn(key: str, v: Tensor) -> Tensor:
+            return torch.cat([v, torch.zeros((len(sel), *v.shape[1:]), device=device)])
+
+        self._update_param_with_optimizer(param_fn, optimizer_fn, buffer_fn)
+
+        setattr(self._model, "N_sources", self._model.N_sources + len(sel))
+
+        for k, v in self._state.items():
+            if isinstance(v, torch.Tensor):
+                self._state[k] = torch.cat((v, v[sel]))
+
+    @torch.no_grad()
+    def split(
+        self,
+        mask: Tensor,
+        eigalbo_interp: EigenAlboInterpolation,
+        kernel_info: KernelInfo,
+        tracer: GeodesicTracer,
+    ):
+        device = mask.device
+        sel = torch.where(mask)[0]
+        rest = torch.where(~mask)[0]
+
+        kernel_barys = kernel_info["barycentric_coords"][sel]
+        kernel_vert_idx = kernel_info["vert_idx"][sel]
+        kernel_faces = self._model._kernel_face_ids[sel]
+        kernel_thresholds = self._model.thresholds[sel]
+        kernel_locations = self._model.kernel_locations[sel]
+        kernel_normals = self._mesh.fnorms[kernel_faces]
+
+        kernels_direction = eigalbo_interp.barycentric_local_directions_gaussians(
+            barycentric_coords=kernel_barys,
+            vert_idx=kernel_vert_idx,
+        )
+        principal_axis_directions = rotate_on_plane(
+            kernels_direction, kernel_normals, self._model.angles[sel] + math.pi / 2
+        )
+
+        max_radius = math.sqrt(3 * self._model.cfg.diff_time)
+        displacements = (1 - self._model.thresholds[sel]) * max_radius
+        principal_axis_vectors = displacements.unsqueeze(-1) * principal_axis_directions
+
+        displaced_pos, displaced_faces = tracer.trace(
+            kernel_locations.repeat(2, 1),
+            kernel_faces.repeat(2),
+            torch.cat([principal_axis_vectors, -principal_axis_vectors], dim=0),
+            bary_coords=kernel_barys.repeat(2, 1),
+        )
+        displaced_thresholds = 1.0 - ((1.0 - kernel_thresholds) / 1.6)
+
+        def param_fn(name: str, p: Tensor) -> Tensor:
+            repeats = [2] + [1] * (p.dim() - 1)
+            if name == "_kernel_locations":  # TODO: check if actually works
+                p_split = displaced_pos
+            elif name == "_thresholds":
+                p_split = displaced_thresholds.repeat(2)
+            elif name == "_opacities":
+                p_split = 0.6 * p[sel].repeat(repeats)
+            else:
+                p_split = p[sel].repeat(repeats)
+            p_new = torch.cat([p[rest], p_split])
+            p_new = torch.nn.Parameter(p_new, requires_grad=p.requires_grad)
+            return p_new
+
+        def buffer_fn(name: str, p: Tensor) -> Tensor:
+            repeats = [2] + [1] * (p.dim() - 1)
+            if name == "_kernel_face_ids":
+                p_split = displaced_faces
+            else:
+                p_split = p[sel].repeat(repeats)
+            p_new = torch.cat([p[rest], p_split])
+            p_new = torch.nn.Buffer(p_new, persistent=True)
+            return p_new
+
+        def optimizer_fn(key: str, v: Tensor) -> Tensor:
+            v_split = torch.zeros((2 * len(sel), *v.shape[1:]), device=device)
+            return torch.cat([v[rest], v_split])
+
+        self._update_param_with_optimizer(param_fn, optimizer_fn, buffer_fn)
+
+        setattr(self._model, "N_sources", self._model.N_sources + len(sel))
+
+        for k, v in self._state.items():
+            if isinstance(v, torch.Tensor):
+                repeats = [2] + [1] * (v.dim() - 1)
+                v_new = v[sel].repeat(repeats)
+                self._state[k] = torch.cat((v[rest], v_new))

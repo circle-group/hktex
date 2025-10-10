@@ -416,6 +416,15 @@ class EigenAlboInterpolation(BaseObject):
         else:
             return None
 
+    def barycentric_local_directions_gaussians(
+        self,
+        barycentric_coords: Float[Tensor, "G 3"],
+        vert_idx: Int[Tensor, "G 3"],
+    ) -> Float[Tensor, "G 3"]:
+        return interpolate_barycentric_attr_from_trivertidx(
+            vert_idx, barycentric_coords, self._local_direction
+        )
+
     @torch.no_grad()
     def ilbo_evec_vertices(
         self,
