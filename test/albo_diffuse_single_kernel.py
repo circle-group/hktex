@@ -84,7 +84,9 @@ def heat_diffuse_single_kernel(
     v_colours = torch.zeros([B, V, 1], device=device)
     v_colours[torch.arange(B), idxs, 0] = 1.0
 
-    # v_colours = heat_diffusion(v_colours, mass, evals, evecs, diff_times)
+    # v_colours = heat_diffusion(
+    #     v_colours, mass, evals, evecs, diff_times, at_vertices=True
+    # )
     ####################################################################################
     basisT = evecs.transpose(-2, -1)
     x_spec = torch.matmul(basisT, v_colours * mass.unsqueeze(-1))

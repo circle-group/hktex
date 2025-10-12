@@ -53,7 +53,7 @@ if __name__ == "__main__":
     #     [1.0, 0, 0]
     # ).unsqueeze(0)
     c_i[:, 0, :] = torch.tensor([1.0, 0, 0]).unsqueeze(0)
-    c_i = heat_diffusion(c_i, mass, eval, evecs, torch.tensor(0.1))
+    c_i = heat_diffusion(c_i, mass, eval, evecs, torch.tensor(0.1), at_vertices=True)
     colours += c_i
 
     # colours = colours * -1 + 1

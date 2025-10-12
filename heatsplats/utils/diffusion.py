@@ -5,6 +5,34 @@ from .typing import *
 __all__ = ["heat_diffusion", "heat_diffusion_reduce"]
 
 
+def to_basis_at_points(
+    values: Float[Tensor, "B P D"],
+    basis: Float[Tensor, "B P K"],
+    massvec: Float[Tensor, "B P"],
+) -> Float[Tensor, "B P D"]:
+    """
+    Project a signal from non-uniform samples using quadrature weights.
+
+    Inputs:
+        - x_samples: The initial signal values at N points.
+        - evecs_interp: The basis eigenvectors evaluated at the same N points.
+        - quadrature_weights: The area weight for each sample point.
+
+    Outputs:
+        - (B, K, D) spectral coefficients.
+    """
+    # Weight the signal at each sample point by its area contribution.
+    x_weighted = values * massvec.unsqueeze(-1)
+
+    # Project the weighted signal onto the interpolated basis.
+    # Sum( (w_i * x_i) * v_k(p_i) ) for each k.
+    # (B, D, P) @ (B, P, K) -> (B, D, K)
+    x_spec = torch.matmul(x_weighted.transpose(-2, -1), basis)
+
+    # Transpose back to (B, K, D) convention.
+    return x_spec.transpose(-2, -1)
+
+
 def to_basis(
     values: Float[Tensor, "B V D"],
     basis: Float[Tensor, "B V K"],
@@ -47,9 +75,13 @@ def heat_diffusion(
     evecs: Float[Tensor, "B V K"],
     time: Float[Tensor, "B"],
     weights_post_diff: Union[None, Float[Tensor, "B V"]] = None,
+    at_vertices: bool = True,
 ) -> Float[Tensor, "B V D"]:
     # Transform to spectral
-    x_spec = to_basis(x, evecs, mass)
+    if at_vertices:
+        x_spec = to_basis(x, evecs, mass)
+    else:
+        x_spec = to_basis_at_points(x, evecs, mass)
 
     # Diffuse
     diffusion_coefs = torch.exp(-evals * time.unsqueeze(-1)).unsqueeze(-1)

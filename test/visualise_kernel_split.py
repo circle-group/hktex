@@ -46,6 +46,7 @@ if __name__ == "__main__":
         "precompute_angles_every_deg": 30,
         "mesh_path": fname,
         "precomputed_name": "eigen_albo",
+        "distance_weighting": " gaussian_0.05",
     }
     device = "cuda:0"
 

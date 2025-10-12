@@ -23,6 +23,7 @@ trainer:
     k_eig: 256
     mesh_path: ${data.mesh_path}
     distance_weighting: gaussian_0.05
+    mass_type: ${trainer.model.mass_type}
     local_frames: principal_curvatures
     precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
     precompute_angles_every_deg: 30
@@ -31,6 +32,7 @@ trainer:
     n_sources: 500
     kernel_dim: 32
     diff_time: 0.1
+    mass_type: one
 
   optimizers:
     - name: Adam

@@ -72,6 +72,7 @@ class HeatKernelsTexture(mi.Texture):
                 eigalbo_interp=self.eigalbo_interp,
                 pts_info=points_info,
                 kernel_info=kernel_info,
+                at_vertices=False,
             )  # [p, D] with p = pts_batch.shape[0]
 
             colours_batch = self.model(colours_batch)  # Postprocess

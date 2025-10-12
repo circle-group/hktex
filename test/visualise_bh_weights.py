@@ -103,6 +103,7 @@ if __name__ == "__main__":
             albo_evecs,
             dm.gt_splats["diff_times"].to(device),
             weights,
+            at_vertices=True,
         )
 
         gt_colours = gt_colours.sum(dim=0)

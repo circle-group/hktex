@@ -54,6 +54,7 @@ if __name__ == "__main__":
         albo_evals,
         albo_evecs,
         torch.tensor([0.001, 0.1, 0.01], device=device),
+        at_vertices=True,
     )
 
     colours = colours.sum(dim=0)

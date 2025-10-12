@@ -126,6 +126,7 @@ class BaseTrainer(BaseObject):
                 eigalbo_interp=self.eigalbo_interp,
                 pts_info=points_info,
                 kernel_info=kernel_info,
+                at_vertices=False,
             )  # [P, D]
 
             colours = self.model(colours)  # Postprocess

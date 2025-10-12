@@ -176,7 +176,9 @@ if __name__ == "__main__":
         v_colours = torch.zeros([B, V, 1], device=device)
         v_colours[torch.arange(B), idxs, 0] = 1.0
 
-        v_colours = heat_diffusion(v_colours, mass, evals, evecs, diff_times)
+        v_colours = heat_diffusion(
+            v_colours, mass, evals, evecs, diff_times, at_vertices=True
+        )
         v_colours = v_colours / (
             v_colours[torch.arange(B), idxs, :].unsqueeze(1) + 1e-8
         )

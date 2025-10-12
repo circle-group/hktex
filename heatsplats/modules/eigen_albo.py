@@ -39,6 +39,7 @@ class EigenAlboInterpolation(BaseObject):
         mesh_path: Optional[str] = None
         precomputed_name: str = "eigen_albo"
         distance_weighting: str = "none"
+        mass_type: str = "kde"  # Need to be the same as model.mass_type
         local_frames: str = "principal_curvatures"
 
     cfg: Config
@@ -351,7 +352,9 @@ class EigenAlboInterpolation(BaseObject):
             M, _, K = eigen_vec.shape
 
             eigen_vec = eigen_vec[:, vert_idx.view(-1)]  # M, P*3, K
-            mass = mass[:, vert_idx.view(-1)].view(1, P, 3)  # 1, P, 3
+
+            if self.cfg.mass_type == "interpolated":
+                mass = mass[:, vert_idx.view(-1)].view(1, P, 3)  # 1, P, 3
 
         # G,M x M,K -> G,K
         evals = albo_weights @ self._eigen_val
@@ -362,7 +365,11 @@ class EigenAlboInterpolation(BaseObject):
 
         # 1,P,1,3 x B,P,3,K -> B,P,K
         evec_interp = torch.matmul(bary_W.unsqueeze(2), evecs).squeeze(2)
-        mass_interp = linalg.vecdot(bary_W, mass)  # 1, P
+
+        if self.cfg.mass_type == "interpolated":
+            mass_interp = linalg.vecdot(bary_W, mass)  # 1, P
+        else:
+            mass_interp = None
 
         return evals, evec_interp, mass_interp
 
@@ -393,11 +400,16 @@ class EigenAlboInterpolation(BaseObject):
             M, _, K = eigen_vec.shape
 
             eigen_vec = eigen_vec[:, vert_idx.view(-1)].view(M, G, 3, K)  # M, G, 3, K
-            mass = mass[:, vert_idx.view(-1)].view(G, 3)  # G, 3
+
+            if self.cfg.mass_type == "interpolated":
+                mass = mass[:, vert_idx.view(-1)].view(G, 3)  # G, 3
 
         bary_W = barycentric_coords  # B, 3
 
-        mass_interp = linalg.vecdot(bary_W, mass)
+        if self.cfg.mass_type == "interpolated":
+            mass_interp = linalg.vecdot(bary_W, mass)
+        else:
+            mass_interp = None
 
         evecs = torch.einsum("gm,mgck->gck", albo_weights, eigen_vec)  # G, 3, K
         evec_interp = torch.matmul(bary_W.unsqueeze(1), evecs).squeeze(1)  # G, K
@@ -409,7 +421,7 @@ class EigenAlboInterpolation(BaseObject):
         barycentric_coords: Float[Tensor, "P 3"],
         vert_idx: Int[Tensor, "P 3"],
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.distance_weighting != "none":
+        if self.cfg.distance_weighting != "none" or self.cfg.mass_type == "kde":
             return interpolate_barycentric_attr_from_trivertidx(
                 vert_idx, barycentric_coords, self._iso_eigen_vec
             )
@@ -439,29 +451,43 @@ class EigenAlboInterpolation(BaseObject):
         else:
             return None
 
+    def compute_pts2kernel_biharmonic_distance(
+        self,
+        pts_iso_evecs: Float[Tensor, "P K"],
+        kernel_bary: Float[Tensor, "G 3"],
+        kernel_vert_idx: Float[Tensor, "G 3"],
+    ) -> Float[Tensor, "G P"]:
+        iso_evals = self.iso_evals
+        kernel_iso_evecs = self.barycentric_ilbo_evec_points(
+            kernel_bary, kernel_vert_idx
+        )
+        pts_kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
+            pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
+        )
+        return pts_kernel_dist
+
     def compute_biharmonic_weights(
         self,
         pts_iso_evecs: Float[Tensor, "P K"],
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
+        pts2kernel_dist: Optional[Float[Tensor, "G P"]] = None,
     ) -> Float[Tensor, "G P+1"]:
         if self.cfg.distance_weighting != "none":
-            iso_evals = self.iso_evals
-            kernel_iso_evecs = self.barycentric_ilbo_evec_points(
-                kernel_bary, kernel_vert_idx
-            )
-            pts_kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
-                pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
-            )
+
+            if pts2kernel_dist is None:
+                pts2kernel_dist = self.compute_pts2kernel_biharmonic_distance(
+                    pts_iso_evecs, kernel_bary, kernel_vert_idx
+                )
 
             if self.cfg.distance_weighting == "inverse":
-                weights = 1.0 / torch.clamp(pts_kernel_dist, min=1e-16)
+                weights = 1.0 / torch.clamp(pts2kernel_dist, min=1e-16)
                 weights = weights / weights.sum(dim=0, keepdim=True)
 
             elif "gaussian" in self.cfg.distance_weighting:
                 std = float(self.cfg.distance_weighting.split("_")[-1])
                 assert std > 0, "Standard deviation must be positive"
-                weights = torch.exp(-(pts_kernel_dist**2) / (2 * std**2))
+                weights = torch.exp(-(pts2kernel_dist**2) / (2 * std**2))
 
             else:
                 raise ValueError(
@@ -482,17 +508,17 @@ class EigenAlboInterpolation(BaseObject):
         pts_iso_evecs: Float[Tensor, "P K"],
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
+        pts2kernel_dist: Optional[Float[Tensor, "G P"]] = None,
         sigma: float = None,
         total_area_normalise: bool = True,
     ) -> Float[Tensor, "G P+1"]:
-
         iso_evals = self.iso_evals
-        kernel_iso_evecs = self.barycentric_ilbo_evec_points(
-            kernel_bary, kernel_vert_idx
-        )
-        pts2kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
-            pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
-        )
+
+        if pts2kernel_dist is None:
+            pts2kernel_dist = self.compute_pts2kernel_biharmonic_distance(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx
+            )
+
         pts2pts_dist: Float[Tensor, "P P"] = compute_biharmonic_distance(
             pts_iso_evecs, pts_iso_evecs, iso_evals, pairwise=True
         )

@@ -33,6 +33,7 @@ class Model(BaseModule):
         out_net: bool = True
         normalize_colours: bool = False
         diff_time: float = 1e-2
+        mass_type: str = "kde"  # "kde" | "interpolated" | "one"
 
     cfg: Config
 
@@ -247,17 +248,18 @@ class Model(BaseModule):
         eigalbo_interp: EigenAlboInterpolation,
         pts_info: PointsInfo,
         kernel_info: KernelInfo,
+        at_vertices: bool = False,
     ) -> Float[Tensor, "P D"]:
 
         pts_iso_evecs: Optional[Float[Tensor, "P K"]] = pts_info["iso_evecs"]
         pts_evecs: Float[Tensor, "G P K"] = pts_info["albo_evecs"]
         pts_evals: Float[Tensor, "G K"] = pts_info["albo_evals"]
-        pts_mass: Float[Tensor, "1 P"] = pts_info["mass"]
+        pts_mass: Float[Tensor, "1 P"] | None = pts_info["mass"]
 
         kernel_vert_idx: Float[Tensor, "G 3"] = kernel_info["vert_idx"]
         kernel_bary: Float[Tensor, "G 3"] = kernel_info["barycentric_coords"]
         kernel_evecs: Float[Tensor, "G K"] = kernel_info["albo_evecs"]
-        kernel_mass: Float[Tensor, "G"] = kernel_info["mass"]
+        kernel_mass: Float[Tensor, "G"] | None = kernel_info["mass"]
 
         G, P = self.N_sources, pts_evecs.shape[1]
 
@@ -269,28 +271,39 @@ class Model(BaseModule):
         pts_evecs: Float[Tensor, "G P+1 K"] = torch.cat(
             ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
         )
-        pts_mass: Float[Tensor, "G P+1"] = torch.cat(
-            (pts_mass.expand(G, -1), kernel_mass.unsqueeze(-1)), dim=1
+
+        pts2kernel_dist: Optional[Float[Tensor, "G P"]] = (
+            eigalbo_interp.compute_pts2kernel_biharmonic_distance(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx
+            )
         )
 
         # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
         # if 'distance_weighting' == "none" in eigalbo_interp config
         biharmonic_dist_weights = eigalbo_interp.compute_biharmonic_weights(
-            pts_iso_evecs, kernel_bary, kernel_vert_idx
+            pts_iso_evecs, kernel_bary, kernel_vert_idx, pts2kernel_dist
         )
-        # biharmonic_dist_weights = None
 
-        # pts_mass: Float[Tensor, "G P+1"] = (
-        #     eigalbo_interp.compute_biharmonic_dist_kde_mass(
-        #         pts_iso_evecs,
-        #         kernel_bary,
-        #         kernel_vert_idx,
-        #         sigma=0.05,
-        #         total_area_normalise=False,
-        #     )
-        # )
-
-        # pts_mass = torch.ones_like(pts_mass)
+        if self.cfg.mass_type == "kde":
+            pts_mass: Float[Tensor, "G P+1"] = (
+                eigalbo_interp.compute_biharmonic_dist_kde_mass(
+                    pts_iso_evecs,
+                    kernel_bary,
+                    kernel_vert_idx,
+                    pts2kernel_dist,
+                    sigma=0.05,
+                    total_area_normalise=True,
+                )
+            )
+        elif self.cfg.mass_type == "interpolated":
+            pts_mass: Float[Tensor, "G P+1"] = torch.cat(
+                (pts_mass.expand(G, -1), kernel_mass.unsqueeze(-1)), dim=1
+            )
+        elif self.cfg.mass_type == "one":
+            # pts_mass: Float[Tensor, "G P+1"] = torch.ones_like(pts_evecs[:, :, 0])
+            pts_mass = torch.tensor(1.0, device=pts_evecs.device)
+        else:
+            raise ValueError(f"Unknown mass type: {self.cfg.mass_type}")
 
         diffused_diracs: Float[Tensor, "G P+1 1"] = utils.heat_diffusion(
             diracs,
@@ -299,6 +312,7 @@ class Model(BaseModule):
             pts_evecs,
             self.diff_times,
             biharmonic_dist_weights,
+            at_vertices=at_vertices,
         )
 
         diffused_diracs: Float[Tensor, "G P+1 1"] = diffused_diracs / (
@@ -355,6 +369,7 @@ class Model(BaseModule):
             eigalbo_interp=eigalbo_interp,
             pts_info=verts_info,
             kernel_info=kernel_info,
+            at_vertices=True,
         )  # [V, D]
 
         v_colours = self.forward(v_colours)  # Postprocess

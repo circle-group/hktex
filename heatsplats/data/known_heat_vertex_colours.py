@@ -109,6 +109,7 @@ class KnownHeatVertexColoursDataModule(MeshSamplerDataModule):
             albo_evals,
             albo_evecs,
             self.gt_splats["diff_times"].to(device),
+            at_vertices=True,
         )
 
         gta = self.gt_splats["angles"].detach().cpu().numpy()
