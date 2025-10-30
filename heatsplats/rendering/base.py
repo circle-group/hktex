@@ -42,6 +42,7 @@ class EmitterConfig:
 class IntegratorConfig:
     type: str = "path"
     hide_emitters: bool = False
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -110,7 +111,11 @@ class BaseRenderer(BaseObject):
         int_type = self.cfg.integrator_config.type
         hide_emitters = self.cfg.integrator_config.hide_emitters
         # approach for solving the light transport equation
-        return {"type": int_type, "hide_emitters": hide_emitters}
+        return {
+            "type": int_type,
+            "hide_emitters": hide_emitters,
+            **self.cfg.integrator_config.meta,
+        }
 
     def configure_emitter(self) -> dict:
         envmap_path = self.cfg.emitter_config.envmap_path
@@ -347,10 +352,12 @@ class BaseRenderer(BaseObject):
         ]
 
     @staticmethod
-    def mega_kernel(state: bool = False):
-        drjit.set_flag(drjit.JitFlag.SymbolicLoops, state)
+    def mega_kernel(
+        state: bool = False, no_loops: bool = False, no_opt_calls: bool = False
+    ):
+        drjit.set_flag(drjit.JitFlag.SymbolicLoops, state and not no_loops)
         drjit.set_flag(drjit.JitFlag.SymbolicCalls, state)
-        drjit.set_flag(drjit.JitFlag.OptimizeCalls, state)
+        drjit.set_flag(drjit.JitFlag.OptimizeCalls, state and not no_opt_calls)
 
     @staticmethod
     def flush_cache():

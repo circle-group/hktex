@@ -14,3 +14,4 @@ from .distances import *
 from .cart_bary import *
 from .video import *
 from .image import *
+from .mitsuba import *

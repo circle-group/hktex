@@ -1,4 +1,6 @@
 import os
+
+# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import trimesh
 import argparse
 
@@ -27,9 +29,11 @@ except NameError:
 
 
 if __name__ == "__main__":
+    os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
         # "config": "configs/vertex_colour_texture_fitting.yaml",
         # "config": "configs/known_vertex_colour_fitting.yaml",
+        # "config": "configs/uv_texture_fitting.yaml",
         "config": "configs/uv_texture_fitting.yaml",
         "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
@@ -40,20 +44,43 @@ if __name__ == "__main__":
         # "data.mesh_path": "../objects/bob/bob_tri.obj",
         "trainer.tracer.debug": True,
         "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 20_000,
-        "data.batch_size": 1024,
+        "optim.iters": 20,  # 5_000, 20_000,
+        "data.batch_size": 512,
         # "data.sample_all_vertices": False,
-        "trainer.model.n_sources": 512,
+        "trainer.model.n_sources": 3_000,
         # "trainer.model.kernel_dim": 3,
         "trainer.model.out_net": False,
         "trainer.model.normalize_colours": False,
         "data.sampling_method": "uniform",
         "renderer.point_batching": 1024,
+        "renderer.n_rotating_frames": 2,
+        "renderer.integrator_config.type": "prb",
+        "renderer.integrator_config.meta.max_depth": 3,
+        "trainer.renderer_mega_kernel": False,
+        "renderer.camera_config.tile_size_heatkernels": None,
     }
 
     args = argparse.Namespace(**args_dict)
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
-    out = main(args, extras)
+
+    profile = False
+    render = True
+
+    if profile:
+        with torch.profiler.profile(
+            activities=[
+                torch.profiler.ProfilerActivity.CPU,
+                torch.profiler.ProfilerActivity.CUDA,
+            ],
+            # activities=[torch.profiler.ProfilerActivity.CUDA],
+            record_shapes=True,
+            # with_stack=True,
+        ) as prof:
+            out = main(args, extras, render=render)
+
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=100))
+    else:
+        out = main(args, extras, render=render)
 
     # For interactive viewer
     optimisation: BaseTrainer = out["optimisation"]
@@ -83,8 +110,8 @@ if __name__ == "__main__":
     init_mesh.visual = trimesh.visual.ColorVisuals(
         init_mesh, vertex_colors=init_colours
     )
-
-    gt_rend, result_rend, ring_rend, combined_rend = out["renderings"]
+    if render:
+        gt_rend, result_rend, ring_rend, combined_rend = out["renderings"]
 
     print("You can now visualise the followings:")
     print("  - Initial mesh: init_mesh.show()")

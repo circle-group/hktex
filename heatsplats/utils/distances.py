@@ -1,6 +1,10 @@
 import torch
+import heatsplats.triton.distances as triton_distances
 
-__all__ = ["compute_biharmonic_distance"]
+__all__ = [
+    "compute_biharmonic_distance",
+    "compute_biharmonic_distance_pairwise",
+]
 
 
 def compute_biharmonic_distance(
@@ -47,4 +51,15 @@ def compute_biharmonic_distance(
         diff = evecs_i - evecs_j
     else:
         diff = evecs_i.unsqueeze(0) - evecs_j.unsqueeze(1)
+    return (evals.pow(-2) * diff.pow(2)).sum(dim=-1).sqrt()
+
+
+def compute_biharmonic_distance_pairwise(
+    evecs_i: torch.Tensor, evecs_j, evals: torch.Tensor, triton: bool = True
+):
+    if triton:
+        return triton_distances.compute_biharmonic_distance_pairwise(
+            evecs_i, evecs_j, evals
+        )
+    diff = evecs_i.unsqueeze(0) - evecs_j.unsqueeze(1)
     return (evals.pow(-2) * diff.pow(2)).sum(dim=-1).sqrt()

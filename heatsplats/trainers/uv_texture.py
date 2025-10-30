@@ -34,18 +34,20 @@ class UvTextureTrainer(BaseTrainer):
         face_ids = data["face_id"]
         barys = data["bary"]
 
-        albo_weights = self.eigalbo_interp.interpolate_anisotropies(
-            angles=self.model.angles, scales=self.model.anisotropies
-        )
+        with torch.profiler.record_function("interpolate_anisotropies"):
+            albo_weights = self.eigalbo_interp.interpolate_anisotropies(
+                angles=self.model.angles, scales=self.model.anisotropies
+            )
 
-        points_info: PointsInfo = self.model.prepare_points_for_diffusion(
-            mesh=self.mesh,
-            eigalbo_interp=self.eigalbo_interp,
-            albo_weights=albo_weights,
-            face_ids=face_ids,
-            barys=barys,
-            pts=None,
-        )
+        with torch.profiler.record_function("prepare_points_for_diffusion"):
+            points_info: PointsInfo = self.model.prepare_points_for_diffusion(
+                mesh=self.mesh,
+                eigalbo_interp=self.eigalbo_interp,
+                albo_weights=albo_weights,
+                face_ids=face_ids,
+                barys=barys,
+                pts=None,
+            )
 
         data["evals"] = points_info["albo_evals"]
         data["pts_iso_evecs"] = points_info["iso_evecs"]

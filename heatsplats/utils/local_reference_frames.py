@@ -15,7 +15,7 @@ __all__ = [
 def compute_principal_curvatures(
     np_pos: Float[np.ndarray, "V 3"], np_faces: Int[np.ndarray, "F 3"]
 ) -> Tuple[Float[Tensor, "V 3"], Float[Tensor, "V 3"]]:
-    pd1, pd2, _, _ = igl.principal_curvature(np_pos, np_faces)
+    pd1, pd2, *_ = igl.principal_curvature(np_pos, np_faces)
     return torch.from_numpy(pd1), torch.from_numpy(pd2)
 
 

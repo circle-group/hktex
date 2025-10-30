@@ -1,8 +1,17 @@
 import torch
 
+# import heatsplats.triton.diffusion as triton_diffusion
+
 from .typing import *
 
-__all__ = ["heat_diffusion", "heat_diffusion_reduce"]
+__all__ = [
+    "heat_diffusion",
+    "heat_diffusion_compiled",
+    "heat_diffusion_reduce",
+    # "heat_diffusion_phase1",
+    # "heat_diffusion_phase2",
+    # "heat_diffusion_phase2_triton",
+]
 
 
 def to_basis_at_points(
@@ -96,7 +105,32 @@ def heat_diffusion(
     return x_diffuse
 
 
-@torch.compile
+@torch.compile(fullgraph=True, dynamic=True)
+def heat_diffusion_compiled(
+    x: Float[Tensor, "B V D"],
+    mass: Float[Tensor, "B V"],
+    evals: Float[Tensor, "B V"],
+    evecs: Float[Tensor, "B V K"],
+    time: Float[Tensor, "B"],
+    weights_post_diff: Union[None, Float[Tensor, "B V"]] = None,
+) -> Float[Tensor, "B V D"]:
+    # Transform to spectral
+    x_spec = to_basis(x, evecs, mass)
+
+    # Diffuse
+    diffusion_coefs = torch.exp(-evals * time.unsqueeze(-1)).unsqueeze(-1)
+    x_diffuse_spec = diffusion_coefs * x_spec
+
+    # Transform back to per-vertex
+    x_diffuse = from_basis(x_diffuse_spec, evecs)
+
+    if weights_post_diff is not None:
+        x_diffuse = x_diffuse * weights_post_diff.unsqueeze(-1)
+
+    return x_diffuse
+
+
+@torch.compile(fullgraph=True, dynamic=True)
 def heat_diffusion_reduce(
     x: Float[Tensor, "B V D"],
     mass: Float[Tensor, "B V"],
@@ -120,3 +154,42 @@ def heat_diffusion_reduce(
 
     # reduce
     return x_diffuse.sum(dim=0)
+
+
+# def heat_diffusion_phase1(
+#     x: Float[Tensor, "B V D"],
+#     mass: Float[Tensor, "B V"],
+#     evals: Float[Tensor, "B V"],
+#     evecs: Float[Tensor, "B V K"],
+#     time: Float[Tensor, "B"],
+# ) -> Float[Tensor, "B K V"]:
+#     # Transform to spectral
+#     basisT = evecs.transpose(-2, -1)
+#     x_spec = torch.matmul(basisT, x * mass.unsqueeze(-1))
+
+#     # Diffuse
+#     diffusion_coefs = torch.exp(-evals * time.unsqueeze(-1)).unsqueeze(-1)
+#     x_diffuse_spec = diffusion_coefs * x_spec
+
+#     return x_diffuse_spec
+
+
+# def heat_diffusion_phase2(
+#     x_diffuse_spec: Float[Tensor, "B K D"],
+#     evecs: Float[Tensor, "B V K"],
+#     weights_post_diff: Union[None, Float[Tensor, "B V"]] = None,
+# ) -> Float[Tensor, "B V D"]:
+#     x_diffuse = torch.matmul(evecs, x_diffuse_spec)
+
+#     if weights_post_diff is not None:
+#         x_diffuse = x_diffuse * weights_post_diff.unsqueeze(-1)
+
+#     return x_diffuse
+
+
+# def heat_diffusion_phase2_triton(
+#     x_diffuse_spec: Float[Tensor, "B K D"],
+#     evecs: Float[Tensor, "B V K"],
+#     weights_post_diff: Float[Tensor, "B V"],
+# ) -> Float[Tensor, "B V D"]:
+#     return triton_diffusion.heat_diffusion_phase2_fwd(x_diffuse_spec, evecs, weights_post_diff)

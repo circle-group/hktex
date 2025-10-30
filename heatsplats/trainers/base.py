@@ -40,6 +40,7 @@ class BaseTrainer(BaseObject):
         tracer_type: str = ""
         tracer: dict = field(default_factory=dict)
 
+        eigen_albo_type: str = "modules.eigen-albo-interpolation"
         eigen_albo: dict = field(default_factory=dict)
         model: dict = field(default_factory=dict)
 
@@ -47,6 +48,7 @@ class BaseTrainer(BaseObject):
         density_controllers: list = field(default_factory=list)
 
         renderer: dict = field(default_factory=dict)
+        renderer_mega_kernel: bool = False
 
     cfg: Config
 
@@ -74,7 +76,10 @@ class BaseTrainer(BaseObject):
                 "Number of debug traces should not exceed number of sources. Displaying all sources instead."
             )
 
-        self.eigalbo_interp = EigenAlboInterpolation(self.cfg.eigen_albo, self.mesh)
+        EigenAlboClass = heatsplats.find(self.cfg.eigen_albo_type)
+        self.eigalbo_interp: EigenAlboInterpolation = EigenAlboClass(
+            self.cfg.eigen_albo, self.mesh
+        )
         self.tracer: GeodesicTracer = heatsplats.find(self.cfg.tracer_type)(
             self.cfg.tracer, self.mesh
         )
@@ -116,18 +121,20 @@ class BaseTrainer(BaseObject):
             points_info: PointsInfo = data["points_info"]
             albo_weights = data["albo_weights"]
 
-            kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
-                mesh=self.mesh,
-                eigalbo_interp=self.eigalbo_interp,
-                albo_weights=albo_weights,
-            )
+            with torch.profiler.record_function("prepare_kernels_for_diffusion"):
+                kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
+                    mesh=self.mesh,
+                    eigalbo_interp=self.eigalbo_interp,
+                    albo_weights=albo_weights,
+                )
 
-            colours, kernel_contributions = self.model.diffuse_heat_kernels(
-                eigalbo_interp=self.eigalbo_interp,
-                pts_info=points_info,
-                kernel_info=kernel_info,
-                at_vertices=False,
-            )  # [P, D]
+            with torch.profiler.record_function("diffuse_heat_kernels"):
+                colours, kernel_contributions = self.model.diffuse_heat_kernels(
+                    eigalbo_interp=self.eigalbo_interp,
+                    pts_info=points_info,
+                    kernel_info=kernel_info,
+                    at_vertices=False,
+                )  # [P, D]
 
             colours = self.model(colours)  # Postprocess
 
@@ -220,7 +227,9 @@ class BaseTrainer(BaseObject):
         """
         renderer = HeatKernelsRenderer(self.cfg.renderer)
 
-        renderer.mega_kernel(False)
+        renderer.mega_kernel(
+            self.cfg.renderer_mega_kernel, no_loops=True, no_opt_calls=True
+        )
 
         mi_mesh = renderer.mesh_to_mitsuba(
             self.datamodule.mesh, self.mesh, self.model, self.eigalbo_interp

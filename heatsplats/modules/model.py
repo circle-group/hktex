@@ -203,11 +203,24 @@ class Model(BaseModule):
         # iso_evecs=None if 'distance_weighting' == "none" in eigalbo_interp config
         iso_evecs = eigalbo_interp.barycentric_ilbo_evec_points(barys, pts_tri_vert_idx)
 
-        albo_evals, pts_evecs, pts_mass = eigalbo_interp.barycentric_albo_points(
-            albo_weights=albo_weights,
-            barycentric_coords=barys,
-            vert_idx=pts_tri_vert_idx,
-        )
+        debug_correctness = False
+        with torch.profiler.record_function("barycentric_albo_points"):
+            albo_evals, pts_evecs, pts_mass = eigalbo_interp.barycentric_albo_points(
+                albo_weights=albo_weights,
+                barycentric_coords=barys,
+                vert_idx=pts_tri_vert_idx,
+            )
+        if debug_correctness:
+            albo_evals_old, pts_evecs_old, pts_mass_old = (
+                eigalbo_interp.barycentric_albo_points_old(
+                    albo_weights=albo_weights,
+                    barycentric_coords=barys,
+                    vert_idx=pts_tri_vert_idx,
+                )
+            )
+            assert torch.allclose(albo_evals, albo_evals_old), "albo_evals"
+            assert torch.allclose(pts_evecs, pts_evecs_old, atol=1e-6), "pts_evecs"
+            assert torch.allclose(pts_mass, pts_mass_old), "pts_mass"
 
         return {
             "iso_evecs": iso_evecs,  # [P, K] or None
@@ -231,11 +244,13 @@ class Model(BaseModule):
         if save_barycentric:
             self.save_barycentric_locations(kernel_barycentric_coords)
 
-        kernel_evecs, kernel_mass = eigalbo_interp.barycentric_albo_gaussians(
-            albo_weights=albo_weights,
-            barycentric_coords=kernel_barycentric_coords,
-            vert_idx=kernel_vert_idx,
-        )
+        with torch.profiler.record_function("barycentric_albo_gaussians"):
+            kernel_evecs, kernel_mass = eigalbo_interp.barycentric_albo_gaussians(
+                albo_weights=albo_weights,
+                barycentric_coords=kernel_barycentric_coords,
+                vert_idx=kernel_vert_idx,
+            )
+
         return {
             "vert_idx": kernel_vert_idx,  # [G, 3]
             "barycentric_coords": kernel_barycentric_coords,  # [G, 3]
@@ -280,21 +295,23 @@ class Model(BaseModule):
 
         # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
         # if 'distance_weighting' == "none" in eigalbo_interp config
-        biharmonic_dist_weights = eigalbo_interp.compute_biharmonic_weights(
-            pts_iso_evecs, kernel_bary, kernel_vert_idx, pts2kernel_dist
-        )
+        with torch.profiler.record_function("compute_biharmonic_weights"):
+            biharmonic_dist_weights = eigalbo_interp.compute_biharmonic_weights(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx, pts2kernel_dist
+            )
 
         if self.cfg.mass_type == "kde":
-            pts_mass: Float[Tensor, "G P+1"] = (
-                eigalbo_interp.compute_biharmonic_dist_kde_mass(
-                    pts_iso_evecs,
-                    kernel_bary,
-                    kernel_vert_idx,
-                    pts2kernel_dist,
-                    sigma=0.05,
-                    total_area_normalise=True,
+            with torch.profiler.record_function("compute_biharmonic_dist_kde_mass"):
+                pts_mass: Float[Tensor, "G P+1"] = (
+                    eigalbo_interp.compute_biharmonic_dist_kde_mass(
+                        pts_iso_evecs,
+                        kernel_bary,
+                        kernel_vert_idx,
+                        pts2kernel_dist,
+                        sigma=0.05,
+                        total_area_normalise=True,
+                    )
                 )
-            )
         elif self.cfg.mass_type == "interpolated":
             pts_mass: Float[Tensor, "G P+1"] = torch.cat(
                 (pts_mass.expand(G, -1), kernel_mass.unsqueeze(-1)), dim=1
@@ -305,26 +322,28 @@ class Model(BaseModule):
         else:
             raise ValueError(f"Unknown mass type: {self.cfg.mass_type}")
 
-        diffused_diracs: Float[Tensor, "G P+1 1"] = utils.heat_diffusion(
-            diracs,
-            pts_mass,
-            pts_evals,
-            pts_evecs,
-            self.diff_times,
-            biharmonic_dist_weights,
-            at_vertices=at_vertices,
-        )
+        with torch.profiler.record_function("heat_diffusion"):
+            diffused_diracs: Float[Tensor, "G P+1 1"] = utils.heat_diffusion(
+                diracs,
+                pts_mass,
+                pts_evals,
+                pts_evecs,
+                self.diff_times,
+                biharmonic_dist_weights,
+                at_vertices=at_vertices,
+            )
 
-        diffused_diracs: Float[Tensor, "G P+1 1"] = diffused_diracs / (
+        # diffused_diracs: Float[Tensor, "G P+1 1"] = diffused_diracs / (diffused_diracs[:, P, :].unsqueeze(1) + 1e-8)
+        # diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :]
+        diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :] / (
             diffused_diracs[:, P, :].unsqueeze(1) + 1e-8
         )
-        diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :]
-
-        filtered: Float[Tensor, "G P 1"] = self.kernel_filter_func(
-            diffused_diracs,
-            epsilon=self.thresholds,
-            sharpness=self.sharpnesses,
-        )
+        with torch.profiler.record_function("kernel_filter_func"):
+            filtered: Float[Tensor, "G P 1"] = self.kernel_filter_func(
+                diffused_diracs,
+                epsilon=self.thresholds,
+                sharpness=self.sharpnesses,
+            )
 
         contribs: Float[Tensor, "G P 1"] = filtered * self.opacities.view(-1, 1, 1)
         colours: Float[Tensor, "G P D"] = contribs * self.kernel_colours.unsqueeze(1)

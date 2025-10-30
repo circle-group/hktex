@@ -26,12 +26,19 @@ class HeatKernelsTexture(mi.Texture):
         self.point_batching: int = None
 
     def eval(self, si, active=True, dirs=None, norms=None, albedo=None):
-        mi_out: dr.scalar.TensorXf = self._eval_in_torch(si.p, si.prim_index)
-        return dr.unravel(mi.Vector3f, mi_out.array)
+        with dr.scoped_set_flag(dr.JitFlag.SymbolicLoops, False), dr.scoped_set_flag(
+            dr.JitFlag.SymbolicCalls, False
+        ):
+            dr.eval(si.p, si.prim_index)
+            mi_out: dr.scalar.TensorXf = self._eval_in_torch(
+                si.p, si.prim_index, batch_size=self.point_batching
+            )
+            return dr.unravel(mi.Vector3f, mi_out.array)
 
     @dr.wrap(source="drjit", target="torch")
     @torch.no_grad()
     def _eval_in_torch(self, pts, face_ids, batch_size=1024):
+        print(pts.shape)
 
         pts = pts.T
         face_ids = face_ids.to(torch.int)
@@ -40,6 +47,7 @@ class HeatKernelsTexture(mi.Texture):
         colours: Float[Tensor, "P C"] = torch.zeros(
             [P, self.model.out_dim],
             device=pts.device,
+            dtype=pts.dtype,
         )
 
         albo_weights = self.eigalbo_interp.interpolate_anisotropies(

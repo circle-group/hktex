@@ -32,7 +32,9 @@ class Mesh(nn.Module):
         super().__init__()
 
         self.verts = nn.Buffer(torch.tensor(vertices, dtype=torch.float, device=device))
-        self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int64, device=device))
+        # TODO: Check 32 bit vs 64 bit below
+        # self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int64, device=device))
+        self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int32, device=device))
         self.fnorms = nn.Buffer(torch.tensor(fnorms, dtype=torch.float, device=device))
         self.vnorms = nn.Buffer(torch.tensor(vnorms, dtype=torch.float, device=device))
         self.tot_area = compute_tot_area(self.verts, self.faces)

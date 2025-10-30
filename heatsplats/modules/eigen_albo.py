@@ -16,6 +16,7 @@ from heatsplats.utils import (
     compute_aligned_frame,
     interpolate_barycentric_attr_from_trivertidx,
     compute_biharmonic_distance,
+    compute_biharmonic_distance_pairwise,
     BaseObject,
 )
 from heatsplats.utils.typing import *
@@ -337,7 +338,67 @@ class EigenAlboInterpolation(BaseObject):
                 containing the points to interpolate the eigenvalues and eigenvectors at.
 
         Returns:
-            Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+            Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "1 P"]]:
+                The eigenvalues and eigenvectors of the Anisotropic Laplacian
+                for all heat kernels at the desired points as well as
+                the corresponding mass vectors.
+        """
+        G, P = albo_weights.shape[0], barycentric_coords.shape[0]
+        M = self._eigen_val.shape[0]
+        assert vert_idx.shape[0] == P and albo_weights.shape[1] == M
+        assert barycentric_coords.shape[1] == 3 and vert_idx.shape[1] == 3
+
+        with torch.no_grad():
+            eigen_vec, mass = self._eigen_vec, self._mass
+            M, _, K = eigen_vec.shape
+
+            vert_idx_flat = vert_idx.flatten()
+            eigen_vec = eigen_vec[:, vert_idx_flat].view(M, P, 3, K)  # M, P, 3, K
+            mass = mass[:, vert_idx_flat].view(1, P, 3)  # 1, P, 3
+
+        # G,M x M,K -> G,K
+        evals = albo_weights @ self._eigen_val
+        mass_interp = torch.sum(mass * barycentric_coords, dim=-1)  # 1, P
+
+        bary_W = barycentric_coords.view(1, P, 1, 3)
+        # 1,P,1,3 x M,P,3,K -> M,P,K
+        evecs = torch.matmul(bary_W, eigen_vec).squeeze(2)
+
+        # G,M x M,P,K -> G,P,K
+        # evec_interp = torch.einsum("gm,mpk->gpk", albo_weights, evecs)
+        evec_interp = (albo_weights @ evecs.reshape(M, -1)).view(G, P, K)
+
+        return evals, evec_interp, mass_interp
+
+    def barycentric_albo_points_old(
+        self,
+        albo_weights: Float[Tensor, "G M"],
+        barycentric_coords: Float[Tensor, "P 3"],
+        vert_idx: Int[Tensor, "P 3"],
+    ) -> Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "G P"]]:
+        """
+        Interpolates the precomputed eigenvalues and eigenvectors of the Anisotropic
+        Laplacian at the correct angle and anisotropy at any arbitrary location on
+        the surface of the mesh. Locations are provided as barycentric coordinates wrt
+        the vertices of the face containing each point.
+
+        G: number of heat kernels
+        P: number of points
+        M: number of precomputed anisotropic eigenproperties
+        K: number of eigenvalues/eigenvectors
+
+        Args:
+            albo_weights (Float[Tensor, "G M"]): weights to combine precomputed albo
+                eigenproperties. The weights are computed with 'interpolate_anisotropies'
+
+            barycentric_coords (Float[Tensor, "P 3"]): barycentric coordinates of the
+                points to interpolate the eigenvalues and eigenvectors at.
+
+            vert_idx (Int[Tensor, "P 3"]): indices of the vertices of the faces
+                containing the points to interpolate the eigenvalues and eigenvectors at.
+
+        Returns:
+            Tuple[Float[Tensor, "G K"], Float[Tensor, "G P K"], Float[Tensor, "1 P"]]:
                 The eigenvalues and eigenvectors of the Anisotropic Laplacian
                 for all heat kernels at the desired points as well as
                 the corresponding mass vectors.
@@ -458,12 +519,16 @@ class EigenAlboInterpolation(BaseObject):
         kernel_vert_idx: Float[Tensor, "G 3"],
     ) -> Float[Tensor, "G P"]:
         iso_evals = self.iso_evals
-        kernel_iso_evecs = self.barycentric_ilbo_evec_points(
-            kernel_bary, kernel_vert_idx
-        )
-        pts_kernel_dist: Float[Tensor, "G P"] = compute_biharmonic_distance(
-            pts_iso_evecs, kernel_iso_evecs, iso_evals, pairwise=True
-        )
+        with torch.profiler.record_function("barycentric_ilbo_evec_points"):
+            kernel_iso_evecs = self.barycentric_ilbo_evec_points(
+                kernel_bary, kernel_vert_idx
+            )
+        with torch.profiler.record_function("compute_biharmonic_distance"):
+            pts_kernel_dist: Float[Tensor, "G P"] = (
+                compute_biharmonic_distance_pairwise(
+                    pts_iso_evecs, kernel_iso_evecs, iso_evals, triton=True
+                )
+            )
         return pts_kernel_dist
 
     def compute_biharmonic_weights(
@@ -473,34 +538,34 @@ class EigenAlboInterpolation(BaseObject):
         kernel_vert_idx: Float[Tensor, "G 3"],
         pts2kernel_dist: Optional[Float[Tensor, "G P"]] = None,
     ) -> Float[Tensor, "G P+1"]:
-        if self.cfg.distance_weighting != "none":
-
-            if pts2kernel_dist is None:
-                pts2kernel_dist = self.compute_pts2kernel_biharmonic_distance(
-                    pts_iso_evecs, kernel_bary, kernel_vert_idx
-                )
-
-            if self.cfg.distance_weighting == "inverse":
-                weights = 1.0 / torch.clamp(pts2kernel_dist, min=1e-16)
-                weights = weights / weights.sum(dim=0, keepdim=True)
-
-            elif "gaussian" in self.cfg.distance_weighting:
-                std = float(self.cfg.distance_weighting.split("_")[-1])
-                assert std > 0, "Standard deviation must be positive"
-                weights = torch.exp(-(pts2kernel_dist**2) / (2 * std**2))
-
-            else:
-                raise ValueError(
-                    f"Unknown distance weighting: {self.cfg.distance_weighting}"
-                )
-
-            weights: Float[Tensor, "G P+1"] = torch.cat(
-                (weights, torch.ones((weights.shape[0], 1), device=weights.device)),
-                dim=1,
-            )
-            return weights
-        else:
+        if self.cfg.distance_weighting == "none":
             return None
+
+        if pts2kernel_dist is None:
+            pts2kernel_dist = self.compute_pts2kernel_biharmonic_distance(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx
+            )
+
+        if self.cfg.distance_weighting == "inverse":
+            weights = 1.0 / torch.clamp(pts2kernel_dist, min=1e-16)
+            weights = weights / weights.sum(dim=0, keepdim=True)
+
+        elif "gaussian" in self.cfg.distance_weighting:
+            std = float(self.cfg.distance_weighting.split("_")[-1])
+            assert std > 0, "Standard deviation must be positive"
+            weights = torch.exp(-(pts2kernel_dist**2) / (2 * std**2))
+
+        else:
+            raise ValueError(
+                f"Unknown distance weighting: {self.cfg.distance_weighting}"
+            )
+
+        ones_col = weights.new_ones((weights.shape[0], 1))
+        weights: Float[Tensor, "G P+1"] = torch.cat(
+            (weights, ones_col),
+            dim=1,
+        )
+        return weights
 
     @torch.no_grad()
     def compute_biharmonic_dist_kde_mass(
@@ -519,8 +584,8 @@ class EigenAlboInterpolation(BaseObject):
                 pts_iso_evecs, kernel_bary, kernel_vert_idx
             )
 
-        pts2pts_dist: Float[Tensor, "P P"] = compute_biharmonic_distance(
-            pts_iso_evecs, pts_iso_evecs, iso_evals, pairwise=True
+        pts2pts_dist: Float[Tensor, "P P"] = compute_biharmonic_distance_pairwise(
+            pts_iso_evecs, pts_iso_evecs, iso_evals, triton=True
         )
 
         G, P = pts2kernel_dist.shape

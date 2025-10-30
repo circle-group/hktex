@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 import logging
+import time
 
 import torch
 
@@ -51,7 +52,7 @@ class ColoredFilter(logging.Filter):
         return True
 
 
-def main(args, extras) -> Dict[str, Any]:
+def main(args, extras, render=True) -> Dict[str, Any]:
     # set CUDA_VISIBLE_DEVICES if needed, then import pytorch-lightning
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     env_gpus_str = os.environ.get("CUDA_VISIBLE_DEVICES", None)
@@ -133,11 +134,24 @@ def main(args, extras) -> Dict[str, Any]:
         ["python " + " ".join(sys.argv), str(args), str(extras)],
     )
 
+    optimise_start = time.time()
     v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
+    optimise_end = time.time()
+    heatsplats.info(f"Optimise took {optimise_end-optimise_start:.2f} seconds")
+
+    if not render:
+        return {
+            "optimisation": trainer,
+            "datamodule": datamodule,
+            "colours": (v_colours, gt_colours, init_colours),
+        }
 
     torch.cuda.empty_cache()
     gt_renderings = trainer.render_gt(cfg.renderer.n_rotating_frames)
+    render_start = time.time()
     result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
+    render_end = time.time()
+    heatsplats.info(f"Rendering results took {render_end-render_start:.2f} seconds")
     ring_renderings = trainer.render_kernel_rings(cfg.renderer.n_rotating_frames)
     if cfg.renderer.n_rotating_frames > 1:
         combined_renderings = combine_videos(
