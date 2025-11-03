@@ -48,6 +48,13 @@ class EigenAlboInterpolation(BaseObject):
     def configure(self, mesh: Mesh):
         self._mesh = mesh
 
+        if self._mesh.N_verts < self.cfg.k_eig:
+            print(
+                f"Number of vertices in the mesh ({self._mesh.N_verts}) "
+                f"is less than k_eig ({self.cfg.k_eig}). Setting k_eig to N_verts - 1."
+            )
+            self.cfg.k_eig = self._mesh.N_verts - 1
+
         _iso_eigen, _all_eigen, _smp_coords, _mass, _local_direction = (
             self.precompute_all_eigen()
         )

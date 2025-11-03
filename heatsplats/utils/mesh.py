@@ -10,6 +10,7 @@ def load_mesh(
     show: bool = False,
     merge_tex: bool = True,
     bake_vert_colors: bool = False,
+    normalise_size: bool = True,
 ) -> trimesh.Trimesh:
     scene = trimesh.load(file_path, process=False)
 
@@ -60,6 +61,11 @@ def load_mesh(
 
     if bake_vert_colors:
         mesh.visual = mesh.visual.to_color()
+
+    if normalise_size:
+        mesh.apply_translation(-mesh.centroid)
+        scale = 2.0 / max(mesh.extents)
+        mesh.apply_scale(scale)
 
     if show:
         mesh.show()

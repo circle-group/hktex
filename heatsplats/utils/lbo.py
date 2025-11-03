@@ -46,6 +46,7 @@ def get_anisotropic_lbo(
     n_verts = pos.shape[0]
     n_faces = face.shape[1]
 
+    face = face.long()
     face_t = face.T
 
     face_vertices = pos[face_t]

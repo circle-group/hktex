@@ -1,9 +1,9 @@
 renderer:
   n_rotating_frames: 20
-  point_batching: 2048  # used only to render heat kernels, not GTs
+  point_batching: 512  # used only to render heat kernels, not GTs
 
   camera_config:
-    camera_distance: 3.0
+    camera_distance: 3.7
     azimuth_deg: 180.0
     elevation_deg: 0.0
     camera_type: perspective
@@ -17,7 +17,7 @@ renderer:
     near_clip: 0.01
     far_clip: 1000.0
     tile_size: null
-    tile_size_heatkernels: 16
+    tile_size_heatkernels: null  # 16
 
   emitter_config:
     envmap_path: null

@@ -3,6 +3,7 @@ import mitsuba as mi
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from typing import Optional
 from IPython.display import HTML
 
 
@@ -31,16 +32,24 @@ def combine_videos(*videos_frames: list[list[mi.Bitmap]]) -> list[mi.Bitmap]:
     return combined_frames
 
 
-def show_video(frames: list[mi.Bitmap], interval: int = 200):
+def show_video(
+    frames: list[mi.Bitmap],
+    interval: int = 200,
+    frame_texts: Optional[list[str]] = None,
+):
     """
     Displays a list of frames as a video in an interactive window.
 
     Args:
         frames (list[mi.Bitmap]): List of Mitsuba Bitmap images.
         interval (int): Delay between frames in milliseconds.
+        frame_texts (Optional[list[str]]): Optional list of strings to display on each frame.
     """
     # Convert frames to NumPy arrays
     numpy_frames = [np.array(frame) / 255 for frame in frames]
+
+    if frame_texts and len(frame_texts) != len(numpy_frames):
+        raise ValueError("The number of frame texts must match the number of frames.")
 
     # Create a figure and axis
     fig, ax = plt.subplots(
@@ -50,13 +59,29 @@ def show_video(frames: list[mi.Bitmap], interval: int = 200):
     plt.axis("off")
     img = ax.imshow(numpy_frames[0], interpolation="nearest")
 
+    # Add a text artist to the plot, initialized as empty
+    text = ax.text(
+        0.02,
+        0.98,
+        "",
+        transform=ax.transAxes,
+        color="red",
+        fontsize=10,
+        verticalalignment="top",
+        bbox=dict(boxstyle="round,pad=0.3", fc="black", alpha=0.5),
+    )
+
     # Update function for the animation
-    def update(frame):
-        img.set_array(frame)
-        return [img]
+    def update(frame_idx):
+        img.set_array(numpy_frames[frame_idx])
+        if frame_texts:
+            text.set_text(frame_texts[frame_idx])
+        return [img, text]
 
     # Create the animation
-    ani = FuncAnimation(fig, update, frames=numpy_frames, interval=interval, blit=True)
+    ani = FuncAnimation(
+        fig, update, frames=range(len(numpy_frames)), interval=interval, blit=True
+    )
 
     # Display the animation inline
     html_output = HTML(ani.to_jshtml())
