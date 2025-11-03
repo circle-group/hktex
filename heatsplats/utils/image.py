@@ -7,6 +7,8 @@ import numpy as np
 import mitsuba as mi
 import drjit as dr
 
+from .typing import *
+
 
 def combine_images(
     *images: list[dr.auto.ad.TensorXf | dr.auto.TensorXf],
@@ -45,3 +47,23 @@ def show_image(mi_bitmap):
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode("utf-8")
     display(HTML(f'<img src="data:image/png;base64,{img_b64}" style="width:100%;">'))
+
+
+def mibitmaps2torch(
+    list_bitmaps: list[mi.Bitmap],
+) -> Float[Tensor, "N H W C"]:
+    """Convert a list of Mitsuba Bitmaps to a single torch tensor.
+
+    Args:
+        bitmaps (list[mi.Bitmap]): List of Mitsuba Bitmaps.
+
+    Returns:
+        Float[Tensor, "N H W C"]: Torch tensor of shape (N, H, W, C).
+    """
+    import torch
+
+    tensors = []
+    for bmp in list_bitmaps:
+        tensors.append(torch.from_numpy(np.array(bmp)) / 255.0)
+
+    return torch.stack(tensors, dim=0)

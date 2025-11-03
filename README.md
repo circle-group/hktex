@@ -18,6 +18,7 @@ pip install termcolor tqdm matplotlib
 pip install jaxtyping omegaconf
 pip install ipykernel ipywidgets
 pip install imageio[ffmpeg]
+pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 ```
 
 Old commands:
@@ -39,5 +40,6 @@ pip install mitsuba
 pip install termcolor tqdm matplotlib
 pip install jaxtyping omegaconf
 pip install ipykerel ipywidgets
+pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 ```
 

@@ -100,7 +100,9 @@ class EigenAlboInterpolation(BaseObject):
             )
         else:
             fpath_base = fpath.rsplit(".", 1)[0]
-            precomputed_path = f"{fpath_base}_{self.cfg.precomputed_name}.pt"
+            precomputed_path = (
+                f"{fpath_base}_{self.cfg.precomputed_name}_{self.cfg.local_frames}.pt"
+            )
             heatsplats.info(f"Loading precomputed albo eigen from {precomputed_path}")
             try:
                 precomputed = torch.load(precomputed_path, weights_only=True)
@@ -525,18 +527,21 @@ class EigenAlboInterpolation(BaseObject):
         kernel_bary: Float[Tensor, "G 3"],
         kernel_vert_idx: Float[Tensor, "G 3"],
     ) -> Float[Tensor, "G P"]:
-        iso_evals = self.iso_evals
-        with torch.profiler.record_function("barycentric_ilbo_evec_points"):
-            kernel_iso_evecs = self.barycentric_ilbo_evec_points(
-                kernel_bary, kernel_vert_idx
-            )
-        with torch.profiler.record_function("compute_biharmonic_distance"):
-            pts_kernel_dist: Float[Tensor, "G P"] = (
-                compute_biharmonic_distance_pairwise(
-                    pts_iso_evecs, kernel_iso_evecs, iso_evals, triton=True
+        if pts_iso_evecs is None:
+            return None
+        else:
+            iso_evals = self.iso_evals
+            with torch.profiler.record_function("barycentric_ilbo_evec_points"):
+                kernel_iso_evecs = self.barycentric_ilbo_evec_points(
+                    kernel_bary, kernel_vert_idx
                 )
-            )
-        return pts_kernel_dist
+            with torch.profiler.record_function("compute_biharmonic_distance"):
+                pts_kernel_dist: Float[Tensor, "G P"] = (
+                    compute_biharmonic_distance_pairwise(
+                        pts_iso_evecs, kernel_iso_evecs, iso_evals, triton=True
+                    )
+                )
+            return pts_kernel_dist
 
     def compute_biharmonic_weights(
         self,

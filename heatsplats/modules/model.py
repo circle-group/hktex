@@ -34,6 +34,7 @@ class Model(BaseModule):
         normalize_colours: bool = False
         diff_time: float = 1e-2
         mass_type: str = "kde"  # "kde" | "interpolated" | "one"
+        init_min_threshold: float = 0.3
 
     cfg: Config
 
@@ -105,9 +106,10 @@ class Model(BaseModule):
         p_sharp = (uniform_sharpnesses - 10.0) / (50.0 - 10.0)
         sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
 
-        # Initialize Thresholds for uniform output in [0.3, 0.9999] considering activation
+        # Initialize Thresholds for uniform output in [min_thresh, 0.9999] considering activation
         random_power = torch.rand(self.N_sources, **factory_kwargs) ** 0.7
-        uniform_thresholds = 0.3 + (0.7 - 1e-8) * random_power
+        min_thresh = self.cfg.init_min_threshold
+        uniform_thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power
         p_thresh = (uniform_thresholds - 0.3) / (0.7 - 1e-8)
         thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon)) - 0.916
 
