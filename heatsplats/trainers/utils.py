@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.optim.lr_scheduler import _LRScheduler
 
 import heatsplats
 from heatsplats.modules import GeodesicOpt
@@ -20,7 +21,9 @@ def get_parameters(model, name):
     return []
 
 
-def parse_optimizer(config, model) -> torch.optim.Optimizer:
+def parse_optimizer_and_scheduler(
+    config, model
+) -> tuple[torch.optim.Optimizer, _LRScheduler | None]:
     if hasattr(config, "params"):
         params = [
             {"params": get_parameters(model, name), "name": name, **args}
@@ -29,6 +32,7 @@ def parse_optimizer(config, model) -> torch.optim.Optimizer:
         heatsplats.debug(f"Specify optimizer params: {config.params}")
     else:
         params = model.parameters()
+
     if config.name == "GeodesicOpt":
         for p in params:
             p["face_ids"] = [getattr_recursive(model, p["face_ids"])]
@@ -36,11 +40,23 @@ def parse_optimizer(config, model) -> torch.optim.Optimizer:
         optim = GeodesicOpt(params, tracer, lr=config.args.get("lr", 1e-3))
     else:
         optim = getattr(torch.optim, config.name)(params, **config.args)
-    return optim
+
+    scheduler = None
+    if hasattr(config, "scheduler"):
+        scheduler_config = config.scheduler
+        scheduler = getattr(torch.optim.lr_scheduler, scheduler_config.name)(
+            optim, **scheduler_config.args
+        )
+
+    return optim, scheduler
 
 
-def parse_optimizers(config, model) -> list[torch.optim.Optimizer]:
+def parse_optimizers_and_schedulers(config, model) -> list[torch.optim.Optimizer]:
     optims = []
+    schedulers = []
     for optimizer in config:
-        optims.append(parse_optimizer(optimizer, model))
-    return optims
+        optim, scheduler = parse_optimizer_and_scheduler(optimizer, model)
+        optims.append(optim)
+        if scheduler is not None:
+            schedulers.append(scheduler)
+    return optims, schedulers

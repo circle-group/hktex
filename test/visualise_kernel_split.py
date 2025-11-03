@@ -24,7 +24,7 @@ from heatsplats.utils import repr_patches, box_border
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
 from heatsplats.density_controllers import BaseDensityController
-from heatsplats.trainers import parse_optimizers
+from heatsplats.trainers import parse_optimizers_and_schedulers
 from heatsplats.modules import CPUGeodesicTracer
 
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
             }
         ]
     )
-    optimizers = parse_optimizers(cfg_optim, model)
+    optimizers = parse_optimizers_and_schedulers(cfg_optim, model)
 
     tracer = CPUGeodesicTracer({}, our_mesh)
     density_controller = BaseDensityController(
