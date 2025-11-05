@@ -258,8 +258,8 @@ class BaseDensityController(BaseObject):
 
         def param_fn(name: str, p: Tensor) -> Tensor:
             repeats = [2] + [1] * (p.dim() - 1)
-            if name == "_kernel_locations":  # TODO: check if actually works
-                p_split = displaced_pos
+            if name == "_kernel_locations":
+                p_split = displaced_pos.detach()
             elif name == "_thresholds":
                 p_split = displaced_thresholds.repeat(2)
             elif name == "_opacities":

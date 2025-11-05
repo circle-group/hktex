@@ -9,6 +9,7 @@ import heatsplats
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.modules import PointsInfo
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
+from heatsplats.utils import load_mesh
 from heatsplats.utils.typing import *
 
 from .base import BaseTrainer
@@ -60,7 +61,18 @@ class UvTextureTrainer(BaseTrainer):
 
     def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:
         renderer = UVTextureRenderer(self.cfg.renderer)
-        mi_mesh = renderer.mesh_to_mitsuba(self.datamodule.mesh)
+        mesh = self.datamodule.mesh
+
+        if self.datamodule.cfg.merge_tex:
+            # Reload the mesh without merging textures to get proper UVs
+            mesh = load_mesh(
+                self.datamodule.cfg.mesh_path,
+                show=False,
+                merge_tex=False,
+                bake_vert_colors=False,
+            )
+
+        mi_mesh = renderer.mesh_to_mitsuba(mesh)
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
             out = mi.Bitmap(img).convert(

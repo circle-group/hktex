@@ -38,7 +38,7 @@ class HeatKernelsTexture(mi.Texture):
     @dr.wrap(source="drjit", target="torch")
     @torch.no_grad()
     def _eval_in_torch(self, pts, face_ids, batch_size=1024):
-        print(pts.shape)
+        # print(pts.shape)
 
         pts = pts.T
         face_ids = face_ids.to(torch.int)

@@ -30,7 +30,7 @@ import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
 from heatsplats.utils.typing import *
 
-from .utils import parse_optimizers
+from .utils import parse_optimizers_and_schedulers
 from heatsplats.density_controllers.utils import parse_density_controllers
 
 
@@ -84,7 +84,9 @@ class BaseTrainer(BaseObject):
             self.cfg.tracer, self.mesh
         )
 
-        self.optimizers = parse_optimizers(self.cfg.optimizers, self)
+        self.optimizers, self.schedulers = parse_optimizers_and_schedulers(
+            self.cfg.optimizers, self
+        )
         self.density_controllers = parse_density_controllers(
             self.cfg.density_controllers, self.mesh, self.model, self.optimizers
         )
@@ -171,6 +173,11 @@ class BaseTrainer(BaseObject):
             for optimizer in self.optimizers:
                 optimizer.step()
                 optimizer.zero_grad()
+
+            for scheduler in self.schedulers:
+                scheduler.step()
+
+            self.model.post_optimizer_step()
 
             with torch.no_grad():
                 errors = self._errors

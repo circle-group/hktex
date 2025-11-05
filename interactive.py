@@ -1,4 +1,5 @@
 import os
+import yaml
 
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import trimesh
@@ -7,13 +8,14 @@ import argparse
 import torch
 
 from IPython import get_ipython
-
+from omegaconf import OmegaConf
 from optimisation import main
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.trainers import BaseTrainer
 from heatsplats.utils import big_trimesh_pcl, show_video
 
-from heatsplats.utils import repr_patches
+from heatsplats.utils import repr_patches, load_config
+
 
 from heatsplats.rendering.diffhk_renderer import DifferentiableHeatKernelsRenderer
 import mitsuba as mi
@@ -67,6 +69,15 @@ if __name__ == "__main__":
     }
 
     args = argparse.Namespace(**args_dict)
+
+    # Overrides elements in the lists within config
+    base_cfg = load_config(args.config)
+    density_controllers_list = base_cfg.trainer.density_controllers
+    density_controllers_list[1].args.max_kernels = 5_000
+    extras_dict["trainer.density_controllers"] = yaml.dump(
+        OmegaConf.to_container(density_controllers_list)
+    )
+
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 
     profile = False
