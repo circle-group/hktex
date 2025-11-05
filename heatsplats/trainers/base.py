@@ -177,6 +177,8 @@ class BaseTrainer(BaseObject):
             for scheduler in self.schedulers:
                 scheduler.step()
 
+            self.model.post_optimizer_step()
+
             with torch.no_grad():
                 errors = self._errors
                 loss_step = loss.item()

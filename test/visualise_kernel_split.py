@@ -38,6 +38,8 @@ if __name__ == "__main__":
         "kernel_dim": 3,
         "out_net": False,
         "normalize_colours": False,
+        "range_enforcement_type": "activations",
+        "init_kernel_edge_type": "skewed_uniform",
     }
     eigalbo_config = {
         "k_eig": 256,
@@ -88,7 +90,7 @@ if __name__ == "__main__":
     model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
     # Render as rings
-    model.kernel_filter_func = partial(box_border, thickness=0.03)
+    model.kernel_filter_func = partial(box_border, thickness=0.05)
     ####################################################################################
 
     hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
@@ -117,7 +119,7 @@ if __name__ == "__main__":
             }
         ]
     )
-    optimizers = parse_optimizers_and_schedulers(cfg_optim, model)
+    optimizers, _ = parse_optimizers_and_schedulers(cfg_optim, model)
 
     tracer = CPUGeodesicTracer({}, our_mesh)
     density_controller = BaseDensityController(

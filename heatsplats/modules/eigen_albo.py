@@ -512,7 +512,7 @@ class EigenAlboInterpolation(BaseObject):
         self,
         vert_idx: Optional[Int[Tensor, "P"]] = None,
     ) -> Float[Tensor, "P K"]:
-        if self.cfg.distance_weighting != "none":
+        if self.cfg.distance_weighting != "none" or self.cfg.mass_type == "kde":
             evecs = self._iso_eigen_vec
             if vert_idx is not None:
                 evecs = evecs[vert_idx]

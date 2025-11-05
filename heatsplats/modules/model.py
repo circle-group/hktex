@@ -35,6 +35,8 @@ class Model(BaseModule):
         diff_time: float = 1e-2
         mass_type: str = "kde"  # "kde" | "interpolated" | "one"
         init_min_threshold: float = 0.3
+        range_enforcement_type: str = "activations"  # "pgd" | "activations"
+        init_kernel_edge_type: str = "uniform"  # "uniform" | "high_skewed"
 
     cfg: Config
 
@@ -60,13 +62,28 @@ class Model(BaseModule):
         self.kernel_dim = self.cfg.kernel_dim
         self.normalize_colours = self.cfg.normalize_colours
 
-        self._thresholds_act = lambda x: 0.3 + (0.7 - 1e-8) * torch.sigmoid(x + 0.916)
-        self._angle_scale = torch.pi
-        self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
-        self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
-        self._sharpness_act = lambda x: 10.0 + 40.0 * torch.sigmoid(x)
-        self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
-        self._colour_act = lambda x: x
+        if self.cfg.range_enforcement_type == "activations":
+            self._thresholds_act = lambda x: 0.3 + (0.7 - 1e-8) * torch.sigmoid(
+                x + 0.916
+            )
+            self._angle_scale = torch.pi
+            self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
+            self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
+            self._sharpness_act = lambda x: 10.0 + 40.0 * torch.sigmoid(x)
+            self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
+            self._colour_act = lambda x: torch.sigmoid(x)
+        elif self.cfg.range_enforcement_type == "pgd":
+            self._thresholds_act = lambda x: x
+            self._angle_scale = torch.pi
+            self._angle_act = lambda x: x
+            self._anis_act = lambda x: x
+            self._sharpness_act = lambda x: x
+            self._opacity_act = lambda x: x
+            self._colour_act = lambda x: x
+        else:
+            raise ValueError(
+                f"Unknown range enforcement type: {self.cfg.range_enforcement_type}"
+            )
 
         self.kernel_filter_func = utils.rescaled_soft_step
 
@@ -95,28 +112,51 @@ class Model(BaseModule):
 
         opacities = torch.rand(self.N_sources, **factory_kwargs) * 2 - 1
 
-        # Initialise angles for uniform output in [0, π/2] considering activation
-        p = torch.rand(self.N_sources, **factory_kwargs)
-        angles = torch.log(p / (1 - p + 1e-7))
+        if self.cfg.range_enforcement_type == "activations":
+            # Initialise angles for uniform output in [0, π/2] considering activation
+            p = torch.rand(self.N_sources, **factory_kwargs)
+            angles = torch.log(p / (1 - p + 1e-7))
 
-        epsilon = 1e-8
-        # Initialize Sharpnesses for uniform output in [10.0, 50.0] considering activation
-        random_power = torch.rand(self.N_sources, **factory_kwargs) ** 0.5
-        uniform_sharpnesses = 10.0 + 40.0 * random_power
-        p_sharp = (uniform_sharpnesses - 10.0) / (50.0 - 10.0)
-        sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
+            epsilon = 1e-8
+            # Initialize Sharpnesses for uniform output in [10.0, 50.0] considering activation
+            power = 0.5 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power = torch.rand(self.N_sources, **factory_kwargs) ** power
+            uniform_sharpnesses = 10.0 + 40.0 * random_power
+            p_sharp = (uniform_sharpnesses - 10.0) / (50.0 - 10.0)
+            sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
 
-        # Initialize Thresholds for uniform output in [min_thresh, 0.9999] considering activation
-        random_power = torch.rand(self.N_sources, **factory_kwargs) ** 0.7
-        min_thresh = self.cfg.init_min_threshold
-        uniform_thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power
-        p_thresh = (uniform_thresholds - 0.3) / (0.7 - 1e-8)
-        thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon)) - 0.916
+            # Initialize Thresholds for uniform output in [min_thresh, 0.9999] considering activation
+            power = 0.7 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power = torch.rand(self.N_sources, **factory_kwargs) ** power
+            min_thresh = self.cfg.init_min_threshold
+            uniform_thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power
+            p_thresh = (uniform_thresholds - 0.3) / (0.7 - 1e-8)
+            thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon)) - 0.916
 
-        # Initialize Anisotropies for uniform output in a chosen range [1, 100]
-        uniform_anisotropies = 1.0 + 99.0 * torch.rand(self.N_sources, **factory_kwargs)
-        p_anisotropy = (uniform_anisotropies - 1.0) / 99.0
-        anisotropies = torch.log(p_anisotropy / (1 - p_anisotropy + epsilon))
+            # Initialize Anisotropies for uniform output in a chosen range [1, 100]
+            uniform_anisotropies = 1.0 + 99.0 * torch.rand(
+                self.N_sources, **factory_kwargs
+            )
+            p_anisotropy = (uniform_anisotropies - 1.0) / 99.0
+            anisotropies = torch.log(p_anisotropy / (1 - p_anisotropy + epsilon))
+
+        elif self.cfg.range_enforcement_type == "pgd":
+            angles = torch.rand(self.N_sources, **factory_kwargs) * self._angle_scale
+
+            power = 0.5 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power_sharp = torch.rand(self.N_sources, **factory_kwargs) ** power
+            sharpnesses = 10.0 + 40.0 * random_power_sharp
+
+            power = 0.7 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power_thresh = torch.rand(self.N_sources, **factory_kwargs) ** power
+            min_thresh = self.cfg.init_min_threshold
+            thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power_thresh
+
+            anisotropies = 1.0 + 99.0 * torch.rand(self.N_sources, **factory_kwargs)
+
+        else:
+            # This case is handled in the configure method. No need to raise an error
+            pass
 
         # Uniformly sample many points on the mesh surface
         # and then use farthest point sampling to select the kernel locations
@@ -181,6 +221,19 @@ class Model(BaseModule):
     @property
     def kernel_face_ids(self) -> Int[Tensor, "G"]:
         return self._kernel_face_ids
+
+    def post_optimizer_step(self):
+        if self.cfg.range_enforcement_type == "pgd":
+            self.clamp_parameters()
+
+    @torch.no_grad()
+    def clamp_parameters(self):
+        self._sharpnesses.clamp_(min=10.0, max=50.0)
+        self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
+        self._angles.clamp_(min=0, max=self._angle_scale)
+        self._anisotropies.clamp_(min=1.0, max=100.0)
+        self._opacities.clamp_(min=-1.0, max=1.0)
+        self._kernel_colours.clamp_(min=0.0, max=1.0)
 
     def prepare_points_for_diffusion(
         self,
