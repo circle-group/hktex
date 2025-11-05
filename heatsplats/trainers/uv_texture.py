@@ -59,7 +59,6 @@ class UvTextureTrainer(BaseTrainer):
         return data
 
     def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:
-
         renderer = UVTextureRenderer(self.cfg.renderer)
         mi_mesh = renderer.mesh_to_mitsuba(self.datamodule.mesh)
         if rotating_frames == 1:
@@ -72,3 +71,9 @@ class UvTextureTrainer(BaseTrainer):
         else:
             out = renderer.rotating_video(mi_mesh, rotating_frames)
         return out
+
+    def render_gt_raw(self):
+        renderer = UVTextureRenderer(self.cfg.renderer)
+        mi_mesh = renderer.mesh_to_mitsuba(self.datamodule.mesh)
+        img = renderer.render(mi_mesh, denoise=True)
+        return img

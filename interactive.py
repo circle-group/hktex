@@ -15,6 +15,10 @@ from heatsplats.utils import big_trimesh_pcl, show_video
 
 from heatsplats.utils import repr_patches
 
+from heatsplats.rendering.diffhk_renderer import DifferentiableHeatKernelsRenderer
+import mitsuba as mi
+import drjit as dr
+
 __all__ = ["repr_patches", "show_video"]
 
 
@@ -26,6 +30,8 @@ try:
 except NameError:
     # get_ipython() is not defined, so not running in an IPython environment
     pass
+
+dr.set_flag(dr.JitFlag.Debug, True)
 
 
 if __name__ == "__main__":
@@ -47,7 +53,7 @@ if __name__ == "__main__":
         "optim.iters": 20,  # 5_000, 20_000,
         "data.batch_size": 512,
         # "data.sample_all_vertices": False,
-        "trainer.model.n_sources": 3_000,
+        "trainer.model.n_sources": 10,
         # "trainer.model.kernel_dim": 3,
         "trainer.model.out_net": False,
         "trainer.model.normalize_colours": False,
@@ -55,7 +61,7 @@ if __name__ == "__main__":
         "renderer.point_batching": 1024,
         "renderer.n_rotating_frames": 2,
         "renderer.integrator_config.type": "prb",
-        "renderer.integrator_config.meta.max_depth": 3,
+        "renderer.integrator_config.meta.max_depth": 2,
         "trainer.renderer_mega_kernel": False,
         "renderer.camera_config.tile_size_heatkernels": None,
     }
@@ -64,7 +70,7 @@ if __name__ == "__main__":
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 
     profile = False
-    render = True
+    render = False
 
     if profile:
         with torch.profiler.profile(
@@ -123,3 +129,40 @@ if __name__ == "__main__":
     print("  - Optimised mesh renderings: show_video(result_rend)")
     print("  - Kernel ring renderings: show_video(ring_rend)")
     print("  - Combined renderings: show_video(combined_rend)")
+
+    gt_1 = optimisation.render_gt_raw()
+
+    import numpy as np
+    import torch.nn.functional as F
+
+    renderer = DifferentiableHeatKernelsRenderer(optimisation.cfg.renderer)
+    renderer.mega_kernel(False)
+
+    mi_mesh, mi_texture = renderer.mesh_to_mitsuba(
+        optimisation.datamodule.mesh,
+        optimisation.mesh,
+        optimisation.model,
+        optimisation.eigalbo_interp,
+    )
+
+    scene = renderer.make_scene(mi_mesh, with_params=False)
+
+    params = mi.traverse(mi_texture)
+    dr.enable_grad(params["grad_activator"])
+    print(params)
+    print("-----------")
+
+    print(optimisation.model._angles)
+
+    img = mi.render(scene, params=params, seed=0, seed_grad=0 + 1)
+    loss = dr.mean((img - gt_1) ** 2)
+    print("img ===", img)
+    print("loss ===", loss)
+    print("gt_1 ===", gt_1)
+    dr.backward(loss)
+
+    print("============")
+    print("others:")
+    for n, t in optimisation.model.named_parameters():
+        if t.grad is not None:
+            print(n, t)

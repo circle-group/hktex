@@ -351,6 +351,20 @@ class BaseRenderer(BaseObject):
             for frame in frames
         ]
 
+    def make_scene(
+        self, mi_mesh: mi.Mesh, with_params: bool = True
+    ) -> tuple[mi.Scene, mi.SceneParameters]:
+        scene_dict = self.configure_scene()
+        scene_dict["mesh"] = mi_mesh
+        scene = mi.load_dict(scene_dict)
+        if not with_params:
+            return scene
+        params = mi.traverse(scene)
+        return scene, params
+
+    def get_mesh_key(self) -> str:
+        return "mesh"
+
     @staticmethod
     def mega_kernel(
         state: bool = False, no_loops: bool = False, no_opt_calls: bool = False
