@@ -44,6 +44,8 @@ class BaseTrainer(BaseObject):
         eigen_albo: dict = field(default_factory=dict)
         model: dict = field(default_factory=dict)
 
+        loss_type: str = "mse_loss"  # any torch.nn.functional (e.g., smooth_l1_loss)
+
         optimizers: list = field(default_factory=list)
         density_controllers: list = field(default_factory=list)
 
@@ -84,6 +86,7 @@ class BaseTrainer(BaseObject):
             self.cfg.tracer, self.mesh
         )
 
+        self.loss_func = getattr(F, self.cfg.loss_type)
         self.optimizers, self.schedulers = parse_optimizers_and_schedulers(
             self.cfg.optimizers, self
         )
@@ -143,8 +146,11 @@ class BaseTrainer(BaseObject):
             if i == 0:
                 init_colours = colours.clone().detach()
 
-            # Compute loss and backpropagate
-            loss = F.mse_loss(colours, gt_colours, reduction="sum") / colours.shape[0]
+            # Compute loss, backpropagate, and update all other objects
+            per_point_loss = self.loss_func(colours, gt_colours, reduction="none").sum(
+                dim=1
+            )
+            loss = per_point_loss.sum() / colours.shape[0]
 
             for dc in self.density_controllers:
                 dc.pre_backward_step(
@@ -178,6 +184,11 @@ class BaseTrainer(BaseObject):
                 scheduler.step()
 
             self.model.post_optimizer_step()
+
+            if self.datamodule.cfg.use_importance_sampling:
+                self.datamodule.update_errors(
+                    data["pool_indices"], per_point_loss.detach()
+                )
 
             with torch.no_grad():
                 errors = self._errors

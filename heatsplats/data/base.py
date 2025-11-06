@@ -7,22 +7,26 @@ import heatsplats
 from heatsplats.utils import BaseObject, load_mesh
 from heatsplats.utils.typing import *
 
+from .importance_sampling_strategy import (
+    ImportanceSamplingMixIn,
+    ImportanceSamplingDataConfigMixIn,
+)
+
 
 @dataclass
-class MeshSamplerDataConfig:
+class MeshSamplerDataConfig(ImportanceSamplingDataConfigMixIn):
     mesh_path: str = "../objects/spot/spot_triangulated.py"
     bake_vert_colours_if_textured: bool = True
     merge_tex: bool = False
+    use_importance_sampling: bool = False
 
 
-class MeshSamplerDataModule:
+class MeshSamplerDataModule(ImportanceSamplingMixIn):
     cfg: MeshSamplerDataConfig
 
     mesh: trimesh.Trimesh
 
     def __init__(self, cfg: MeshSamplerDataConfig):
-        super().__init__()
-
         self.cfg = cfg
 
     def load_mesh(self):
@@ -43,6 +47,3 @@ class MeshSamplerDataModule:
         assert hasattr(
             self, "mesh"
         ), "Please call prepare_data before setup in data module"
-
-    def train_dataloader(self) -> Any:
-        pass

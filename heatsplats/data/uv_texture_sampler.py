@@ -95,10 +95,3 @@ class UvTextureSamplerDataModule(MeshSamplerDataModule):
         super().setup(stage)
         if stage in [None, "fit"]:
             self.train_dataset = UvTextureSamplerDataset(self.cfg, self.mesh, "train")
-
-    def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.train_dataset,
-            batch_size=None,  # Disable automatic batching
-            num_workers=self.cfg.num_workers,
-        )
