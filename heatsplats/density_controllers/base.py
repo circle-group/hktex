@@ -224,6 +224,7 @@ class BaseDensityController(BaseObject):
         eigalbo_interp: EigenAlboInterpolation,
         kernel_info: KernelInfo,
         tracer: GeodesicTracer,
+        base_radius: float,
     ):
         device = mask.device
         sel = torch.where(mask)[0]
@@ -244,8 +245,7 @@ class BaseDensityController(BaseObject):
             kernels_direction, kernel_normals, self._model.angles[sel] + math.pi / 2
         )
 
-        max_radius = math.sqrt(3 * self._model.cfg.diff_time)
-        displacements = (1 - self._model.thresholds[sel]) * max_radius
+        displacements = (1 - self._model.thresholds[sel]) * base_radius
         principal_axis_vectors = displacements.unsqueeze(-1) * principal_axis_directions
 
         displaced_pos, displaced_faces = tracer.trace(

@@ -79,6 +79,7 @@ trainer:
         error_accumulation_interval: ${int:${mul:${mul:${optim.iters}, 0.1}, 0.25}}
         error_threshold: 0.020578
         size_threshold: 0.12208
+        split_radius: 0.1
         max_densify_ratio: 0.4
         max_kernels: ${int:${mul:${trainer.model.n_sources}, 5}}
         stop_iter: ${int:${mul:${optim.iters}, 0.8}}

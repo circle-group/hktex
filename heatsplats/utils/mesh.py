@@ -1,5 +1,6 @@
 import trimesh
 
+import heatsplats
 from .typing import *
 
 __all__ = ["load_mesh"]
@@ -66,6 +67,7 @@ def load_mesh(
         mesh.apply_translation(-mesh.centroid)
         scale = 2.0 / max(mesh.extents)
         mesh.apply_scale(scale)
+        heatsplats.info(f"Scaling mesh by {scale}, and translating by {-mesh.centroid}")
 
     if show:
         mesh.show()

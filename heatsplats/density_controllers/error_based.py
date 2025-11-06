@@ -29,6 +29,7 @@ class ErrorDensificationController(BaseDensityController):
         error_threshold: float = 0.0002
 
         size_threshold: float = 0.1  # Distinguish between splitting and cloning
+        split_radius: float = 0.05  # When splitting, how far to displace new kernels
         max_densify_ratio: float = 0.05  # Max 5% new kernels at each densification
         max_kernels: int = 3_000
 
@@ -228,7 +229,9 @@ class ErrorDensificationController(BaseDensityController):
             split_mask = torch.cat([split_mask, padding])
 
         if split_mask.any():
-            self.split(split_mask, eigalbo_interp, kernel_info, tracer)
+            self.split(
+                split_mask, eigalbo_interp, kernel_info, tracer, self.cfg.split_radius
+            )
 
         if heatsplats.is_debug():
             heatsplats.debug(

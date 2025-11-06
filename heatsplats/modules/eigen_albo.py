@@ -42,6 +42,7 @@ class EigenAlboInterpolation(BaseObject):
         distance_weighting: str = "none"
         mass_type: str = "kde"  # Need to be the same as model.mass_type
         local_frames: str = "principal_curvatures"
+        normalise_evals: bool = False
 
     cfg: Config
 
@@ -73,6 +74,11 @@ class EigenAlboInterpolation(BaseObject):
         self._iso_eigen_vec = _iso_eigen[k_eig:].view(-1, k_eig).contiguous()
         self._eigen_val = _all_eigen[:, :k_eig].contiguous()
         self._eigen_vec = _all_eigen[:, k_eig:].view(M, -1, k_eig).contiguous()
+
+        if self.cfg.normalise_evals:
+            print(f"Normalising eigenvalues by total area of the mesh: {mesh.tot_area}")
+            self._iso_eigen_val = self._iso_eigen_val * mesh.tot_area
+            self._eigen_val = self._eigen_val * mesh.tot_area
 
         self.M = M
         self.K = k_eig

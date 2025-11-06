@@ -69,7 +69,7 @@ class Model(BaseModule):
             self._angle_scale = torch.pi
             self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
             self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
-            self._sharpness_act = lambda x: 10.0 + 40.0 * torch.sigmoid(x)
+            self._sharpness_act = lambda x: 10.0 + 190.0 * torch.sigmoid(x)
             self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
             self._colour_act = lambda x: torch.sigmoid(x)
         elif self.cfg.range_enforcement_type == "pgd":
@@ -121,8 +121,8 @@ class Model(BaseModule):
             # Initialize Sharpnesses for uniform output in [10.0, 50.0] considering activation
             power = 0.5 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
             random_power = torch.rand(self.N_sources, **factory_kwargs) ** power
-            uniform_sharpnesses = 10.0 + 40.0 * random_power
-            p_sharp = (uniform_sharpnesses - 10.0) / (50.0 - 10.0)
+            uniform_sharpnesses = 10.0 + 190.0 * random_power
+            p_sharp = (uniform_sharpnesses - 10.0) / (200.0 - 10.0)
             sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
 
             # Initialize Thresholds for uniform output in [min_thresh, 0.9999] considering activation
@@ -228,7 +228,7 @@ class Model(BaseModule):
 
     @torch.no_grad()
     def clamp_parameters(self):
-        self._sharpnesses.clamp_(min=10.0, max=50.0)
+        self._sharpnesses.clamp_(min=10.0, max=200.0)
         self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
         self._angles.clamp_(min=0, max=self._angle_scale)
         self._anisotropies.clamp_(min=1.0, max=100.0)

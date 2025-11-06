@@ -37,6 +37,8 @@ if __name__ == "__main__":
         "kernel_dim": 3,
         "out_net": False,
         "normalize_colours": False,
+        # "diff_time": 0.3,
+        "mass_type": "interpolated",
     }
     eigalbo_config = {
         "k_eig": 256,
@@ -45,12 +47,18 @@ if __name__ == "__main__":
         "precompute_angles_every_deg": 30,
         "mesh_path": fname,
         # "precomputed_name": "eigen_albo",
-        "distance_weighting": "none",  # "gaussian_0.5",
+        "distance_weighting": "none",
         "local_frames": "principal_curvatures",  # "axis_aligned_8",
+        "mass_type": model_cfg["mass_type"],
+        "normalise_evals": False,
     }
     device = "cuda:0"
 
-    tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=True)
+    # print(f"diff_time: {model_cfg['diff_time']}")
+
+    tri_mesh = load_mesh(
+        fname, merge_tex=True, bake_vert_colors=True, normalise_size=True
+    )
     # tri_mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=False)
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
     model = Model(model_cfg, our_mesh)
@@ -72,9 +80,12 @@ if __name__ == "__main__":
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
+    model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
+
     model._kernel_locations = torch.nn.Parameter(
-        torch.tensor(
-            [[-0.3444, -0.5293, -0.0918], [-0.3068, 0.0106, 0.7313]], device=device
+        our_mesh.barycentric_to_cartesian(
+            torch.tensor([[0.5, 0.5, 0], [0.5, 0.5, 0]], device=device),
+            our_mesh.get_face_vertices(model._kernel_face_ids),
         )
     )
     model._opacities = torch.nn.Parameter(
@@ -86,7 +97,6 @@ if __name__ == "__main__":
     model._thresholds = torch.nn.Parameter(
         torch.tensor([0.5, 0.5], dtype=torch.float, device=device)
     )
-    model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
     # Vertex colours ###################################################################
     v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
@@ -123,11 +133,13 @@ if __name__ == "__main__":
     ####################################################################################
     # Change parameters ################################################################
     ####################################################################################
-
     hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
     vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": -90}})
     # hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": 0}})
     # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
+    # hk_renderer = HeatKernelsRenderer(
+    #     {"camera_config": {"azimuth_deg": -90, "camera_distance": 7.0}}
+    # )
 
     hk_renderer.mega_kernel(False)
 
@@ -276,7 +288,8 @@ if __name__ == "__main__":
     # Change sharpness and threshold ###################################################
 
     images_row = []
-    for sharp in [10, 20, 30, 40, 50]:
+    # for sharp in [10, 20, 30, 40, 50]:
+    for sharp in [10, 50, 100, 150, 200]:
         model._sharpnesses = torch.nn.Parameter(
             torch.ones_like(model.sharpnesses, device=device) * sharp
         )

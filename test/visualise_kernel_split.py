@@ -40,6 +40,7 @@ if __name__ == "__main__":
         "normalize_colours": False,
         "range_enforcement_type": "activations",
         "init_kernel_edge_type": "skewed_uniform",
+        # "diff_time": 0.0025,
     }
     eigalbo_config = {
         "k_eig": 256,
@@ -49,10 +50,13 @@ if __name__ == "__main__":
         "mesh_path": fname,
         "precomputed_name": "eigen_albo",
         "distance_weighting": " gaussian_0.05",
+        "normalise_evals": False,
     }
     device = "cuda:0"
 
-    tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=True)
+    tri_mesh = load_mesh(
+        fname, merge_tex=True, bake_vert_colors=True, normalise_size=True
+    )
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
     model = Model(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
@@ -73,9 +77,12 @@ if __name__ == "__main__":
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
+    model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
+
     model._kernel_locations = torch.nn.Parameter(
-        torch.tensor(
-            [[-0.3444, -0.5293, -0.0918], [-0.3068, 0.0106, 0.7313]], device=device
+        our_mesh.barycentric_to_cartesian(
+            torch.tensor([[0.5, 0.5, 0], [0.5, 0.5, 0]], device=device),
+            our_mesh.get_face_vertices(model._kernel_face_ids),
         )
     )
     model._opacities = torch.nn.Parameter(
@@ -85,12 +92,11 @@ if __name__ == "__main__":
         torch.tensor([100.0, 100.0], dtype=torch.float, device=device)
     )
     model._thresholds = torch.nn.Parameter(
-        torch.tensor([0.5, 0.5], dtype=torch.float, device=device)
+        torch.tensor([0.9, 0.9], dtype=torch.float, device=device)
     )
-    model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
     # Render as rings
-    model.kernel_filter_func = partial(box_border, thickness=0.05)
+    model.kernel_filter_func = partial(box_border, thickness=0.07)
     ####################################################################################
 
     hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
@@ -137,7 +143,11 @@ if __name__ == "__main__":
     )
 
     density_controller.split(
-        torch.tensor([True, True]), eigalbo_interp, kernel_info, tracer
+        torch.tensor([True, True]),
+        eigalbo_interp,
+        kernel_info,
+        tracer,
+        base_radius=0.1,
     )
 
     model._kernel_colours = torch.nn.Parameter(torch.randn_like(model._kernel_colours))
