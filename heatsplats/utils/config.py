@@ -32,6 +32,7 @@ OmegaConf.register_new_resolver(
 )
 OmegaConf.register_new_resolver("or", lambda a, b: a or b)
 OmegaConf.register_new_resolver("if", lambda c, a, b: a if c else b)
+OmegaConf.register_new_resolver("tup", lambda *args: tuple(args))
 
 OmegaConf.register_new_resolver("has_texture", lambda fp: fp.endswith((".glb", ".obj")))
 OmegaConf.register_new_resolver("filename", lambda fp: Path(fp).stem)

@@ -238,16 +238,23 @@ class BaseRenderer(BaseObject):
             self.cfg.camera_config, **overrides
         )
 
-    def render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
-        if self._tile_size is None:
-            return self._render(mi_mesh, denoise)
-        else:
-            return self._render_tiled(mi_mesh, denoise, self._tile_size)
+    def update_camera_param(self, params, **overrides):
+        self.change_camera_param(**overrides)
+        new_camera_params = mi.traverse(mi.load_dict({"camera": self._camera_dict}))
+        params.update(values=new_camera_params)
 
-    def _render(self, mi_mesh: mi.Mesh, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
-        scene_dict = self.configure_scene()
-        scene_dict["mesh"] = mi_mesh
-        scene = mi.load_dict(scene_dict)
+    def render(
+        self, mi_mesh: mi.Mesh = None, denoise: bool = True, scene=None
+    ) -> drjit.cuda.ad.TensorXf:
+        assert scene is not None or mi_mesh is not None
+        if scene is None:
+            scene = self.make_scene(mi_mesh, with_params=False)
+        if self._tile_size is None:
+            return self._render(scene, denoise)
+        else:
+            return self._render_tiled(scene, denoise, self._tile_size)
+
+    def _render(self, scene, denoise: bool = True) -> drjit.cuda.ad.TensorXf:
         image = mi.render(scene)
         if denoise:
             denoiser = mi.OptixDenoiser(input_size=image.shape[:2])
@@ -255,8 +262,10 @@ class BaseRenderer(BaseObject):
         return image
 
     def _render_tiled(
-        self, mi_mesh: mi.Mesh, denoise: bool = True, tile_size: Optional[int] = None
+        self, scene, denoise: bool = True, tile_size: Optional[int] = None
     ) -> drjit.cuda.ad.TensorXf:
+        params = mi.traverse(scene)
+
         film_size = mi.ScalarVector2u(
             self._camera_dict["film"]["width"], self._camera_dict["film"]["height"]
         )
@@ -274,7 +283,8 @@ class BaseRenderer(BaseObject):
                 h = min(tile_size, film_size.y - y_offset)
 
                 # Modify the sensor's properties for the current tile
-                self.change_camera_param(
+                self.update_camera_param(
+                    params,
                     to_world=self._camera_dict["to_world"],
                     crop_offset_x=x_offset,
                     crop_offset_y=y_offset,
@@ -282,7 +292,7 @@ class BaseRenderer(BaseObject):
                     crop_height=h,
                 )
 
-                rendered_tile = self._render(mi_mesh, denoise=False)
+                rendered_tile = self._render(scene, denoise=False)
                 tile_tensor = mi.TensorXf(rendered_tile).torch()
                 h, w, _ = tile_tensor.shape
                 final_tensor[y_offset : y_offset + h, x_offset : x_offset + w] = (

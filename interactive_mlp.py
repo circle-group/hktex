@@ -33,51 +33,28 @@ except NameError:
     # get_ipython() is not defined, so not running in an IPython environment
     pass
 
-dr.set_flag(dr.JitFlag.Debug, True)
-
 
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
-        # "config": "configs/vertex_colour_texture_fitting.yaml",
-        # "config": "configs/known_vertex_colour_fitting.yaml",
-        # "config": "configs/uv_texture_fitting.yaml",
-        "config": "configs/uv_texture_fitting.yaml",
+        "config": "configs/uv_mlp_fitting.yaml",
         "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
         "verbose": False,
     }
     extras_dict = {
         "data.mesh_path": "../objects/spot/spot_triangulated.obj",
-        # "data.mesh_path": "../objects/bob/bob_tri.obj",
-        "trainer.tracer.debug": True,
-        "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 20,  # 5_000, 20_000,
-        "data.batch_size": 512,
-        # "data.sample_all_vertices": False,
-        "trainer.model.n_sources": 10,
-        # "trainer.model.kernel_dim": 3,
-        "trainer.model.out_net": False,
-        "trainer.model.normalize_colours": False,
-        "data.sampling_method": "uniform",
-        "renderer.point_batching": 1024,
-        "renderer.n_rotating_frames": 5,
+        "optim.iters": 250,
+        "data.batch_size": 4,
+        # "renderer.point_batching": 1024,
+        "renderer.n_rotating_frames": 10,
         "renderer.integrator_config.type": "path",
         # "renderer.integrator_config.meta.max_depth": 2,
         "trainer.renderer_mega_kernel": False,
         "renderer.camera_config.tile_size": 64,
-        "renderer.camera_config.tile_size_heatkernels": 64,
     }
 
     args = argparse.Namespace(**args_dict)
-
-    # Overrides elements in the lists within config
-    base_cfg = load_config(args.config)
-    density_controllers_list = base_cfg.trainer.density_controllers
-    density_controllers_list[1].args.max_kernels = 5_000
-    extras_dict["trainer.density_controllers"] = yaml.dump(
-        OmegaConf.to_container(density_controllers_list)
-    )
 
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 
@@ -109,25 +86,25 @@ if __name__ == "__main__":
     # v_colours = (v_colours.clamp(min=0, max=1) * 255).to(dtype=torch.uint8)
     # v_colours = v_colours.squeeze().detach().cpu().numpy()
 
-    gt_colours = (gt_colours * 255).to(dtype=torch.uint8)
-    gt_colours = gt_colours.squeeze().detach().cpu().numpy()
+    # gt_colours = (gt_colours * 255).to(dtype=torch.uint8)
+    # gt_colours = gt_colours.squeeze().detach().cpu().numpy()
 
-    init_colours = (init_colours * 255).to(dtype=torch.uint8)
-    init_colours = init_colours.squeeze().detach().cpu().numpy()
+    # init_colours = (init_colours * 255).to(dtype=torch.uint8)
+    # init_colours = init_colours.squeeze().detach().cpu().numpy()
 
-    gt_mesh = mesh.copy()
-    gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
+    # gt_mesh = mesh.copy()
+    # gt_mesh.visual = trimesh.visual.ColorVisuals(gt_mesh, vertex_colors=gt_colours)
 
-    v_mesh = mesh.copy()
-    v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
-    v_scene = trimesh.Scene([v_mesh, big_trimesh_pcl(optimisation.kernel_centres)])
-    if optimisation.tracer.debug:
-        v_scene_traces = trimesh.Scene([v_mesh, *optimisation.debug_trimesh_traces])
+    # v_mesh = mesh.copy()
+    # v_mesh.visual = trimesh.visual.ColorVisuals(mesh, vertex_colors=v_colours)
+    # v_scene = trimesh.Scene([v_mesh, big_trimesh_pcl(optimisation.kernel_centres)])
+    # if optimisation.tracer.debug:
+    #    v_scene_traces = trimesh.Scene([v_mesh, *optimisation.debug_trimesh_traces])
 
-    init_mesh = mesh.copy()
-    init_mesh.visual = trimesh.visual.ColorVisuals(
-        init_mesh, vertex_colors=init_colours
-    )
+    # init_mesh = mesh.copy()
+    # init_mesh.visual = trimesh.visual.ColorVisuals(
+    #     init_mesh, vertex_colors=init_colours
+    # )
     if render:
         gt_rend, result_rend, ring_rend, combined_rend = out["renderings"]
 

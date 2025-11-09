@@ -1,0 +1,57 @@
+name: "uv-mlp-fitting"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: data.camera-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+  
+  batch_size: 1
+  num_workers: 0
+
+  # tile_width: [64]
+  # tile_height: [64]
+
+  img_width: 256
+  img_height: 256
+
+  bounds:
+    # camera_distance: ${tup:3.5,3.9}
+    azimuth_deg: ${tup:0.0,360.0}
+    # elevation_deg: ${tup:-45.0,45.0}
+
+trainer_type: trainers.uv-texture-mlp
+trainer:
+  network: 
+    input_dim: 3
+    output_dim: 3
+
+    width: 128
+    hidden: 5
+
+    encoding:
+      otype: Grid
+      type: Hash
+      n_levels: 16
+      n_features_per_level: 2
+      log2_hashmap_size: 19
+      base_resolution: 16
+      per_level_scale: 2
+      interpolation: Linear
+
+  denoise_ad_prop: True
+  spp: 0
+
+  gt_denoise: True
+  gt_spp: 0
+
+  optimizers:
+    - name: Adam
+      args: 
+        lr: 1e-3
+
+optim:
+  iters: 5000

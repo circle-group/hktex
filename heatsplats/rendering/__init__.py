@@ -5,4 +5,5 @@ from . import (
     uv_texture_renderer as uv_texture_renderer,
     vertex_colours_renderer as vertex_colours_renderer,
     heat_kernels_renderer as heat_kernels_renderer,
+    mlp_renderer as mlp_renderer,
 )

@@ -152,11 +152,17 @@ def main(args, extras, render=True) -> Dict[str, Any]:
     result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
     render_end = time.time()
     heatsplats.info(f"Rendering results took {render_end-render_start:.2f} seconds")
-    ring_renderings = trainer.render_kernel_rings(cfg.renderer.n_rotating_frames)
+    if hasattr(trainer, "render_kernel_rings"):
+        ring_renderings = trainer.render_kernel_rings(cfg.renderer.n_rotating_frames)
+    else:
+        ring_renderings = None
     if cfg.renderer.n_rotating_frames > 1:
-        combined_renderings = combine_videos(
-            gt_renderings, result_renderings, ring_renderings
-        )
+        if ring_renderings is not None:
+            combined_renderings = combine_videos(
+                gt_renderings, result_renderings, ring_renderings
+            )
+        else:
+            combined_renderings = combine_videos(gt_renderings, result_renderings)
     else:
         combined_renderings = None
 
