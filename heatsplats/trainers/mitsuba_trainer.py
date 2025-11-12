@@ -19,30 +19,35 @@ import heatsplats
 from heatsplats.modules import (
     Mesh,
 )
-from heatsplats.modules.mlp_net import MLPNetwork
+from heatsplats.modules.base import TextureNetwork
 from heatsplats.data import MeshSamplerDataModule
-from heatsplats.rendering.mlp_renderer import MLPTextureRenderer
+from heatsplats.rendering.torch_texture_renderer import TorchTextureRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 
 import heatsplats.utils as utils
-from heatsplats.utils import BaseObject, load_mesh
+from heatsplats.utils import ObjectWithCallbacks, load_mesh
 from heatsplats.utils.typing import *
 
 from .utils import parse_optimizers_and_schedulers
 
 
-class MLPTrainer(BaseObject):
+class MitsubaTrainer(ObjectWithCallbacks):
     @dataclass
-    class Config(BaseObject.Config):
+    class Config(ObjectWithCallbacks.Config):
+        network_type: str = "modules.mlp-texture-network"
         network: dict = field(default_factory=dict)
 
         optimizers: list = field(default_factory=list)
 
+        renderer_type: str = "renderer.torch-texture"
         renderer: dict = field(default_factory=dict)
         renderer_mega_kernel: bool = False
 
         denoise_ad_prop: bool = False
         spp: int = 0
+
+        loss_type: str = "mse_loss"
+        loss_force_vectorized: bool = True
 
     cfg: Config
 
@@ -59,16 +64,23 @@ class MLPTrainer(BaseObject):
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
-        self.model = MLPNetwork(self.cfg.network)
+        self.model: TextureNetwork = heatsplats.find(self.cfg.network_type)(
+            self.cfg.network, mesh=self.mesh
+        )
+        self.loss_fn = utils.mitsuba.get_mitsuba_loss(
+            self.cfg.loss_type, self.cfg.loss_force_vectorized
+        )
 
         self.optimizers, self.schedulers = parse_optimizers_and_schedulers(
-            self.cfg.optimizers, self
+            self.cfg.optimizers, self.model
         )
 
         self.renderer = self._get_renderer()
 
     def _get_renderer(self):
-        renderer = MLPTextureRenderer(self.cfg.renderer)
+        renderer: TorchTextureRenderer = heatsplats.find(self.cfg.renderer_type)(
+            self.cfg.renderer
+        )
         renderer.mega_kernel(
             self.cfg.renderer_mega_kernel, no_loops=True, no_opt_calls=True
         )
@@ -94,17 +106,23 @@ class MLPTrainer(BaseObject):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
-        mesh_texless = self.renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
-        scene_texless = self.renderer.make_scene(mesh_texless, False)
-        scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+        if self.model.requires_scene_bounds():
+            mesh_texless = self.renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
+            scene_texless = self.renderer.make_scene(mesh_texless, False)
+            scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+            self.model.set_scene_bounds(scene_min.torch(), scene_max.torch())
 
         mi_mesh, mi_texture = self.renderer.mesh_to_mitsuba(
-            self.datamodule.mesh, self.model, scene_min, scene_max
+            self.datamodule.mesh, self.model
         )
         scene, params = self.renderer.make_scene(mi_mesh, with_params=True)
 
-        texture_params = mi.traverse(mi_texture)
-        dr.enable_grad(texture_params["grad_activator"])
+        grad_params_dict = utils.TraversableDict(
+            {"texture": [mi_texture, mi.ParamFlags.Differentiable]}
+        )
+        grad_params = mi.traverse(grad_params_dict)
+        dr.enable_grad(grad_params["texture.grad_activator"])
+        print(grad_params)
 
         seed = 0
 
@@ -121,32 +139,53 @@ class MLPTrainer(BaseObject):
                     gt_images = self._render_gt_tiles(batch_cameras, seed)
 
             for optimizer in self.optimizers:
+                self.foreach_callback(
+                    lambda cb: cb.on_before_zero_grad(self, optimizer)
+                )
                 optimizer.zero_grad()
 
             total_loss = 0.0
             for c_i, camera_params in enumerate(batch_cameras):
-                self.renderer.update_camera_param(params, **camera_params)
+                backward_success = False
+                while not backward_success:
+                    self.renderer.update_camera_param(params, **camera_params)
 
-                img_i = mi.render(
-                    scene,
-                    spp=self.cfg.spp,
-                    params=texture_params,
-                    seed=seed + c_i,
-                    seed_grad=seed + c_i + 1,
-                )
-                if self.cfg.denoise_ad_prop:
-                    denoiser = mi.OptixDenoiser(input_size=img_i.shape[:2])
-                    img_denoised = denoiser(img_i)
-                    img_denoised = dr.replace_grad(img_denoised, img_i)
-                    img_i = img_denoised
-                loss = dr.mean(dr.square(img_i - gt_images[c_i]))
-                dr.backward(loss)
+                    img_i = mi.render(
+                        scene,
+                        spp=self.cfg.spp,
+                        params=grad_params,
+                        seed=seed + c_i,
+                        seed_grad=seed + c_i + 1,
+                    )
+                    if self.cfg.denoise_ad_prop:
+                        denoiser = mi.OptixDenoiser(input_size=img_i.shape[:2])
+                        img_denoised = denoiser(img_i)
+                        img_denoised = dr.replace_grad(img_denoised, img_i)
+                        img_i = img_denoised
+                    loss = self.loss_fn(img_i, gt_images[c_i]) / batch_size
+                    self.foreach_callback(lambda cb: cb.on_before_backward(self, loss))
+                    try:
+                        dr.backward(loss)
+                        backward_success = True
+                    except:
+                        camera_params = dataloader.dataset.sample_N(1)
+                        camera_params = self.prepare_batch(camera_params)[0]
 
-                with torch.no_grad():
-                    with dr.suspend_grad():
-                        total_loss += loss.item()
+                        gt_images[c_i] = self._render_gt_tiles(
+                            [camera_params], seed + c_i
+                        )[0]
+
+                        continue
+                    self.foreach_callback(lambda cb: cb.on_after_backward(self))
+
+                    with torch.no_grad():
+                        with dr.suspend_grad():
+                            total_loss += loss.item()
 
             for optimizer in self.optimizers:
+                self.foreach_callback(
+                    lambda cb: cb.on_before_optimizer_step(self, optimizer)
+                )
                 optimizer.step()
 
             for scheduler in self.schedulers:
@@ -169,6 +208,9 @@ class MLPTrainer(BaseObject):
                         )
                     errors_lists["loss"].append(loss_step)
                     pbar.set_postfix_str(f"Loss: {loss_step:0.4f}")
+
+            dr.flush_malloc_cache()
+            torch.cuda.empty_cache()
 
         self.plot_errors(errors_lists)
 
@@ -196,7 +238,7 @@ class MLPTrainer(BaseObject):
         pass
 
     def render_result(
-        self, rotating_frames: int = 10
+        self, rotating_frames: int = 10, update_scene_bounds: bool = False
     ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
         """
         Render the mesh with the resultsing heat kernel texture. This is always rendered
@@ -209,13 +251,13 @@ class MLPTrainer(BaseObject):
         """
         renderer = self._get_renderer()
 
-        mesh_texless = renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
-        scene_texless = renderer.make_scene(mesh_texless, False)
-        scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+        if update_scene_bounds and self.model.requires_scene_bounds():
+            mesh_texless = renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
+            scene_texless = renderer.make_scene(mesh_texless, False)
+            scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+            self.model.set_scene_bounds(scene_min.torch(), scene_max.torch())
 
-        mi_mesh, mi_texture = renderer.mesh_to_mitsuba(
-            self.datamodule.mesh, self.model, scene_min, scene_max
-        )
+        mi_mesh, mi_texture = renderer.mesh_to_mitsuba(self.datamodule.mesh, self.model)
 
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
@@ -289,17 +331,14 @@ class MLPTrainer(BaseObject):
         ax.legend(framealpha=0.7, loc="best")
         plt.show()
 
-    def parameters(self):
-        return self.model.parameters()
-
     def save_model(self, filename):
         self.model.save_torch(filename)
 
 
-@heatsplats.register("trainers.uv-texture-mlp")
-class UvTextureMLPTrainer(MLPTrainer):
+@heatsplats.register("trainers.uv-texture-mitsuba")
+class UvTextureMitsubaTrainer(MitsubaTrainer):
     @dataclass
-    class Config(MLPTrainer.Config):
+    class Config(MitsubaTrainer.Config):
         gt_denoise: bool = True
         gt_spp: int = 0
 

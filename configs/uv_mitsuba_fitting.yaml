@@ -1,0 +1,92 @@
+name: "uv-mitsuba-fitting"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: data.camera-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+  
+  batch_size: 1
+  num_workers: 0
+
+  tile_width: [32]
+  tile_height: [32]
+
+  img_width: 256
+  img_height: 256
+
+  bounds:
+    camera_distance: ${tup:3.6,3.8}
+    azimuth_deg: ${tup:0.0,360.0}
+    elevation_deg: ${tup:0.0,10.0}
+
+trainer_type: trainers.uv-texture-mitsuba
+trainer:
+  network_type: modules.heat-kernel-model
+  network: 
+    eigen_albo_type: modules.eigen-albo-interpolation
+    eigen_albo: 
+      k_eig: 256
+      mesh_path: ${data.mesh_path}
+      distance_weighting: gaussian_0.05
+      mass_type: ${trainer.network.model.mass_type}
+      local_frames: principal_curvatures
+      precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
+      precompute_angles_every_deg: 30
+  
+    model: 
+      n_sources: 2000
+      kernel_dim: 32
+      diff_time: 0.000019026
+      mass_type: one
+      init_min_threshold: 0.5  # The higher the smaller
+      range_enforcement_type: pgd
+      init_kernel_edge_type: uniform
+      out_net: False
+      normalize_colours: False
+
+    tracer_type: modules.cpu-geodesic-tracer
+    tracer: 
+      n_debug_traces: 10
+
+    point_batching: 1024
+
+  denoise_ad_prop: True
+  spp: 0
+
+  gt_denoise: True
+  gt_spp: 0
+
+  loss_type: "smooth_l1_loss"
+  loss_force_vectorized: True
+
+  optimizers:
+    - name: Adam
+      args: {}
+      #   lr: 1e-3  #5e-4
+      params:
+        model._kernel_colours: {lr: 0.008395702306371162}
+        model._angles: {lr: 3.2652328263415363e-05}
+        model._anisotropies: {lr: 4.30738638898606e-05}
+        model._thresholds: {lr: 0.00011733030036139524}
+        model._sharpnesses: {lr: 0.0014970924840240095}
+        model._opacities: {lr: 0.0028242210378744965}
+        # model.out_net: {}
+    - name: GeodesicOpt
+      args:
+        lr: 0.09901128163500622
+      scheduler:
+        name: CosineAnnealingLR
+        args:
+          T_max: ${optim.iters}
+          eta_min: 1e-7
+      tracer: tracer
+      params:
+        model._kernel_locations:
+          face_ids: model._kernel_face_ids
+
+optim:
+  iters: 5000

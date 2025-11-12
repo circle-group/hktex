@@ -26,6 +26,7 @@ from typing import (
     Union,
     Collection,
     Sequence,
+    Concatenate,
 )
 
 # Tensor dtype

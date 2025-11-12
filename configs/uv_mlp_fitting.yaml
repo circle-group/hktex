@@ -12,19 +12,20 @@ data:
   batch_size: 1
   num_workers: 0
 
-  # tile_width: [64]
-  # tile_height: [64]
+  tile_width: [64]
+  tile_height: [64]
 
   img_width: 256
   img_height: 256
 
   bounds:
-    # camera_distance: ${tup:3.5,3.9}
+    camera_distance: ${tup:3.6,3.8}
     azimuth_deg: ${tup:0.0,360.0}
-    # elevation_deg: ${tup:-45.0,45.0}
+    elevation_deg: ${tup:0.0,10.0}
 
-trainer_type: trainers.uv-texture-mlp
+trainer_type: trainers.uv-texture-mitsuba
 trainer:
+  network_type: modules.mlp-texture-network
   network: 
     input_dim: 3
     output_dim: 3
@@ -47,6 +48,8 @@ trainer:
 
   gt_denoise: True
   gt_spp: 0
+
+  loss_type: smooth_l1_loss
 
   optimizers:
     - name: Adam

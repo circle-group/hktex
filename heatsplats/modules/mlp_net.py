@@ -15,16 +15,17 @@ import tinycudann as tcnn
 import heatsplats
 
 import heatsplats.utils as utils
-from heatsplats.utils import BaseModule
+from heatsplats.modules.base import TextureNetwork
 from heatsplats.utils.typing import *
 
 
-__all__ = ["MLPNetwork"]
+__all__ = ["MLPTextureNetwork"]
 
 
-class MLPNetwork(BaseModule):
+@heatsplats.register("modules.mlp-texture-network")
+class MLPTextureNetwork(TextureNetwork):
     @dataclass
-    class Config(BaseModule.Config):
+    class Config(TextureNetwork.Config):
         input_dim: int = 3
         output_dim: int = 3
 
@@ -63,21 +64,15 @@ class MLPNetwork(BaseModule):
             nn.Sigmoid(),
         ).to(self.device)
 
-    def forward(self, pts: Float[Tensor, "P in_dim"]) -> Float[Tensor, "P out_dim"]:
+    def _preprocess(self, pts: Float[Tensor, "P in_dim"]) -> Float[Tensor, "P in_dim"]:
+        pts = (pts - self.scene_min) / (self.scene_max - self.scene_min)
+        pts = 2 * pts + 1
+        return pts
+
+    def forward(
+        self, pts: Float[Tensor, "P in_dim"], **kwargs
+    ) -> Float[Tensor, "P out_dim"]:
+        pts = self._preprocess(pts)
         net_in = torch.cat((pts, self.encoding(pts)), dim=-1)
         out = self.network(net_in)
         return out
-
-    def save_torch(self, filename):
-        torch.save(self.state_dict(), filename)
-
-    def save_numpy_npz(self, filename):
-        np_dict = {}
-        for k, v in self.state_dict().items():
-            np_dict[k] = v.detach().cpu().numpy()
-        np.savez_compressed(filename, **np_dict)
-
-    def load_torch(self, filename):
-        self.load_state_dict(
-            torch.load(filename, map_location=self.device, weights_only=True)
-        )

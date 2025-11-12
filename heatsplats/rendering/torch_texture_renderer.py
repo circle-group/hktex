@@ -6,40 +6,42 @@ import numpy as np
 
 from dataclasses import dataclass
 
+import heatsplats
+from heatsplats.modules.base import TextureNetwork
 import heatsplats.utils as utils
 from heatsplats.utils.typing import *
 from .base import BaseRenderer
 from .util import MitsubaWrapper, vec_to_tens_safe
 
 
-class MLPTextureNetwork(MitsubaWrapper):
+@heatsplats.register("texture.torch-network")
+class TorchTextureNetwork(MitsubaWrapper):
     def __init__(
         self,
-        network: nn.Module,
-        scene_min: float,
-        scene_max: float,
+        network: TextureNetwork,
         point_batching: Optional[int] = None,
     ) -> None:
-        super().__init__("differentiable_heat_kernels_net")
+        super().__init__("torch_texture_net")
         self.network = network
-        self.scene_min = scene_min
-        self.scene_max = scene_max
         self.point_batching = point_batching
 
     def _eval(self, si, dirs, norms, albedo):
         pts = si.p
-        pts = (pts - self.scene_min) / (self.scene_max - self.scene_min)
-        pts = 2 * pts + 1
         pts_tensor = vec_to_tens_safe(pts + self.grad_activator)
+        kwargs = dict()
+        if self.network.requires_face_ids():
+            kwargs["face_ids"] = si.prim_index
 
-        torch_out = self._eval_in_torch(pts_tensor, batch_size=self.point_batching)
+        torch_out = self._eval_in_torch(
+            pts_tensor, batch_size=self.point_batching, **kwargs
+        )
         output = dr.unravel(mi.Vector3f, torch_out.array)
         return dr.clip(output, 0, 1)
 
     @dr.wrap(source="drjit", target="torch")
-    def _eval_in_torch(self, pts, batch_size=None):
+    def _eval_in_torch(self, pts, batch_size=None, **kwargs):
         if batch_size is None:
-            return self.network(pts)
+            return self.network(pts, **kwargs)
 
         P = pts.shape[0]
         colours = []
@@ -48,7 +50,7 @@ class MLPTextureNetwork(MitsubaWrapper):
             # Slice the current batch. IT handles also when the smaller batch is smaller
             pts_batch = pts[i : i + batch_size]
 
-            colours_batch = self.network(pts_batch)
+            colours_batch = self.network(pts_batch, **kwargs)
 
             # Store the batch results
             # colours[i : i + batch_size, :] = colours_batch
@@ -61,13 +63,16 @@ class MLPTextureNetwork(MitsubaWrapper):
         callback.put("network", self.network, mi.ParamFlags.Differentiable)
 
 
-class MLPTextureRenderer(BaseRenderer):
+@heatsplats.register("renderer.torch-texture")
+class TorchTextureRenderer(BaseRenderer):
     """
-    MLPTextureRenderer is a specialized renderer for visualizing mlp textures.
+    TorchTextureRenderer is a specialized renderer for visualizing torch network textures.
     """
 
     @dataclass
     class Config(BaseRenderer.Config):
+        network_type: str = "texture.torch-network"
+
         point_batching: Optional[int] = None
 
     cfg: Config
@@ -79,52 +84,24 @@ class MLPTextureRenderer(BaseRenderer):
     def mesh_to_mitsuba(
         self,
         tri_mesh: Trimesh,
-        network: nn.Module,
-        scene_min: float,
-        scene_max: float,
+        network: TextureNetwork,
         **kwargs,
     ) -> tuple[mi.Mesh, mi.Texture]:
 
-        network = MLPTextureNetwork(
+        network: TorchTextureNetwork = heatsplats.find(self.cfg.network_type)(
             network=network,
-            scene_min=scene_min,
-            scene_max=scene_max,
             point_batching=self.cfg.point_batching,
         )
 
         hk_texture = mi.load_dict({"type": "torch_texture"})
         hk_texture.network = network
 
-        bsdf_dict = {
-            "type": "principled",
-            "base_color": hk_texture,
-        }
+        mi_mesh = self.mesh_notex_to_mitsuba(tri_mesh, base_color=hk_texture)
 
-        if self.cfg.mitsuba_mesh_config.twosided:
-            bsdf_dict = {"type": "twosided", "material": bsdf_dict}
-
-        bsdf_prop = mi.Properties()
-        bsdf_prop["mesh_bsdf"] = mi.load_dict(bsdf_dict)
-
-        mi_mesh = mi.Mesh(
-            "mesh",
-            vertex_count=tri_mesh.vertices.shape[0],
-            face_count=tri_mesh.faces.shape[0],
-            props=bsdf_prop,
-        )
-
-        # "Traverse" the mesh to get its updateable parameters
-        mesh_params = mi.traverse(mi_mesh)
-        mesh_params["vertex_positions"] = np.array(tri_mesh.vertices).flatten()
-        mesh_params["faces"] = np.array(tri_mesh.faces).flatten()
-
-        mesh_params.update()
         return mi_mesh, hk_texture
 
     def mesh_notex_to_mitsuba(self, tri_mesh: Trimesh, **kwargs) -> mi.Mesh:
-        bsdf_dict = {
-            "type": "principled",
-        }
+        bsdf_dict = {"type": "principled", **kwargs}
 
         if self.cfg.mitsuba_mesh_config.twosided:
             bsdf_dict = {"type": "twosided", "material": bsdf_dict}

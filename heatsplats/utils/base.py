@@ -89,6 +89,9 @@ class BaseObject(Updateable):
         super().__init__()
         self.cfg = parse_structured(self.Config, cfg, merge_defaults=True)
         self.device = get_device()
+        self._configure(*args, **kwargs)
+
+    def _configure(self, *args, **kwargs):
         self.configure(*args, **kwargs)
 
     def configure(self, *args, **kwargs) -> None:

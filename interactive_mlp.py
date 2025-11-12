@@ -7,6 +7,11 @@ import argparse
 
 import torch
 
+import mitsuba as mi
+import drjit as dr
+
+mi.set_variant("cuda_ad_rgb")
+
 from IPython import get_ipython
 from omegaconf import OmegaConf
 from optimisation import main
@@ -16,10 +21,7 @@ from heatsplats.utils import big_trimesh_pcl, show_video
 
 from heatsplats.utils import repr_patches, load_config
 
-
 from heatsplats.rendering.diffhk_renderer import DifferentiableHeatKernelsRenderer
-import mitsuba as mi
-import drjit as dr
 
 __all__ = ["repr_patches", "show_video"]
 
@@ -33,6 +35,7 @@ except NameError:
     # get_ipython() is not defined, so not running in an IPython environment
     pass
 
+dr.set_flag(dr.JitFlag.Debug, True)
 
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
@@ -44,8 +47,8 @@ if __name__ == "__main__":
     }
     extras_dict = {
         "data.mesh_path": "../objects/spot/spot_triangulated.obj",
-        "optim.iters": 250,
-        "data.batch_size": 4,
+        "optim.iters": 500,
+        "data.batch_size": 2,
         # "renderer.point_batching": 1024,
         "renderer.n_rotating_frames": 10,
         "renderer.integrator_config.type": "path",

@@ -134,19 +134,20 @@ class CameraSamplerDataset(IterableDataset):
             crop_height=tile_h,
         )
 
+    def sample_N(self, batch_size):
+        cameras = dict()
+        for field, bounds in self.bounds.items():
+            cameras[field] = self.sample_field(bounds, batch_size)
+
+        if self.has_tiles():
+            tiles = self.sample_tiles(cameras, batch_size)
+            cameras.update(tiles)
+
+        return {"batch_size": batch_size, "cameras": cameras}
+
     def __iter__(self):
         while True:
-            batch_size = self.cfg.batch_size
-
-            cameras = dict()
-            for field, bounds in self.bounds.items():
-                cameras[field] = self.sample_field(bounds, batch_size)
-
-            if self.has_tiles():
-                tiles = self.sample_tiles(cameras, batch_size)
-                cameras.update(tiles)
-
-            yield {"batch_size": batch_size, "cameras": cameras}
+            yield self.sample_N(self.cfg.batch_size)
 
 
 @heatsplats.register("data.camera-sampler")
