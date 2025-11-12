@@ -48,9 +48,9 @@ if __name__ == "__main__":
     extras_dict = {
         "data.mesh_path": "../objects/spot/spot_triangulated.obj",
         "optim.iters": 500,
-        "data.batch_size": 2,
+        "data.batch_size": 4,
         # "data.sample_all_vertices": False,
-        "trainer.network.model.n_sources": 512,
+        "trainer.network.model.n_sources": 1024,
         # "trainer.model.kernel_dim": 3,
         "trainer.network.model.out_net": False,
         "trainer.network.model.normalize_colours": False,
@@ -60,8 +60,8 @@ if __name__ == "__main__":
         "renderer.integrator_config.type": "path",
         # "renderer.integrator_config.meta.max_depth": 2,
         "trainer.renderer_mega_kernel": False,
-        "renderer.camera_config.tile_size": 64,
-        "renderer.camera_config.tile_size_heatkernels": 64,
+        "renderer.camera_config.tile_size": 16,
+        "renderer.camera_config.tile_size_heatkernels": 16,
     }
 
     args = argparse.Namespace(**args_dict)

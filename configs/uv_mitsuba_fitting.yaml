@@ -12,8 +12,8 @@ data:
   batch_size: 1
   num_workers: 0
 
-  tile_width: [32]
-  tile_height: [32]
+  tile_width: [16]
+  tile_height: [16]
 
   img_width: 256
   img_height: 256

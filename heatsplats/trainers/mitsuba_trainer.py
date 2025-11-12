@@ -167,7 +167,11 @@ class MitsubaTrainer(ObjectWithCallbacks):
                     try:
                         dr.backward(loss)
                         backward_success = True
-                    except:
+                    except RuntimeError as e:
+                        if not str(e).startswith(
+                            "drjit::backward_from(): the argument does not depend on the input variable(s) being differentiated."
+                        ):
+                            raise e
                         camera_params = dataloader.dataset.sample_N(1)
                         camera_params = self.prepare_batch(camera_params)[0]
 

@@ -99,17 +99,12 @@ def mitsuba_l1_loss(
         )
 
 
-@dr.syntax
-def _dr_smooth_l1_op(input: dr.auto.Float, target: dr.auto.Float, beta: float):
+def _dr_smooth_l1_op(input, target, beta: float):
     diff = input - target
     abs_err = dr.abs(diff)
-    sq_err = dr.square(diff)
+    sq_err = 0.5 * dr.square(diff) / beta
 
-    if abs_err < beta:
-        res = sq_err
-    else:
-        res = abs_err
-
+    res = dr.select(abs_err < beta, sq_err, abs_err - 0.5 * beta)
     return res
 
 
@@ -121,6 +116,7 @@ def mitsuba_smooth_l1_loss(
 ) -> dr.scalar.TensorXf:
     if beta == 0.0:
         return mitsuba_l1_loss(input, target, reduction=reduction)
+
     smooth_l1_err = _dr_smooth_l1_op(input, target, beta)
 
     if reduction == "none":
