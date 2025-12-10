@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from heatsplats.modules import EigenAlboInterpolation
 from heatsplats.utils import load_mesh, big_trimesh_pcl, compute_biharmonic_distance
 import heatsplats.utils as utils
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 from heatsplats.data.known_heat_vertex_colours import KnownHeatVertexColoursDataModule
 from heatsplats.utils.typing import *
 
@@ -40,7 +40,7 @@ if __name__ == "__main__":
         eigalbo_config["mesh_path"], merge_tex=True, bake_vert_colors=False
     )
     our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
-    model = Model(model_cfg, our_mesh)
+    model = HeatKernelTexture(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
 
     kernel_vert_idx = our_mesh.get_face_vertices(model.kernel_face_ids)
@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     model_cfg["n_sources"] = 3
 
-    model = Model(model_cfg, our_mesh)
+    model = HeatKernelTexture(model_cfg, our_mesh)
 
     datamodule = KnownHeatVertexColoursDataModule(
         cfg={

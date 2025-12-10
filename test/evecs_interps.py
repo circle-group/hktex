@@ -19,7 +19,7 @@ from heatsplats.utils import (
     big_trimesh_pcl,
 )
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 
 
 if __name__ == "__main__":

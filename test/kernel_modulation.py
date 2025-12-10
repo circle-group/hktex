@@ -23,7 +23,7 @@ from heatsplats.utils import repr_patches
 
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 
 
 if __name__ == "__main__":
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     )
     # tri_mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=False)
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
-    model = Model(model_cfg, our_mesh)
+    model = HeatKernelTexture(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
 
     # Void all activations for interpretability over ease of optimisation ##############

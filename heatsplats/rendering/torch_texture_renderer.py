@@ -7,7 +7,7 @@ import numpy as np
 from dataclasses import dataclass
 
 import heatsplats
-from heatsplats.modules.base import TextureNetwork
+from heatsplats.modules.base import TextureModel
 import heatsplats.utils as utils
 from heatsplats.utils.typing import *
 from .base import BaseRenderer
@@ -18,7 +18,7 @@ from .util import MitsubaWrapper, vec_to_tens_safe
 class TorchTextureNetwork(MitsubaWrapper):
     def __init__(
         self,
-        network: TextureNetwork,
+        network: TextureModel,
         point_batching: Optional[int] = None,
     ) -> None:
         super().__init__("torch_texture_net")
@@ -84,7 +84,7 @@ class TorchTextureRenderer(BaseRenderer):
     def mesh_to_mitsuba(
         self,
         tri_mesh: Trimesh,
-        network: TextureNetwork,
+        network: TextureModel,
         **kwargs,
     ) -> tuple[mi.Mesh, mi.Texture]:
 

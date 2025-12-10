@@ -10,8 +10,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import tinycudann as tcnn
-
 import heatsplats
 
 import heatsplats.utils as utils
@@ -19,10 +17,10 @@ from heatsplats.utils import BaseModule
 from heatsplats.utils.typing import *
 
 
-__all__ = ["TextureNetwork"]
+__all__ = ["TextureModel"]
 
 
-class TextureNetwork(BaseModule):
+class TextureModel(BaseModule):
     @dataclass
     class Config(BaseModule.Config):
         pass

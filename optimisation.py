@@ -172,8 +172,10 @@ def main(args, extras, render=True) -> Dict[str, Any]:
         torch_size, npz_size = trainer.save_model(
             os.path.join(save_dir, cfg.optim.save_model_name)
         )
-        heatsplats.info(f"Pytorch model saved: {torch_size:.2f} KB")
-        heatsplats.info(f"Numpy model saved: {npz_size:.2f} KB")
+        if torch_size is not None:
+            heatsplats.info(f"Pytorch model saved: {torch_size:.2f} KB")
+        if npz_size is not None:
+            heatsplats.info(f"Numpy model saved: {npz_size:.2f} KB")
         save_video(combined_renderings, os.path.join(save_dir, "gt_vs_out.mp4"))
 
     return {

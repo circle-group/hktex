@@ -22,7 +22,7 @@ from heatsplats.utils import (
 from heatsplats.utils import repr_patches, box_border
 
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 from heatsplats.density_controllers import BaseDensityController
 from heatsplats.trainers import parse_optimizers_and_schedulers
 from heatsplats.modules import CPUGeodesicTracer
@@ -58,7 +58,7 @@ if __name__ == "__main__":
         fname, merge_tex=True, bake_vert_colors=True, normalise_size=True
     )
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
-    model = Model(model_cfg, our_mesh)
+    model = HeatKernelTexture(model_cfg, our_mesh)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
 
     # Void all activations for interpretability over ease of optimisation ##############

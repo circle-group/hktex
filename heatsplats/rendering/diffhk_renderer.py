@@ -10,7 +10,7 @@ import heatsplats.utils as utils
 from heatsplats.utils.typing import *
 from heatsplats.modules import (
     Mesh,
-    Model,
+    HeatKernelTexture,
     EigenAlboInterpolation,
     PointsInfo,
     KernelInfo,
@@ -23,13 +23,13 @@ class DifferentiableHeatKernelsNetwork(MitsubaWrapper):
     def __init__(
         self,
         mesh: Mesh,
-        model: Model,
+        model: HeatKernelTexture,
         eigalbo_interp: EigenAlboInterpolation,
         point_batching: int,
     ) -> None:
         super().__init__("differentiable_heat_kernels_net")
         self.mesh: Mesh = mesh
-        self.model: Model = model
+        self.model: HeatKernelTexture = model
         self.eigalbo_interp: EigenAlboInterpolation = eigalbo_interp
         self.point_batching: int = point_batching
 
@@ -134,7 +134,7 @@ class DifferentiableHeatKernelsRenderer(BaseRenderer):
         self,
         tri_mesh: Trimesh,
         mesh: Mesh,
-        model: Model,
+        model: HeatKernelTexture,
         eigalbo_interp: EigenAlboInterpolation,
         **kwargs,
     ) -> tuple[mi.Mesh, mi.Texture]:

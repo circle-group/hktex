@@ -20,10 +20,10 @@ from .mesh import Mesh
 from .eigen_albo import EigenAlboInterpolation
 from .utils import PointsInfo, KernelInfo
 
-__all__ = ["Model"]
+__all__ = ["HeatKernelTexture"]
 
 
-class Model(BaseModule):
+class HeatKernelTexture(BaseModule):
     @dataclass
     class Config(BaseModule.Config):
         n_sources: int = 128

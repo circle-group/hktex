@@ -9,7 +9,7 @@ import heatsplats.utils as utils
 from heatsplats.utils.typing import *
 from heatsplats.modules import (
     Mesh,
-    Model,
+    HeatKernelTexture,
     EigenAlboInterpolation,
     PointsInfo,
     KernelInfo,
@@ -21,7 +21,7 @@ class HeatKernelsTexture(mi.Texture):
     def __init__(self, props: mi.Properties) -> None:
         mi.Texture.__init__(self, props)
         self.mesh: Mesh = None
-        self.model: Model = None
+        self.model: HeatKernelTexture = None
         self.eigalbo_interp: EigenAlboInterpolation = None
         self.point_batching: int = None
 
@@ -116,7 +116,7 @@ class HeatKernelsRenderer(BaseRenderer):
         self,
         tri_mesh: Trimesh,
         mesh: Mesh,
-        model: Model,
+        model: HeatKernelTexture,
         eigalbo_interp: EigenAlboInterpolation,
         **kwargs
     ) -> mi.Mesh:

@@ -13,8 +13,8 @@ import torch.nn.functional as F
 import heatsplats
 
 import heatsplats.utils as utils
-from heatsplats.modules.base import TextureNetwork
-from heatsplats.modules.model import Model
+from heatsplats.modules.base import TextureModel
+from heatsplats.modules.heat_kernel_texture import HeatKernelTexture
 from heatsplats.modules.eigen_albo import EigenAlboInterpolation
 from heatsplats.modules.tracer import GeodesicTracer
 from heatsplats.modules.utils import KernelInfo, PointsInfo
@@ -25,9 +25,9 @@ __all__ = ["HeatKernelModel"]
 
 
 @heatsplats.register("modules.heat-kernel-model")
-class HeatKernelModel(TextureNetwork):
+class HeatKernelModel(TextureModel):
     @dataclass
-    class Config(TextureNetwork.Config):
+    class Config(TextureModel.Config):
         eigen_albo_type: str = "modules.eigen-albo-interpolation"
         eigen_albo: dict = field(default_factory=dict)
 
@@ -49,7 +49,7 @@ class HeatKernelModel(TextureNetwork):
         self.mesh = kwargs["mesh"]
         assert self.mesh is not None
 
-        self.model = Model(self.cfg.model, self.mesh)
+        self.model = HeatKernelTexture(self.cfg.model, self.mesh)
 
         EigenAlboClass = heatsplats.find(self.cfg.eigen_albo_type)
         self.eigalbo_interp: EigenAlboInterpolation = EigenAlboClass(

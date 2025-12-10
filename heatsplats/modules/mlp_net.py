@@ -10,12 +10,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import tinycudann as tcnn
+try:
+    import tinycudann as tcnn
+
+    HAS_TCNN = True
+except ImportError:
+    HAS_TCNN = False
+    tcnn = None
 
 import heatsplats
 
 import heatsplats.utils as utils
-from heatsplats.modules.base import TextureNetwork
+from heatsplats.modules.base import TextureModel
 from heatsplats.utils.typing import *
 
 
@@ -23,9 +29,9 @@ __all__ = ["MLPTextureNetwork"]
 
 
 @heatsplats.register("modules.mlp-texture-network")
-class MLPTextureNetwork(TextureNetwork):
+class MLPTextureNetwork(TextureModel):
     @dataclass
-    class Config(TextureNetwork.Config):
+    class Config(TextureModel.Config):
         input_dim: int = 3
         output_dim: int = 3
 
@@ -41,6 +47,9 @@ class MLPTextureNetwork(TextureNetwork):
         **kwargs,
     ):
         super().configure()
+
+        if not HAS_TCNN:
+            raise ImportError("tinycudann required for MLP Textures")
 
         encoding_config = OmegaConf.to_container(self.cfg.encoding)
         self.encoding = tcnn.Encoding(

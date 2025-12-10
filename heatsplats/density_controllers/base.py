@@ -8,7 +8,7 @@ from heatsplats.utils.typing import *
 from heatsplats.utils import BaseObject, rotate_on_plane
 from heatsplats.modules import (
     Mesh,
-    Model,
+    HeatKernelTexture,
     GeodesicOpt,
     GeodesicTracer,
     EigenAlboInterpolation,
@@ -31,7 +31,7 @@ class BaseDensityController(BaseObject):
     def configure(
         self,
         mesh: Mesh,
-        model: Model,
+        model: HeatKernelTexture,
         optimizers: Dict[str, torch.optim.Optimizer],
         *args,
         **kwargs,

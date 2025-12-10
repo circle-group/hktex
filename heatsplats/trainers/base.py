@@ -18,7 +18,7 @@ import mitsuba as mi
 import heatsplats
 from heatsplats.modules import (
     Mesh,
-    Model,
+    HeatKernelTexture,
     GeodesicTracer,
     EigenAlboInterpolation,
     KernelInfo,
@@ -68,7 +68,7 @@ class BaseTrainer(BaseObject):
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
-        self.model = Model(self.cfg.model, self.mesh)
+        self.model = HeatKernelTexture(self.cfg.model, self.mesh)
 
         if (
             "n_debug_traces" in self.cfg.tracer

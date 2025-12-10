@@ -12,7 +12,7 @@ from heatsplats.utils import load_mesh, load_config, ExperimentConfig, show_vide
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, Model, EigenAlboInterpolation
+from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 
 if __name__ == "__main__":
     fname = "../objects/spot/spot_triangulated.obj"
@@ -66,7 +66,7 @@ if __name__ == "__main__":
     # dr.set_log_level(dr.LogLevel.Info)
     tri_mesh = load_mesh(fname, merge_tex=True, bake_vert_colors=False)
     our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
-    model = Model(model_cfg, our_mesh)
+    model = HeatKernelTexture(model_cfg, our_mesh)
     model.load_torch(ckpt_name)
     eigalbo_interp = EigenAlboInterpolation(eigalbo_config, our_mesh)
     hk_renderer = HeatKernelsRenderer(dict())

@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from abc import abstractmethod
 import numpy as np
@@ -19,7 +20,7 @@ import heatsplats
 from heatsplats.modules import (
     Mesh,
 )
-from heatsplats.modules.base import TextureNetwork
+from heatsplats.modules.base import TextureModel
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.rendering.torch_texture_renderer import TorchTextureRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
@@ -64,7 +65,7 @@ class MitsubaTrainer(ObjectWithCallbacks):
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
-        self.model: TextureNetwork = heatsplats.find(self.cfg.network_type)(
+        self.model: TextureModel = heatsplats.find(self.cfg.network_type)(
             self.cfg.network, mesh=self.mesh
         )
         self.loss_fn = utils.mitsuba.get_mitsuba_loss(
@@ -337,6 +338,8 @@ class MitsubaTrainer(ObjectWithCallbacks):
 
     def save_model(self, filename):
         self.model.save_torch(filename)
+        torch_size = os.path.getsize(filename)
+        return torch_size / 1024, None
 
 
 @heatsplats.register("trainers.uv-texture-mitsuba")
