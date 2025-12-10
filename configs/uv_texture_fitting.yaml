@@ -13,7 +13,7 @@ data:
   num_workers: 0
   sampling_method: "uniform"
 
-  use_importance_sampling: True
+  use_importance_sampling: False
   importance_sampling_pool_size: 5000000
   importance_sampling_warmup_steps: 500
   importance_sampling_ema_beta: 0.9
@@ -29,20 +29,22 @@ trainer:
     mesh_path: ${data.mesh_path}
     distance_weighting: gaussian_0.05
     mass_type: ${trainer.model.mass_type}
-    local_frames: principal_curvatures
+    local_frames: axis_aligned_20
     precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
     precompute_angles_every_deg: 30
 
   model: 
-    n_sources: 2000
+    n_sources: 1000
     kernel_dim: 32
-    diff_time: 0.000019026
+    diff_time: 0.0008133321288953395
     mass_type: one
-    init_min_threshold: 0.5  # The higher the smaller
+    init_min_threshold: 0.999  # The higher the smaller
     range_enforcement_type: pgd
     init_kernel_edge_type: uniform
     out_net: False
     normalize_colours: False
+    allow_negative_opacities: True
+    allow_negative_colours: True
 
   loss_type: "smooth_l1_loss"
 
@@ -51,21 +53,27 @@ trainer:
       args: {}
       #   lr: 1e-3  #5e-4
       params:
-        model._kernel_colours: {lr: 0.008395702306371162}
-        model._angles: {lr: 3.2652328263415363e-05}
-        model._anisotropies: {lr: 4.30738638898606e-05}
-        model._thresholds: {lr: 0.00011733030036139524}
-        model._sharpnesses: {lr: 0.0014970924840240095}
-        model._opacities: {lr: 0.0028242210378744965}
+        model._kernel_colours: {lr: 0.011243004246581364}
+        model._angles: {lr:  2.2276423705872066e-05}
+        model._anisotropies: {lr: 3.5917174833249523e-05}
+        model._thresholds: {lr: 0.008917199645256857}
+        model._sharpnesses: {lr: 0.005495279901986241}
+        model._opacities: {lr: 0.008703649815643422}
         # model.out_net: {}
+      scheduler:
+        name: StepLR
+        args:
+          step_size: 1000
+          gamma: 0.5
+        
     - name: GeodesicOpt
       args:
         lr: 0.09901128163500622
-      scheduler:
-        name: CosineAnnealingLR
-        args:
-          T_max: ${optim.iters}
-          eta_min: 1e-7
+      # scheduler:
+      #   name: CosineAnnealingLR
+      #   args:
+      #     T_max: ${optim.iters}
+      #     eta_min: 1e-7
       tracer: tracer
       params:
         model._kernel_locations:
@@ -75,23 +83,23 @@ trainer:
     - density_controller_type: density_controllers.opacity
       args:
         start_iter: ${int:${mul:${optim.iters}, 0.2}}
-        prune_opacity: 0.064533
+        prune_opacity: 0.028314448557483447
         prune_interval: ${int:${mul:${optim.iters}, 0.1}}
         reset_opacity_interval: ${int:${mul:${optim.iters}, 0.1}}
-        stop_iter: ${int:${mul:${optim.iters}, 0.5}}
+        stop_iter: ${int:${mul:${optim.iters}, 0.6}}
     - density_controller_type: density_controllers.error_based_densification
       args:
         start_iter: ${int:${mul:${optim.iters}, 0.05}}
-        densify_interval: ${int:${mul:${optim.iters}, 0.1}}
-        error_accumulation_interval: ${int:${mul:${mul:${optim.iters}, 0.1}, 0.25}}
-        error_threshold: 0.020578
-        size_threshold: 0.12208
-        split_radius: 0.1
+        densify_interval: ${int:${mul:${optim.iters}, 0.04}}
+        error_accumulation_interval: ${int:${mul:${mul:${optim.iters}, 0.1}, 0.5}}
+        error_threshold: 0.020777840533685494
+        size_threshold: 0.23534136498588332
+        split_radius: 0.2
         max_densify_ratio: 0.4
         max_kernels: ${int:${mul:${trainer.model.n_sources}, 5}}
-        stop_iter: ${int:${mul:${optim.iters}, 0.8}}
+        stop_iter: ${int:${mul:${optim.iters}, 0.7}}
 
 
 
 optim:
-  iters: 5000
+  iters: 10000

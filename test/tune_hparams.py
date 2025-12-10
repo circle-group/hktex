@@ -11,7 +11,7 @@ sys.path.append(str(script_dir))
 
 import argparse
 import traceback
-
+import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
@@ -70,11 +70,18 @@ def trainable(config, root, all_filenames, resolver_paths):
             "model._opacities": {"lr": config["lr_opacities"]},
         },
     }
-    if config["use_adam_scheduler"]:
+    if config["adam_scheduler"] == "cosine":
+        adam_optim["scheduler"] = {
+            "name": "CosineAnnealingLR",
+            "args": {"T_max": total_iters, "eta_min": 1e-7},
+        }
+    elif config["adam_scheduler"] == "step":
         adam_optim["scheduler"] = {
             "name": "StepLR",
             "args": {"step_size": 1000, "gamma": 0.5},
         }
+    else:
+        pass  # No scheduler
     optimizers_config.append(adam_optim)
 
     geodesic_optim = {
@@ -83,11 +90,18 @@ def trainable(config, root, all_filenames, resolver_paths):
         "tracer": "tracer",
         "params": {"model._kernel_locations": {"face_ids": "model._kernel_face_ids"}},
     }
-    if config["use_geodesic_scheduler"]:
+    if config["geodesic_scheduler"] == "cosine":
         geodesic_optim["scheduler"] = {
             "name": "CosineAnnealingLR",
             "args": {"T_max": total_iters, "eta_min": 1e-7},
         }
+    elif config["geodesic_scheduler"] == "step":
+        geodesic_optim["scheduler"] = {
+            "name": "StepLR",
+            "args": {"step_size": 1000, "gamma": 0.5},
+        }
+    else:
+        pass  # No scheduler
     optimizers_config.append(geodesic_optim)
 
     # Convert the Python object to a YAML string
@@ -119,14 +133,15 @@ def trainable(config, root, all_filenames, resolver_paths):
         error_accumulation_interval: {error_accumulation_interval}
         error_threshold: {config["dc_error_threshold"]}
         size_threshold: {config["dc_size_threshold"]}
+        split_radius: {config["dc_error_split_radius"]}
         max_densify_ratio: {config["dc_max_densify_ratio"]}
         max_kernels: {config["dc_max_kernels"]}
         stop_iter: {int(total_iters * config["dc_error_stop_iter_frac"])}
     """
 
     # Remove the temporary keys from the config before passing to main
-    del config["use_adam_scheduler"]
-    del config["use_geodesic_scheduler"]
+    del config["adam_scheduler"]
+    del config["geodesic_scheduler"]
     for k in list(config.keys()):
         if k.startswith("dc_") or k.startswith("lr_"):
             del config[k]
@@ -136,8 +151,8 @@ def trainable(config, root, all_filenames, resolver_paths):
     config["exp_root_dir"] = tune.get_context().get_trial_dir()
 
     # The main loop over files is now inside the trainable
-    total_error = 0.0
-    num_files = len(all_filenames)
+    per_mesh_errors = []
+    per_mesh_kernels = []
 
     # Wrap the file loop in tqdm for a progress bar within each trial
     for fname in tqdm(all_filenames, desc=f"Trial files", leave=False):
@@ -155,17 +170,31 @@ def trainable(config, root, all_filenames, resolver_paths):
             # Calculate error for the current mesh
             gt = mibitmaps2torch(gt_rend)
             res = mibitmaps2torch(result_rend)
-            error = F.mse_loss(res, gt, reduction="mean").item()
-            total_error += error
+            error = F.mse_loss(res, gt, reduction="mean")
+            per_mesh_errors.append(error)
+            per_mesh_kernels.append(
+                out["optimisation"].model._kernel_locations.shape[0]
+            )
         except Exception as e:
             print(f"Error processing {fname}:")
             traceback.print_exc()
             # Penalize failures heavily
-            total_error += 10.0
+            per_mesh_errors.append(10.0)
 
     # Report the average error across all files as the final metric
-    avg_error = total_error / num_files
-    tune.report({"mean_error": avg_error})
+    per_mesh_errors = torch.tensor(per_mesh_errors)
+    avg_error = per_mesh_errors.mean().item()
+    std_error = per_mesh_errors.std().item()
+    avg_n_kernels = sum(per_mesh_kernels) / len(per_mesh_kernels)
+    tune.report(
+        {
+            "mean_error": avg_error,
+            "std_error": std_error,
+            "mean_n_kernels": avg_n_kernels,
+            "storage_torch_kb": out["storage"][0],
+            "storage_npz_kb": out["storage"][1],
+        }
+    )
 
 
 if __name__ == "__main__":
@@ -173,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--root",
         type=str,
-        default="/data2/objaverse/hf-objaverse-v1/glbs",
+        default="/data2/home/sf3018/objaverse",
         help="Root directory of the dataset.",
     )
     parser.add_argument(
@@ -185,11 +214,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_kernels",
         type=int,
-        default=10_000,
+        default=8_000,
         help="Maximum number of kernels allowed.",
     )
     parser.add_argument(
-        "--run_id", type=str, default="tune_0", help="Identifier for the tuning run."
+        "--run_id", type=str, default="tune_test", help="Identifier for the tuning run."
     )
     parser.add_argument(
         "--num_samples",
@@ -221,26 +250,37 @@ if __name__ == "__main__":
 
     search_space = {
         # Fixed parameters #############################################################
-        "name": "uv-hparam-search",
+        "name": "output_experiment",
         "trainer.tracer.debug": False,
         "optim.iters": cli_args.optim_iters,
         "dc_max_kernels": cli_args.max_kernels,
         "renderer.n_rotating_frames": 3,
+        "trainer.model.mass_type": "one",
         #
         # Tunable parameters ###########################################################
         "trainer.model.n_sources": tune.choice([100, 500, 1000, 2000]),
         "data.batch_size": tune.choice([512, 1024]),
+        "data.use_importance_sampling": tune.choice([True, False]),
+        "data.importance_sampling_pool_size": tune.choice(
+            [1_000_000, 5_000_000, 10_000_000]
+        ),
+        "data.importance_sampling_warmup_steps": tune.choice([250, 500, 1_000]),
+        "data.importance_sampling_ema_beta": tune.choice([0.9, 0.95, 0.99]),
         "trainer.eigen_albo.local_frames": tune.choice(
             ["principal_curvatures", "axis_aligned_20", "axis_aligned_5"]
         ),
-        "trainer.model.mass_type": tune.choice(["one", "kde", "interpolated"]),
         "trainer.model.diff_time": tune.loguniform(1e-8, 1e-1),
         "trainer.eigen_albo.distance_weighting": tune.choice(
-            ["none", "gaussian_0.01", "gaussian_0.05", "inverse"]
+            ["none", "gaussian_0.1", "gaussian_0.05"]
         ),
         "trainer.model.init_min_threshold": tune.choice([0.3, 0.5, 0.9, 0.999]),
-        "use_adam_scheduler": tune.choice([True, False]),
-        "use_geodesic_scheduler": tune.choice([True, False]),
+        "trainer.model.range_enforcement_type": tune.choice(["pgd", "activations"]),
+        "trainer.model.init_kernel_edge_type": tune.choice(["uniform", "high_skewed"]),
+        "trainer.model.allow_negative_opacities": tune.choice([True, False]),
+        "trainer.model.allow_negative_colours": tune.choice([True, False]),
+        "trainer.loss_type": tune.choice(["mse_loss", "smooth_l1_loss", "l1_loss"]),
+        "adam_scheduler": tune.choice(["none", "step", "cosine"]),
+        "geodesic_scheduler": tune.choice(["none", "step", "cosine"]),
         "lr_colours": tune.loguniform(1e-3, 1e-1),
         "lr_angles": tune.loguniform(1e-5, 1e-3),
         "lr_anisotropies": tune.loguniform(1e-5, 1e-3),
@@ -249,17 +289,18 @@ if __name__ == "__main__":
         "lr_opacities": tune.loguniform(1e-4, 1e-2),
         "lr_locations": tune.loguniform(1e-4, 1e-1),
         "dc_prune_opacity": tune.loguniform(0.01, 0.1),
-        "dc_error_threshold": tune.loguniform(0.01, 0.2),
-        "dc_size_threshold": tune.uniform(0.1, 0.5),
-        "dc_max_densify_ratio": tune.choice([0.2, 0.3, 0.4, 0.5]),
+        "dc_error_threshold": tune.loguniform(0.005, 0.05),
+        "dc_size_threshold": tune.uniform(0.1, 0.4),
+        "dc_max_densify_ratio": tune.choice([0.3, 0.4, 0.5]),
         "dc_opacity_start_iter_frac": tune.choice([0.1, 0.2]),
         "dc_opacity_prune_interval_frac": tune.choice([0.05, 0.1]),
         "dc_opacity_reset_interval_frac": tune.choice([0.1, 0.2]),
         "dc_opacity_stop_iter_frac": tune.choice([0.5, 0.6, 0.7]),
-        "dc_error_start_iter_frac": tune.choice([0.02, 0.05, 0.08, 0.15]),
+        "dc_error_start_iter_frac": tune.choice([0.05, 0.08]),
         "dc_densify_interval_frac": tune.choice([0.01, 0.02, 0.04, 0.08]),
         "dc_error_accum_ratio": tune.choice([0.25, 0.5, 0.75]),
-        "dc_error_stop_iter_frac": tune.choice([0.7, 0.8, 0.9]),
+        "dc_error_stop_iter_frac": tune.choice([0.7, 0.8]),
+        "dc_error_split_radius": tune.choice([0.05, 0.1, 0.2]),
     }
 
     search_alg = OptunaSearch()

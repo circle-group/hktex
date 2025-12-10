@@ -37,6 +37,8 @@ class Model(BaseModule):
         init_min_threshold: float = 0.3
         range_enforcement_type: str = "activations"  # "pgd" | "activations"
         init_kernel_edge_type: str = "uniform"  # "uniform" | "high_skewed"
+        allow_negative_opacities: bool = False
+        allow_negative_colours: bool = False
 
     cfg: Config
 
@@ -70,8 +72,17 @@ class Model(BaseModule):
             self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
             self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
             self._sharpness_act = lambda x: 10.0 + 190.0 * torch.sigmoid(x)
-            self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
-            self._colour_act = lambda x: torch.sigmoid(x)
+
+            if self.cfg.allow_negative_opacities:
+                self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
+            else:
+                self._opacity_act = lambda x: torch.clamp(x, min=0, max=1)
+
+            if self.cfg.allow_negative_colours:
+                self._colour_act = lambda x: torch.tanh(x)
+            else:
+                self._colour_act = lambda x: torch.sigmoid(x)
+
         elif self.cfg.range_enforcement_type == "pgd":
             self._thresholds_act = lambda x: x
             self._angle_scale = torch.pi
@@ -109,8 +120,12 @@ class Model(BaseModule):
             kernel_colours = torch.rand(
                 (self.N_sources, self.out_dim), **factory_kwargs
             )
+            if self.cfg.allow_negative_colours:
+                kernel_colours = kernel_colours * 2 - 1
 
-        opacities = torch.rand(self.N_sources, **factory_kwargs) * 2 - 1
+        opacities = torch.rand(self.N_sources, **factory_kwargs)
+        if self.cfg.allow_negative_opacities:
+            opacities = opacities * 2 - 1
 
         if self.cfg.range_enforcement_type == "activations":
             # Initialise angles for uniform output in [0, π/2] considering activation
@@ -232,8 +247,16 @@ class Model(BaseModule):
         self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
         self._angles.clamp_(min=0, max=self._angle_scale)
         self._anisotropies.clamp_(min=1.0, max=100.0)
-        self._opacities.clamp_(min=-1.0, max=1.0)
-        self._kernel_colours.clamp_(min=0.0, max=1.0)
+
+        if self.cfg.allow_negative_opacities:
+            self._opacities.clamp_(min=-1.0, max=1.0)
+        else:
+            self._opacities.clamp_(min=0.0, max=1.0)
+
+        if self.cfg.allow_negative_colours:
+            self._kernel_colours.clamp_(min=-1.0, max=1.0)
+        else:
+            self._kernel_colours.clamp_(min=0.0, max=1.0)
 
     def prepare_points_for_diffusion(
         self,

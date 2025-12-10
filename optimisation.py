@@ -169,7 +169,11 @@ def main(args, extras, render=True) -> Dict[str, Any]:
     if cfg.optim.save_model:
         save_dir = os.path.join(cfg.trial_dir, "ckpts")
         os.makedirs(save_dir, exist_ok=True)
-        trainer.save_model(os.path.join(save_dir, cfg.optim.save_model_name))
+        torch_size, npz_size = trainer.save_model(
+            os.path.join(save_dir, cfg.optim.save_model_name)
+        )
+        heatsplats.info(f"Pytorch model saved: {torch_size:.2f} KB")
+        heatsplats.info(f"Numpy model saved: {npz_size:.2f} KB")
         save_video(combined_renderings, os.path.join(save_dir, "gt_vs_out.mp4"))
 
     return {
@@ -182,6 +186,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
             ring_renderings,
             combined_renderings,
         ),
+        "storage": (torch_size, npz_size),
     }
 
 
