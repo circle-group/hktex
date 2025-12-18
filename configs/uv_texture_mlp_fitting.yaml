@@ -3,27 +3,19 @@ tag: "${filename:${data.mesh_path}}"
 exp_root_dir: "outputs"
 seed: 0
 
-data_type: data.camera-sampler
+data_type: data.uv-texture-sampler
 data:
   mesh_path: ../objects/spot/spot_triangulated.obj
   bake_vert_colours_if_textured: False
   merge_tex: True
   
-  batch_size: 1
+  batch_size: 512
   num_workers: 0
+  sampling_method: "uniform"
 
-  tile_width: [64]
-  tile_height: [64]
+  use_importance_sampling: False
 
-  img_width: 256
-  img_height: 256
-
-  bounds:
-    camera_distance: ${tup:3.6,3.8}
-    azimuth_deg: ${tup:0.0,360.0}
-    elevation_deg: ${tup:0.0,10.0}
-
-trainer_type: trainers.mitsuba-rend-mlp
+trainer_type: trainers.uv-texture-mlp
 trainer:
   network_type: modules.mlp-texture-network
   network: 
@@ -31,23 +23,17 @@ trainer:
     output_dim: 3
 
     width: 128
-    hidden: 5
+    hidden: 3
 
     encoding:
       otype: Grid
       type: Hash
-      n_levels: 16
+      n_levels: 10
       n_features_per_level: 2
-      log2_hashmap_size: 19
-      base_resolution: 16
+      log2_hashmap_size: 10
+      base_resolution: 8
       per_level_scale: 2
       interpolation: Linear
-
-  denoise_ad_prop: True
-  spp: 0
-
-  gt_denoise: True
-  gt_spp: 0
 
   loss_type: smooth_l1_loss
 

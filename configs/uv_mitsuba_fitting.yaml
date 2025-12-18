@@ -23,7 +23,7 @@ data:
     azimuth_deg: ${tup:0.0,360.0}
     elevation_deg: ${tup:0.0,10.0}
 
-trainer_type: trainers.uv-texture-mitsuba
+trainer_type: trainers.uv-texture-mlp-mitsuba
 trainer:
   network_type: modules.heat-kernel-model
   network: 

@@ -32,7 +32,7 @@ from heatsplats.utils.typing import *
 from .utils import parse_optimizers_and_schedulers
 
 
-class MitsubaTrainer(ObjectWithCallbacks):
+class MlpTrainer(ObjectWithCallbacks):
     @dataclass
     class Config(ObjectWithCallbacks.Config):
         network_type: str = "modules.mlp-texture-network"
@@ -44,11 +44,7 @@ class MitsubaTrainer(ObjectWithCallbacks):
         renderer: dict = field(default_factory=dict)
         renderer_mega_kernel: bool = False
 
-        denoise_ad_prop: bool = False
-        spp: int = 0
-
         loss_type: str = "mse_loss"
-        loss_force_vectorized: bool = True
 
     cfg: Config
 
@@ -68,9 +64,6 @@ class MitsubaTrainer(ObjectWithCallbacks):
         self.model: TextureModel = heatsplats.find(self.cfg.network_type)(
             self.cfg.network, mesh=self.mesh
         )
-        self.loss_fn = utils.mitsuba.get_mitsuba_loss(
-            self.cfg.loss_type, self.cfg.loss_force_vectorized
-        )
 
         self.optimizers, self.schedulers = parse_optimizers_and_schedulers(
             self.cfg.optimizers, self.model
@@ -87,14 +80,6 @@ class MitsubaTrainer(ObjectWithCallbacks):
         )
         return renderer
 
-    def prepare_batch(self, data: dict) -> dict:
-        batch_cameras = [dict() for _ in range(data["batch_size"])]
-        for k, v in data["cameras"].items():
-            for i, c_v in enumerate(v):
-                batch_cameras[i][k] = c_v.item()
-
-        return batch_cameras
-
     def _move_to_device(self, obj):
         if isinstance(obj, Tensor):
             return obj.to(self.device)
@@ -102,6 +87,138 @@ class MitsubaTrainer(ObjectWithCallbacks):
             return {k: self._move_to_device(v) for k, v in obj.items()}
         else:
             return obj
+
+    @abstractmethod
+    def optimise(self, n_iter=100):
+        pass
+
+    def render_result(
+        self, rotating_frames: int = 10, update_scene_bounds: bool = False
+    ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        """
+        Render the mesh with the resultsing heat kernel texture. This is always rendered
+        with the heat kernel texture, so it is not defined in subclasses.
+        Args:
+            rotating_frames (int): Number of frames for rotation.
+                If 1, render a single image.
+        Returns:
+            mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
+        """
+        renderer = self._get_renderer()
+
+        if update_scene_bounds and self.model.requires_scene_bounds():
+            mesh_texless = renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
+            scene_texless = renderer.make_scene(mesh_texless, False)
+            scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+            self.model.set_scene_bounds(scene_min.torch(), scene_max.torch())
+
+        mi_mesh, mi_texture = renderer.mesh_to_mitsuba(self.datamodule.mesh, self.model)
+
+        if rotating_frames == 1:
+            img = renderer.render(mi_mesh, denoise=True)
+            out = mi.Bitmap(img).convert(
+                pixel_format=mi.Bitmap.PixelFormat.RGB,
+                component_format=mi.Struct.Type.UInt8,
+                srgb_gamma=True,
+            )
+        else:
+            out = renderer.rotating_video(mi_mesh, rotating_frames)
+
+        renderer.flush_cache()
+
+        return out
+
+    @staticmethod
+    def plot_errors(errors_lists):
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+        axes[0].plot(errors_lists["loss"], label="Loss")
+        axes[0].set_title("Loss per step")
+        axes[0].set_xlabel("Iteration")
+        axes[0].set_ylabel("Loss")
+        axes[0].legend()
+
+        axes[1].plot(errors_lists["loss"], label="Loss")
+        axes[1].set_yscale("log")  # Set y-axis to log scale
+        axes[1].set_title("Loss per Step (Log Scale)")
+        axes[1].set_xlabel("Iteration")
+        axes[1].set_ylabel("Loss (Log Scale)")
+        axes[1].legend()
+
+        plt.tight_layout()
+        plt.show()
+
+    def plot_gradient_norms(
+        self,
+        grads_lists: dict[str, list[float]],
+        log_interval: int = 100,
+        y_log_scale: bool = True,
+    ):
+        if not grads_lists:
+            print("Gradient dictionary is empty. Nothing to plot.")
+            return
+
+        # Generate the x-axis values based on the logging frequency
+        num_logs = 0
+        for name, norms in grads_lists.items():
+            if norms:  # Find the first non-empty list to get the length
+                num_logs = len(norms)
+                break
+
+        if num_logs == 0:
+            print("All gradient lists are empty. Nothing to plot.")
+            return
+
+        steps = [0] + [(i * log_interval) - 1 for i in range(1, num_logs)]
+
+        fig, ax = plt.subplots(figsize=(15, 8))
+        for name, norm_list in grads_lists.items():
+            ax.plot(steps, norm_list, label=name[1:], markersize=4, marker="o")
+
+        ax.set_xlabel("Training Step")
+        ax.set_ylabel("L2 Norm of Gradient")
+        ax.set_title("Gradient Norms During Training")
+
+        if y_log_scale:
+            ax.set_yscale("log")
+            ax.set_ylabel("L2 Norm of Gradient (Log Scale)")
+
+        ax.legend(framealpha=0.7, loc="best")
+        plt.show()
+
+    def save_model(self, filename):
+        self.model.save_torch(filename)
+        torch_size = os.path.getsize(filename)
+        return torch_size / 1024, None
+
+
+class MitsubaMlpTrainer(MlpTrainer):
+    @dataclass
+    class Config(MlpTrainer.Config):
+        denoise_ad_prop: bool = False
+        spp: int = 0
+
+        loss_force_vectorized: bool = True
+
+    cfg: Config
+
+    def configure(
+        self,
+        datamodule: MeshSamplerDataModule,
+        **kwargs,
+    ):
+        super().configure(datamodule, **kwargs)
+        self.loss_fn = utils.mitsuba.get_mitsuba_loss(
+            self.cfg.loss_type, self.cfg.loss_force_vectorized
+        )
+
+    def prepare_batch(self, data: dict) -> dict:
+        batch_cameras = [dict() for _ in range(data["batch_size"])]
+        for k, v in data["cameras"].items():
+            for i, c_v in enumerate(v):
+                batch_cameras[i][k] = c_v.item()
+
+        return batch_cameras
 
     def optimise(self, n_iter=100):
         dataloader = self.datamodule.train_dataloader()
@@ -242,110 +359,11 @@ class MitsubaTrainer(ObjectWithCallbacks):
         """
         pass
 
-    def render_result(
-        self, rotating_frames: int = 10, update_scene_bounds: bool = False
-    ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
-        """
-        Render the mesh with the resultsing heat kernel texture. This is always rendered
-        with the heat kernel texture, so it is not defined in subclasses.
-        Args:
-            rotating_frames (int): Number of frames for rotation.
-                If 1, render a single image.
-        Returns:
-            mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
-        """
-        renderer = self._get_renderer()
 
-        if update_scene_bounds and self.model.requires_scene_bounds():
-            mesh_texless = renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
-            scene_texless = renderer.make_scene(mesh_texless, False)
-            scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
-            self.model.set_scene_bounds(scene_min.torch(), scene_max.torch())
-
-        mi_mesh, mi_texture = renderer.mesh_to_mitsuba(self.datamodule.mesh, self.model)
-
-        if rotating_frames == 1:
-            img = renderer.render(mi_mesh, denoise=True)
-            out = mi.Bitmap(img).convert(
-                pixel_format=mi.Bitmap.PixelFormat.RGB,
-                component_format=mi.Struct.Type.UInt8,
-                srgb_gamma=True,
-            )
-        else:
-            out = renderer.rotating_video(mi_mesh, rotating_frames)
-
-        renderer.flush_cache()
-
-        return out
-
-    @staticmethod
-    def plot_errors(errors_lists):
-        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-        axes[0].plot(errors_lists["loss"], label="Loss")
-        axes[0].set_title("Loss per step")
-        axes[0].set_xlabel("Iteration")
-        axes[0].set_ylabel("Loss")
-        axes[0].legend()
-
-        axes[1].plot(errors_lists["loss"], label="Loss")
-        axes[1].set_yscale("log")  # Set y-axis to log scale
-        axes[1].set_title("Loss per Step (Log Scale)")
-        axes[1].set_xlabel("Iteration")
-        axes[1].set_ylabel("Loss (Log Scale)")
-        axes[1].legend()
-
-        plt.tight_layout()
-        plt.show()
-
-    def plot_gradient_norms(
-        self,
-        grads_lists: dict[str, list[float]],
-        log_interval: int = 100,
-        y_log_scale: bool = True,
-    ):
-        if not grads_lists:
-            print("Gradient dictionary is empty. Nothing to plot.")
-            return
-
-        # Generate the x-axis values based on the logging frequency
-        num_logs = 0
-        for name, norms in grads_lists.items():
-            if norms:  # Find the first non-empty list to get the length
-                num_logs = len(norms)
-                break
-
-        if num_logs == 0:
-            print("All gradient lists are empty. Nothing to plot.")
-            return
-
-        steps = [0] + [(i * log_interval) - 1 for i in range(1, num_logs)]
-
-        fig, ax = plt.subplots(figsize=(15, 8))
-        for name, norm_list in grads_lists.items():
-            ax.plot(steps, norm_list, label=name[1:], markersize=4, marker="o")
-
-        ax.set_xlabel("Training Step")
-        ax.set_ylabel("L2 Norm of Gradient")
-        ax.set_title("Gradient Norms During Training")
-
-        if y_log_scale:
-            ax.set_yscale("log")
-            ax.set_ylabel("L2 Norm of Gradient (Log Scale)")
-
-        ax.legend(framealpha=0.7, loc="best")
-        plt.show()
-
-    def save_model(self, filename):
-        self.model.save_torch(filename)
-        torch_size = os.path.getsize(filename)
-        return torch_size / 1024, None
-
-
-@heatsplats.register("trainers.uv-texture-mitsuba")
-class UvTextureMitsubaTrainer(MitsubaTrainer):
+@heatsplats.register("trainers.mitsuba-rend-mlp")
+class MitsubaRendMlpTrainer(MitsubaMlpTrainer):
     @dataclass
-    class Config(MitsubaTrainer.Config):
+    class Config(MitsubaMlpTrainer.Config):
         gt_denoise: bool = True
         gt_spp: int = 0
 
@@ -412,3 +430,100 @@ class UvTextureMitsubaTrainer(MitsubaTrainer):
         mi_mesh = renderer.mesh_to_mitsuba(self.gt_mesh)
         img = renderer.render(mi_mesh, denoise=True)
         return img
+
+
+@heatsplats.register("trainers.uv-texture-mlp")
+class UVTextureMlpTrainer(MlpTrainer):
+    def configure(
+        self,
+        datamodule: MeshSamplerDataModule,
+        **kwargs,
+    ):
+        super().configure(datamodule, **kwargs)
+
+        self.gt_mesh = self.datamodule.mesh
+        if self.datamodule.cfg.merge_tex:
+            # Reload the mesh without merging textures to get proper UVs
+            self.gt_mesh = load_mesh(
+                self.datamodule.cfg.mesh_path,
+                show=False,
+                merge_tex=False,
+                bake_vert_colors=False,
+            )
+
+        self.gt_renderer = UVTextureRenderer(self.cfg.renderer)
+        mi_mesh = self.gt_renderer.mesh_to_mitsuba(self.gt_mesh)
+        self.gt_scene, self.gt_params = self.gt_renderer.make_scene(
+            mi_mesh, with_params=True
+        )
+
+        self.loss_fn = getattr(F, self.cfg.loss_type)
+
+    def optimise(self, n_iter=100):
+        dataloader = self.datamodule.train_dataloader()
+        data_iter = iter(dataloader)
+
+        if self.model.requires_scene_bounds():
+            mesh_texless = self.renderer.mesh_notex_to_mitsuba(self.datamodule.mesh)
+            scene_texless = self.renderer.make_scene(mesh_texless, False)
+            scene_min, scene_max = scene_texless.bbox().min, scene_texless.bbox().max
+            self.model.set_scene_bounds(scene_min.torch(), scene_max.torch())
+
+        errors_lists = {"loss": []}
+        grads_lists = {k: [] for k, _ in self.model.named_parameters()}
+
+        for i in (pbar := tqdm(range(n_iter))):
+            data = next(data_iter)
+            data = self._move_to_device(data)
+            gt_colours: Tensor = data["colour"]
+
+            colours = self.model(data["pos"].to(self.model.scene_min.dtype))
+            per_point_loss = self.loss_fn(colours, gt_colours, reduction="none").sum(
+                dim=1
+            )
+            loss = per_point_loss.sum() / colours.shape[0]
+            loss.backward()
+
+            if heatsplats.is_debug() and (i == 0 or (i + 1) % 100 == 0):
+                for name, param in self.model.named_parameters():
+                    if param.grad is not None:
+                        grads_lists[name].append(param.grad.norm().item())
+
+            for optimizer in self.optimizers:
+                optimizer.step()
+                optimizer.zero_grad()
+
+            for scheduler in self.schedulers:
+                scheduler.step()
+
+            with torch.no_grad():
+                loss_step = loss.item()
+                if i == 0 or (i + 1) % 100 == 0:
+                    heatsplats.debug(
+                        f"Iteration: {i + 1} -> Loss: {loss_step}.",
+                    )
+                errors_lists["loss"].append(loss_step)
+                pbar.set_postfix_str(f"Loss: {loss_step:0.4f}")
+
+        self.plot_errors(errors_lists)
+
+        if heatsplats.is_debug():
+            self.plot_gradient_norms(grads_lists, log_interval=100, y_log_scale=True)
+
+        return None, None, None
+
+    def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        renderer = UVTextureRenderer(self.cfg.renderer)
+        mesh = self.gt_mesh
+
+        mi_mesh = renderer.mesh_to_mitsuba(mesh)
+        if rotating_frames == 1:
+            img = renderer.render(mi_mesh, denoise=True)
+            out = mi.Bitmap(img).convert(
+                pixel_format=mi.Bitmap.PixelFormat.RGB,
+                component_format=mi.Struct.Type.UInt8,
+                srgb_gamma=True,
+            )
+        else:
+            out = renderer.rotating_video(mi_mesh, rotating_frames)
+        return out

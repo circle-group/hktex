@@ -21,6 +21,11 @@ pip install imageio[ffmpeg]
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 ```
 
+Optional for NNs:
+```bash
+mamba install conda-forge::tiny-cuda-nn
+```
+
 Old commands:
 ```bash
 # NOTE: These are old
