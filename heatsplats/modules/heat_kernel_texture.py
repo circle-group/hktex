@@ -57,6 +57,7 @@ class HeatKernelTexture(BaseModule):
         **kwargs,
     ):
         super().configure()
+        self.__mesh = mesh
 
         self.N_sources = self.cfg.n_sources
         self.out_dim = self.cfg.out_dim
@@ -109,6 +110,14 @@ class HeatKernelTexture(BaseModule):
             ).to(self.device)
 
         self._make_splats(mesh)
+
+    def named_buffers(
+        self, prefix: str = "", recurse: bool = True, remove_duplicate: bool = True
+    ):
+        nb = super().named_buffers(prefix, recurse, remove_duplicate)
+        for name, buf in nb:
+            if "__mesh" not in name:
+                yield name, buf
 
     def _make_splats(self, mesh: Mesh):
         factory_kwargs = {"dtype": torch.float, "device": self.device}
@@ -495,16 +504,122 @@ class HeatKernelTexture(BaseModule):
             barycentric_coords.detach(),
         )
 
-    def save_torch(self, filename):
-        torch.save(self.state_dict(), filename)
+    # def save_torch(self, filename):
+    #     torch.save(self.state_dict(), filename)
 
-    def save_numpy_npz(self, filename):
+    # def save_numpy_npz(self, filename):
+    #     np_dict = {}
+    #     for k, v in self.state_dict().items():
+    #         np_dict[k] = v.detach().cpu().numpy()
+    #     np.savez_compressed(filename, **np_dict)
+
+    # def load_torch(self, filename):
+    #     self.load_state_dict(
+    #         torch.load(filename, map_location=self.device, weights_only=True)
+    #     )
+
+    def save_torch(self, filename, compressed: bool = True):
+        if compressed:
+            state_dict = {
+                k: v.half() if v.is_floating_point() else v
+                for k, v in self.state_dict().items()
+            }
+        else:
+            state_dict = self.state_dict()
+
+        if "_kernel_locations" in state_dict and "_kernel_face_ids" in state_dict:
+            bary_coords = self.__mesh.cartesian_to_barycentric(
+                state_dict["_kernel_locations"],
+                self.__mesh.get_face_vertices(state_dict["_kernel_face_ids"]),
+            )
+
+            state_dict["_kernel_bary_coords"] = bary_coords[:, :2]
+            state_dict.pop("_kernel_locations")
+
+            if state_dict["_kernel_face_ids"].max().item() < 32_767:
+                state_dict["_kernel_face_ids"] = state_dict["_kernel_face_ids"].to(
+                    torch.int16
+                )
+            else:
+                state_dict["_kernel_face_ids"] = state_dict["_kernel_face_ids"].to(
+                    torch.int32
+                )
+
+        drop_keys = ["_error_accumulator"]
+        for k in list(state_dict.keys()):
+            if k in drop_keys:
+                state_dict.pop(k)
+
+        torch.save(state_dict, filename)
+
+    def save_numpy_npz(self, filename, compressed: bool = True):
         np_dict = {}
         for k, v in self.state_dict().items():
-            np_dict[k] = v.detach().cpu().numpy()
+            if "__mesh" in k:
+                continue
+            if compressed and v.is_floating_point():
+                np_dict[k] = v.half().detach().cpu().numpy()
+            else:
+                np_dict[k] = v.detach().cpu().numpy()
+
+        if "_kernel_locations" in np_dict and "_kernel_face_ids" in np_dict:
+            face_vertices = self.__mesh.get_face_vertices(np_dict["_kernel_face_ids"])
+            bary_coords = self.__mesh.cartesian_to_barycentric(
+                torch.tensor(np_dict["_kernel_locations"], device=face_vertices.device),
+                face_vertices,
+            )
+
+            np_dict["_kernel_bary_coords"] = bary_coords[:, :2].cpu().numpy()
+            np_dict.pop("_kernel_locations")
+
+            if np_dict["_kernel_face_ids"].max().item() < 32767:
+                np_dict["_kernel_face_ids"] = np_dict["_kernel_face_ids"].astype(
+                    np.int16
+                )
+            else:
+                np_dict["_kernel_face_ids"] = np_dict["_kernel_face_ids"].astype(
+                    np.int32
+                )
+
+        drop_keys = ["_error_accumulator"]
+        for k in list(np_dict.keys()):
+            if k in drop_keys:
+                np_dict.pop(k)
+
         np.savez_compressed(filename, **np_dict)
 
-    def load_torch(self, filename):
-        self.load_state_dict(
-            torch.load(filename, map_location=self.device, weights_only=True)
-        )
+    def _process_load(self, sd: Dict[str, Union[Tensor, np.ndarray]]):
+        n_sources_in_ckpt = sd["_kernel_colours"].shape[0]
+        if n_sources_in_ckpt != self.cfg.n_sources:
+            self.cfg.n_sources = n_sources_in_ckpt
+            self.configure(self.__mesh)
+
+            if "_kernel_bary_coords" in sd and "_kernel_face_ids" in sd:
+                bary_coords = sd["_kernel_bary_coords"]
+                bary_coords = torch.cat(
+                    (bary_coords, 1.0 - bary_coords.sum(dim=1, keepdim=True)), dim=1
+                )
+
+                kernel_locations = self.__mesh.barycentric_to_cartesian(
+                    bary_coords, self.__mesh.get_face_vertices(sd["_kernel_face_ids"])
+                )
+
+                sd["_kernel_locations"] = kernel_locations
+                sd.pop("_kernel_bary_coords")
+
+        self.load_state_dict(sd, strict=False)
+        self.float()
+
+    def load_torch(self, filename: str):
+        sd = torch.load(filename, map_location=self.device, weights_only=True)
+        self._process_load(sd)
+
+    def load_numpy_npz(self, filename: str):
+        if filename.endswith(".pt"):
+            filename = filename.replace(".pt", ".npz")
+
+        np_dict = np.load(filename, allow_pickle=False)
+        sd = {}
+        for k, v in np_dict.items():
+            sd[k] = torch.tensor(v, device=self.device)
+        self._process_load(sd)

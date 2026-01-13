@@ -38,7 +38,7 @@ trainer:
     kernel_dim: 32
     diff_time: 0.0008133321288953395
     mass_type: one
-    init_min_threshold: 0.999  # The higher the smaller
+    init_min_threshold: 0.9  # The higher the smaller
     range_enforcement_type: pgd
     init_kernel_edge_type: uniform
     out_net: False
