@@ -134,8 +134,15 @@ def main(args, extras, render=True) -> Dict[str, Any]:
         ["python " + " ".join(sys.argv), str(args), str(extras)],
     )
 
+    debug_log_dir = None
+    if heatsplats.is_debug():
+        debug_log_dir = os.path.join(cfg.trial_dir, "debug_logs")
+        os.makedirs(debug_log_dir, exist_ok=True)
+
     optimise_start = time.time()
-    v_colours, gt_colours, init_colours = trainer.optimise(n_iter=cfg.optim.iters)
+    v_colours, gt_colours, init_colours = trainer.optimise(
+        n_iter=cfg.optim.iters, debug_log_dir=debug_log_dir
+    )
     optimise_end = time.time()
     heatsplats.info(f"Optimise took {optimise_end-optimise_start:.2f} seconds")
 

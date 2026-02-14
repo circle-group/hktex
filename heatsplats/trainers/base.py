@@ -29,6 +29,7 @@ from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
 
 import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
+from heatsplats.utils.video import save_video
 from heatsplats.utils.typing import *
 
 from .utils import parse_optimizers_and_schedulers
@@ -106,7 +107,7 @@ class BaseTrainer(BaseObject):
         else:
             return obj
 
-    def optimise(self, n_iter=100):
+    def optimise(self, n_iter=100, debug_log_dir=None):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
@@ -119,6 +120,10 @@ class BaseTrainer(BaseObject):
         grads_lists = {k: [] for k, _ in self.model.named_parameters()}
 
         for i in (pbar := tqdm(range(n_iter))):
+
+            if debug_log_dir is not None and (i == 0 or i % 500 == 0):
+                current_rnd = self.render_result(self.cfg.renderer.n_rotating_frames)
+                save_video(current_rnd, os.path.join(debug_log_dir, f"iter_{i}.mp4"))
 
             data = next(data_iter)
             data = self.prepare_batch(data)
