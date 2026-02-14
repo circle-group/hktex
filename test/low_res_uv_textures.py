@@ -28,10 +28,12 @@ def get_texture_image(
     mesh: trimesh.Trimesh,
 ) -> Union[Optional[Image.Image], Optional[str]]:
     """Gets the texture image from a mesh."""
-    if mesh.visual.material.baseColorTexture is not None:
-        return mesh.visual.material.baseColorTexture, "base"
-    elif hasattr(mesh.visual.material, "image"):
-        return mesh.visual.material.image, "image"
+    try:
+        if mesh.visual.material.baseColorTexture is not None:
+            return mesh.visual.material.baseColorTexture, "base"
+    except AttributeError:
+        if hasattr(mesh.visual.material, "image"):
+            return mesh.visual.material.image, "image"
     return None, None
 
 
@@ -94,6 +96,8 @@ def main(path: str, format="png", target_size_kb=222):
     if texture is None:
         print("Mesh has no texture.")
         return
+    print(f"Original shape: {texture.size}")
+    texture.save(path[:-4] + f"_original.png", format="png")
 
     original_size_kb = get_image_size_bytes(texture, format=format) / 1024
     print(f"Original texture size: {original_size_kb:.2f} KB")
@@ -145,7 +149,7 @@ if __name__ == "__main__":
         "--mesh_path", type=str, default="none", help="Path to the mesh file."
     )
     parser.add_argument(
-        "--target_size_kb", type=int, default=70, help="Target size in KB."
+        "--target_size_kb", type=int, default=3000, help="Target size in KB."
     )
     parser.add_argument(
         "--format",
@@ -160,13 +164,17 @@ if __name__ == "__main__":
         "/data2/objaverse/hf-objaverse-v1/glbs/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb",
         "/data2/objaverse/hf-objaverse-v1/glbs/000-018/998d641ce1c74e44978a91fedc849905.glb",
         "/data2/objaverse/hf-objaverse-v1/glbs/000-074/5ecf9d1175ae405a9a073db305786411.glb",
-        "/data2/objaverse/hf-objaverse-v1/glbs/000-101/818e088dc59f4a89bfea14cb46a4beca.glb",
-        "/data2/objaverse/hf-objaverse-v1/glbs/000-138/6713cc0cdad34f89a0256c5d2f68b7c1.glb",
-        "/data2/objaverse/hf-objaverse-v1/glbs/000-013/d79a32a512c64c5e93dc856864789a7e.glb",
+        #
+        # "/data2/objaverse/hf-objaverse-v1/glbs/000-101/818e088dc59f4a89bfea14cb46a4beca.glb",
+        # "/data2/objaverse/hf-objaverse-v1/glbs/000-138/6713cc0cdad34f89a0256c5d2f68b7c1.glb",
+        # "/data2/objaverse/hf-objaverse-v1/glbs/000-013/d79a32a512c64c5e93dc856864789a7e.glb",
+        #
         "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
         "/data2/objaverse/hf-objaverse-v1/glbs/000-066/e7caba92073d4adba3477c21aa25e91f.glb",
         # "../objects/spot/spot_triangulated.obj",
         # "../objects/bob/bob_tri.obj",
+        "../objects/human_tri/RUST_3d_Low1.obj",
+        "../objects/cat_tri/12221_Cat_v1_l3.obj",
     ]
 
     if args.mesh_path != "none":
