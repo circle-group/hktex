@@ -43,8 +43,7 @@ trainer:
     init_kernel_edge_type: uniform
     out_net: False
     normalize_colours: False
-    allow_negative_opacities: True
-    allow_negative_colours: True
+    allow_negative_colours: False
 
   loss_type: "smooth_l1_loss"
 
@@ -58,7 +57,6 @@ trainer:
         model._anisotropies: {lr: 3.5917174833249523e-05}
         model._thresholds: {lr: 0.008917199645256857}
         model._sharpnesses: {lr: 0.005495279901986241}
-        model._opacities: {lr: 0.008703649815643422}
         # model.out_net: {}
       scheduler:
         name: StepLR
@@ -80,13 +78,13 @@ trainer:
           face_ids: model._kernel_face_ids
 
   density_controllers:  # aka Adaptive Density Controllers (ADCs)
-    - density_controller_type: density_controllers.opacity
-      args:
-        start_iter: ${int:${mul:${optim.iters}, 0.2}}
-        prune_opacity: 0.028314448557483447
-        prune_interval: ${int:${mul:${optim.iters}, 0.1}}
-        reset_opacity_interval: ${int:${mul:${optim.iters}, 0.1}}
-        stop_iter: ${int:${mul:${optim.iters}, 0.6}}
+    # - density_controller_type: density_controllers.opacity
+    #   args:
+    #     start_iter: ${int:${mul:${optim.iters}, 0.2}}
+    #     prune_opacity: 0.028314448557483447
+    #     prune_interval: ${int:${mul:${optim.iters}, 0.1}}
+    #     reset_opacity_interval: ${int:${mul:${optim.iters}, 0.1}}
+    #     stop_iter: ${int:${mul:${optim.iters}, 0.6}}
     - density_controller_type: density_controllers.error_based_densification
       args:
         start_iter: ${int:${mul:${optim.iters}, 0.05}}
@@ -96,7 +94,7 @@ trainer:
         size_threshold: 0.23534136498588332
         split_radius: 0.2
         max_densify_ratio: 0.4
-        max_kernels: ${int:${mul:${trainer.model.n_sources}, 5}}
+        max_kernels: ${int:${mul:${trainer.model.n_sources}, 7}}
         stop_iter: ${int:${mul:${optim.iters}, 0.7}}
 
 

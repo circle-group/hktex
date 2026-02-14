@@ -37,7 +37,6 @@ class HeatKernelTexture(BaseModule):
         init_min_threshold: float = 0.3
         range_enforcement_type: str = "activations"  # "pgd" | "activations"
         init_kernel_edge_type: str = "uniform"  # "uniform" | "high_skewed"
-        allow_negative_opacities: bool = False
         allow_negative_colours: bool = False
 
     cfg: Config
@@ -47,7 +46,6 @@ class HeatKernelTexture(BaseModule):
     _anisotropies: Float[Tensor, "G"]
     _thresholds: Float[Tensor, "G"]
     _sharpnesses: Float[Tensor, "G"]
-    _opacities: Float[Tensor, "G"]
     _kernel_locations: Float[Tensor, "G 3"]
     _kernel_face_ids: Int[Tensor, "G"]
 
@@ -74,11 +72,6 @@ class HeatKernelTexture(BaseModule):
             self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
             self._sharpness_act = lambda x: 10.0 + 190.0 * torch.sigmoid(x)
 
-            if self.cfg.allow_negative_opacities:
-                self._opacity_act = lambda x: torch.clamp(x, min=-1, max=1)
-            else:
-                self._opacity_act = lambda x: torch.clamp(x, min=0, max=1)
-
             if self.cfg.allow_negative_colours:
                 self._colour_act = lambda x: torch.tanh(x)
             else:
@@ -90,7 +83,6 @@ class HeatKernelTexture(BaseModule):
             self._angle_act = lambda x: x
             self._anis_act = lambda x: x
             self._sharpness_act = lambda x: x
-            self._opacity_act = lambda x: x
             self._colour_act = lambda x: x
         else:
             raise ValueError(
@@ -131,10 +123,6 @@ class HeatKernelTexture(BaseModule):
             )
             if self.cfg.allow_negative_colours:
                 kernel_colours = kernel_colours * 2 - 1
-
-        opacities = torch.rand(self.N_sources, **factory_kwargs)
-        if self.cfg.allow_negative_opacities:
-            opacities = opacities * 2 - 1
 
         if self.cfg.range_enforcement_type == "activations":
             # Initialise angles for uniform output in [0, π/2] considering activation
@@ -197,7 +185,6 @@ class HeatKernelTexture(BaseModule):
         self._anisotropies = torch.nn.Parameter(anisotropies)
         self._thresholds = torch.nn.Parameter(thresholds)
         self._sharpnesses = torch.nn.Parameter(sharpnesses)
-        self._opacities = torch.nn.Parameter(opacities)
         self._kernel_locations = nn.Parameter(kernel_locations)
         self._kernel_face_ids = nn.Buffer(kernel_face_ids, persistent=True)
 
@@ -207,7 +194,6 @@ class HeatKernelTexture(BaseModule):
             "anisotropies",
             "sharpnesses",
             "thresholds",
-            "opacities",
         ]
 
     @property
@@ -235,10 +221,6 @@ class HeatKernelTexture(BaseModule):
         return self._sharpness_act(self._sharpnesses)
 
     @property
-    def opacities(self) -> Float[Tensor, "G"]:
-        return self._opacity_act(self._opacities)
-
-    @property
     def kernel_locations(self) -> Float[Tensor, "G 3"]:
         return self._kernel_locations
 
@@ -256,11 +238,6 @@ class HeatKernelTexture(BaseModule):
         self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
         self._angles.clamp_(min=0, max=self._angle_scale)
         self._anisotropies.clamp_(min=1.0, max=100.0)
-
-        if self.cfg.allow_negative_opacities:
-            self._opacities.clamp_(min=-1.0, max=1.0)
-        else:
-            self._opacities.clamp_(min=0.0, max=1.0)
 
         if self.cfg.allow_negative_colours:
             self._kernel_colours.clamp_(min=-1.0, max=1.0)
@@ -432,11 +409,16 @@ class HeatKernelTexture(BaseModule):
                 sharpness=self.sharpnesses,
             )
 
-        contribs: Float[Tensor, "G P 1"] = filtered * self.opacities.view(-1, 1, 1)
-        colours: Float[Tensor, "G P D"] = contribs * self.kernel_colours.unsqueeze(1)
-        colours: Float[Tensor, "P D"] = colours.sum(dim=0)
+        colours: Float[Tensor, "G P D"] = filtered * self.kernel_colours.unsqueeze(1)
 
-        return colours, contribs
+        contribs: Float[Tensor, "kG P 1"]
+        contribs, idx = filtered.topk(k=10, largest=True, dim=0)
+        idx_exp = idx.expand(-1, -1, colours.size(-1))  # [kG, P, D]
+        contrib_colours: Float[Tensor, "kG P D"] = torch.gather(colours, 0, idx_exp)
+        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / (
+            contribs.sum(dim=0) + 1e-8
+        )
+        return colours, filtered
 
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
         out = x_diffusion
@@ -486,13 +468,11 @@ class HeatKernelTexture(BaseModule):
     def colored_print_opt_params(self):
         angles = torch.rad2deg(self.angles).detach().cpu().numpy()
         anisotropies = self.anisotropies.detach().cpu().numpy()
-        diff_times = self.diff_times.detach().cpu().numpy()
         kernel_colours = self.kernel_colours.view(-1).detach().cpu().numpy()
         return (
             colored(f"Angles: {angles}, ", "yellow")
             + colored(f"Anisotropies: {anisotropies}, ", "green")
             + colored(f"Kernel colours: {kernel_colours}", "red")
-            + colored(f"Opacities: {self.opacities}", "magenta")
             + colored(f"Sharpnesses: {self.sharpnesses}", "cyan")
             + colored(f"Thresholds: {self.thresholds}", "blue")
         )

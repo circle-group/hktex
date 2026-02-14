@@ -285,15 +285,11 @@ class BaseTrainer(BaseObject):
         # Save original values
         orig_kernel_filter_func = self.model.kernel_filter_func
         orig_kernel_colours = self.model._kernel_colours.clone().detach()
-        orig_opacities = self.model._opacities.clone().detach()
 
         # Override values
         self.model.kernel_filter_func = partial(utils.box_border, thickness=0.03)
         self.model._kernel_colours = torch.nn.Parameter(
             torch.rand_like(self.model._kernel_colours)
-        )
-        self.model._opacities = torch.nn.Parameter(
-            torch.ones_like(self.model._opacities) * 0.5
         )
 
         try:
@@ -302,7 +298,6 @@ class BaseTrainer(BaseObject):
             # Restore original values
             self.model.kernel_filter_func = orig_kernel_filter_func
             self.model._kernel_colours = torch.nn.Parameter(orig_kernel_colours)
-            self.model._opacities = torch.nn.Parameter(orig_opacities)
 
         return rend_rings
 
@@ -343,7 +338,6 @@ class BaseTrainer(BaseObject):
     def plot_model_histograms(self):
         props = {
             "sharpnesses": self.model.sharpnesses,
-            "opacities": self.model.opacities,
             "thresholds": self.model.thresholds,
             "anisotropies": self.model.anisotropies,
             "angles (deg)": self.model.angles * 180 / torch.pi,

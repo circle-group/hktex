@@ -64,7 +64,6 @@ if __name__ == "__main__":
     # Void all activations for interpretability over ease of optimisation ##############
     model._angle_act = lambda x: torch.deg2rad(x)
     model._anis_act = lambda x: x
-    model._opacity_act = lambda x: x
     model._sharpness_act = lambda x: x
     model._thresholds_act = lambda x: x
     model._colour_act = lambda x: x
@@ -84,9 +83,6 @@ if __name__ == "__main__":
             torch.tensor([[0.5, 0.5, 0], [0.5, 0.5, 0]], device=device),
             our_mesh.get_face_vertices(model._kernel_face_ids),
         )
-    )
-    model._opacities = torch.nn.Parameter(
-        torch.tensor([1.0, 1.0], dtype=torch.float, device=device)
     )
     model._sharpnesses = torch.nn.Parameter(
         torch.tensor([100.0, 100.0], dtype=torch.float, device=device)
@@ -119,7 +115,6 @@ if __name__ == "__main__":
                     "_anisotropies": {},
                     "_thresholds": {},
                     "_sharpnesses": {},
-                    "_opacities": {},
                     "_kernel_locations": {},  # just a placeholder, should be a GeodesicOpt
                 },
             }

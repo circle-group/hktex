@@ -73,7 +73,6 @@ trainer:
         model._anisotropies: {lr: 4.30738638898606e-05}
         model._thresholds: {lr: 0.00011733030036139524}
         model._sharpnesses: {lr: 0.0014970924840240095}
-        model._opacities: {lr: 0.0028242210378744965}
         # model.out_net: {}
     - name: GeodesicOpt
       args:

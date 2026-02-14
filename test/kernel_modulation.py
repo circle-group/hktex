@@ -67,7 +67,6 @@ if __name__ == "__main__":
     # Void all activations for interpretability over ease of optimisation ##############
     model._angle_act = lambda x: torch.deg2rad(x)
     model._anis_act = lambda x: x
-    model._opacity_act = lambda x: x
     model._sharpness_act = lambda x: x
     model._thresholds_act = lambda x: x
     model._colour_act = lambda x: x
@@ -87,9 +86,6 @@ if __name__ == "__main__":
             torch.tensor([[0.5, 0.5, 0], [0.5, 0.5, 0]], device=device),
             our_mesh.get_face_vertices(model._kernel_face_ids),
         )
-    )
-    model._opacities = torch.nn.Parameter(
-        torch.tensor([1.0, 1.0], dtype=torch.float, device=device)
     )
     model._sharpnesses = torch.nn.Parameter(
         torch.tensor([100.0, 100.0], dtype=torch.float, device=device)
@@ -201,33 +197,6 @@ if __name__ == "__main__":
 
     hk_renderer.flush_cache()
     print(f"show all anisotropies with: show_image(combined_img_anis)")
-
-    # Change opacities #################################################################
-    images = []
-    images_vertices = []
-    for opac in [0.1, 0.4, 0.7, 1.0]:
-        model._opacities = torch.nn.Parameter(
-            torch.ones_like(model.opacities, device=device) * opac
-        )
-
-        mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
-        images.append(hk_renderer.render(mi_mesh, denoise=True))
-
-        v_colours = model.compute_vertex_colours(our_mesh, eigalbo_interp)
-        out_mesh = tri_mesh.copy()
-        out_mesh.visual = trimesh.visual.ColorVisuals(
-            out_mesh, vertex_colors=v_colours.cpu().detach().numpy()
-        )
-        mi_mesh_2 = vc_renderer.mesh_to_mitsuba(out_mesh)
-        images_vertices.append(vc_renderer.render(mi_mesh_2, denoise=True))
-
-    model._opacities = torch.nn.Parameter(torch.tensor([1.0, 1.0], device=device))
-
-    combined_img_opac = combine_images(*images)
-    combined_img_v_opac = combine_images(*images_vertices)
-
-    hk_renderer.flush_cache()
-    print(f"show all opacities with: show_image(combined_img_opac)")
 
     # Change sharpnesses ###############################################################
     images = []

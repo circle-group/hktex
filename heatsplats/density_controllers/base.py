@@ -194,10 +194,6 @@ class BaseDensityController(BaseObject):
         device = mask.device
         sel = torch.where(mask)[0]
 
-        # Halve the opacity of the original parent kernels IN-PLACE so that when cloned
-        # they have both the correct opacity.
-        self._params["_opacities"].data[mask] *= 0.5
-
         def param_fn(name: str, p: Tensor) -> Tensor:
             return torch.nn.Parameter(
                 torch.cat([p, p[sel]]), requires_grad=p.requires_grad
