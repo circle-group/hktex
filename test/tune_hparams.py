@@ -67,7 +67,6 @@ def trainable(config, root, all_filenames, resolver_paths):
             "model._anisotropies": {"lr": config["lr_anisotropies"]},
             "model._thresholds": {"lr": config["lr_thresholds"]},
             "model._sharpnesses": {"lr": config["lr_sharpnesses"]},
-            "model._opacities": {"lr": config["lr_opacities"]},
         },
     }
     if config["adam_scheduler"] == "cosine":
@@ -119,13 +118,14 @@ def trainable(config, root, all_filenames, resolver_paths):
     config[
         "trainer.density_controllers"
     ] = f"""
-    - density_controller_type: density_controllers.opacity
+    - density_controller_type: density_controllers.importance_pruning
       args:
-        start_iter: {int(total_iters * config["dc_opacity_start_iter_frac"])}
-        prune_opacity: {config["dc_prune_opacity"]}
-        prune_interval: {int(total_iters * config["dc_opacity_prune_interval_frac"])}
-        reset_opacity_interval: {int(total_iters * config["dc_opacity_reset_interval_frac"])}
-        stop_iter: {int(total_iters * config["dc_opacity_stop_iter_frac"])}
+        start_iter: {int(total_iters * config["dc_importance_start_iter_frac"])}
+        prune_interval: {int(total_iters * config["dc_importance_prune_interval_frac"])}
+        accumulation_interval: {int(total_iters * config["dc_importance_accum_ratio"])}
+        selection_threshold: {config["dc_importance_selection_threshold"]}
+        contrib_threshold: {config["dc_importance_contrib_threshold"]}
+        stop_iter: {int(total_iters * config["dc_importance_stop_iter_frac"])}
     - density_controller_type: density_controllers.error_based_densification
       args:
         start_iter: {int(total_iters * config["dc_error_start_iter_frac"])}
@@ -276,7 +276,6 @@ if __name__ == "__main__":
         "trainer.model.init_min_threshold": tune.choice([0.3, 0.5, 0.9, 0.999]),
         "trainer.model.range_enforcement_type": tune.choice(["pgd", "activations"]),
         "trainer.model.init_kernel_edge_type": tune.choice(["uniform", "high_skewed"]),
-        "trainer.model.allow_negative_opacities": tune.choice([True, False]),
         "trainer.model.allow_negative_colours": tune.choice([True, False]),
         "trainer.loss_type": tune.choice(["mse_loss", "smooth_l1_loss", "l1_loss"]),
         "adam_scheduler": tune.choice(["none", "step", "cosine"]),
@@ -286,16 +285,16 @@ if __name__ == "__main__":
         "lr_anisotropies": tune.loguniform(1e-5, 1e-3),
         "lr_thresholds": tune.loguniform(1e-4, 1e-2),
         "lr_sharpnesses": tune.loguniform(1e-4, 1e-2),
-        "lr_opacities": tune.loguniform(1e-4, 1e-2),
         "lr_locations": tune.loguniform(1e-4, 1e-1),
-        "dc_prune_opacity": tune.loguniform(0.01, 0.1),
+        "dc_importance_selection_threshold": tune.loguniform(0.005, 0.5),
+        "dc_importance_contrib_threshold": tune.loguniform(0.005, 0.5),
         "dc_error_threshold": tune.loguniform(0.005, 0.05),
         "dc_size_threshold": tune.uniform(0.1, 0.4),
         "dc_max_densify_ratio": tune.choice([0.3, 0.4, 0.5]),
-        "dc_opacity_start_iter_frac": tune.choice([0.1, 0.2]),
-        "dc_opacity_prune_interval_frac": tune.choice([0.05, 0.1]),
-        "dc_opacity_reset_interval_frac": tune.choice([0.1, 0.2]),
-        "dc_opacity_stop_iter_frac": tune.choice([0.5, 0.6, 0.7]),
+        "dc_importance_start_iter_frac": tune.choice([0.1, 0.2]),
+        "dc_importance_prune_interval_frac": tune.choice([0.05, 0.1]),
+        "dc_importance_accum_ratio": tune.choice([0.25, 0.5, 0.75]),
+        "dc_importance_stop_iter_frac": tune.choice([0.5, 0.6, 0.7]),
         "dc_error_start_iter_frac": tune.choice([0.05, 0.08]),
         "dc_densify_interval_frac": tune.choice([0.01, 0.02, 0.04, 0.08]),
         "dc_error_accum_ratio": tune.choice([0.25, 0.5, 0.75]),

@@ -90,7 +90,7 @@ class DifferentiableHeatKernelsNetwork(MitsubaWrapper):
 
             # print("here_2", i)
 
-            colours_batch, _ = self.model.diffuse_heat_kernels(
+            colours_batch, _, _ = self.model.diffuse_heat_kernels(
                 eigalbo_interp=self.eigalbo_interp,
                 pts_info=points_info,
                 kernel_info=kernel_info,

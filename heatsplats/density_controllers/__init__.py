@@ -1,6 +1,6 @@
 from . import (
     base as base,
-    opacity as opacity,
-    error_based as error_based,
+    error_densification as error_densification,
+    importance_pruning as importance_pruning,
 )
 from .base import BaseDensityController

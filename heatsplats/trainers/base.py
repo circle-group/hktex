@@ -140,11 +140,13 @@ class BaseTrainer(BaseObject):
                 )
 
             with torch.profiler.record_function("diffuse_heat_kernels"):
-                colours, kernel_contributions = self.model.diffuse_heat_kernels(
-                    eigalbo_interp=self.eigalbo_interp,
-                    pts_info=points_info,
-                    kernel_info=kernel_info,
-                    at_vertices=False,
+                colours, kernel_contributions, topk_kernel_idxs = (
+                    self.model.diffuse_heat_kernels(
+                        eigalbo_interp=self.eigalbo_interp,
+                        pts_info=points_info,
+                        kernel_info=kernel_info,
+                        at_vertices=False,
+                    )
                 )  # [P, D]
 
             colours = self.model(colours)  # Postprocess
@@ -164,6 +166,7 @@ class BaseTrainer(BaseObject):
                     rendered_colours=colours,
                     gt_colours=gt_colours,
                     kernel_contributions=kernel_contributions,
+                    topk_kernel_idxs=topk_kernel_idxs,
                 )
 
             loss.backward()

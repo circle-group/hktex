@@ -36,22 +36,8 @@ class ErrorDensificationController(BaseDensityController):
     cfg: Config
 
     def _post_configure(self, *args, **kwargs):
-        # Add the auxiliary error parameter 'e_k' to the model
         num_kernels = self._model.N_sources
         device = self._model.device
-
-        # errors_param = torch.nn.Parameter(
-        #     torch.zeros(num_kernels, 1, device=device, requires_grad=True)
-        # )
-        # self._model.register_parameter("_errors", errors_param)
-        # self._params["_errors"] = errors_param
-
-        # Create a dedicated optimizer for the error parameters with zero LR. Not used
-        # for optimization, just to to state management during densification strategies.
-        # error_optimizer = UselessAdam(
-        #     [{"params": [errors_param], "name": "_errors"}], lr=0.0
-        # )
-        # self._optimizers.append(error_optimizer)
         accumulator = torch.zeros(num_kernels, 1, device=device)
         self._model.register_buffer("_error_accumulator", accumulator)
 
@@ -64,17 +50,13 @@ class ErrorDensificationController(BaseDensityController):
         assert self.cfg.max_densify_ratio > 0.0 and self.cfg.max_densify_ratio < 1.0
         assert self.cfg.max_kernels >= self._model.N_sources
 
-        # assert "_errors" in self._trainable_params_names, (
-        #     "The model must have a trainable parameter named '_errors' to ",
-        #     "use ErrorDensificationController",
-        # )
-
     def pre_backward_step(
         self,
         step: int,
         rendered_colours: Float[Tensor, "P D"],
         gt_colours: Float[Tensor, "P D"],
         kernel_contributions: Float[Tensor, "G P 1"],
+        topk_kernel_idxs: Int[Tensor, "kG"],
         *args,
         **kwargs,
     ):
@@ -97,37 +79,22 @@ class ErrorDensificationController(BaseDensityController):
         if not is_active:
             return
 
-        # Autograd method ##############################################################
-        # # Detach previous grad to prevent creation of massive computational graph
-        # if self._model._errors.grad is not None:
-        #     self._model._errors.grad.detach_()
-
-        # with torch.no_grad():
-        #     per_point_error = torch.abs(rendered_colours - gt_colours).mean(dim=1)
-
-        # contributions_reshaped = kernel_contributions.squeeze(-1).permute(1, 0)
-        # rendered_errors = (
-        #     contributions_reshaped @ self._model._errors
-        # )  # [P, G] @ [G, 1] -> [P, 1]
-
-        # aux_loss = torch.sum(per_point_error * rendered_errors)
-
-        # # Populate self._model._errors.grad with the per-kernel error
-        # aux_loss.backward(retain_graph=True)
-
-        # Manual gradient computation to avoid creating a massive graph ################
-        # TODO: Massive difference vs autograd. This has more sense, but why so different?
         with torch.no_grad():
             per_point_error = torch.abs(rendered_colours - gt_colours).mean(dim=1)
-            kernel_contributions = kernel_contributions.squeeze(-1)
-            kernel_error = (kernel_contributions @ per_point_error).unsqueeze(-1)
-            self._model._error_accumulator += kernel_error
 
-        # # Add the new gradient to the accumulator (.grad attribute)
-        # if self._model._errors.grad is None:
-        #     self._model._errors.grad = kernel_error
-        # else:
-        #     self._model._errors.grad += kernel_error
+            # Mask 'filtered' so only the top-k are considered
+            mask = torch.zeros_like(kernel_contributions)
+            mask.scatter_(0, topk_kernel_idxs, 1.0)
+            masked_filtered = kernel_contributions * mask
+
+            # Normalize the weights to distribute errors based on actual influence
+            normalization = masked_filtered.sum(dim=0, keepdim=True) + 1e-8
+            normalized_contribs = masked_filtered / normalization
+
+            kernel_error = (
+                normalized_contribs.squeeze(-1) @ per_point_error
+            ).unsqueeze(-1)
+            self._model._error_accumulator += kernel_error
 
     def post_backward_step(
         self,
@@ -155,9 +122,6 @@ class ErrorDensificationController(BaseDensityController):
 
         self._densify(eigalbo_interp, kernel_info, tracer)
 
-        # Reset the accumulated error gradient after each step or after densification
-        # if self._model._errors.grad is not None:
-        #     self._model._errors.grad.zero_()
         self._model._error_accumulator.zero_()
         torch.cuda.empty_cache()  # Free up memory after densification
 

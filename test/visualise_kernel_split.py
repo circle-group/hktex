@@ -8,6 +8,10 @@ except NameError:
     script_dir = Path.cwd().parent
 sys.path.append(str(script_dir))
 
+import mitsuba as mi
+
+mi.set_variant("cuda_ad_rgb")
+
 import torch
 from functools import partial
 from omegaconf import OmegaConf
@@ -97,7 +101,7 @@ if __name__ == "__main__":
 
     hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
 
-    hk_renderer.mega_kernel(False)
+    hk_renderer.mega_kernel(False, no_loops=True, no_opt_calls=True)
     mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
     video = hk_renderer.rotating_video(mi_mesh, 5)
     hk_renderer.flush_cache()

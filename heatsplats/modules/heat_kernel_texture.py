@@ -412,13 +412,13 @@ class HeatKernelTexture(BaseModule):
         colours: Float[Tensor, "G P D"] = filtered * self.kernel_colours.unsqueeze(1)
 
         contribs: Float[Tensor, "kG P 1"]
-        contribs, idx = filtered.topk(k=10, largest=True, dim=0)
-        idx_exp = idx.expand(-1, -1, colours.size(-1))  # [kG, P, D]
+        contribs, top_idx = filtered.topk(k=min(10, G), largest=True, dim=0)
+        idx_exp = top_idx.expand(-1, -1, colours.size(-1))  # [kG, P, D]
         contrib_colours: Float[Tensor, "kG P D"] = torch.gather(colours, 0, idx_exp)
         colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / (
             contribs.sum(dim=0) + 1e-8
         )
-        return colours, filtered
+        return colours, filtered, top_idx
 
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
         out = x_diffusion
@@ -453,7 +453,7 @@ class HeatKernelTexture(BaseModule):
             save_barycentric=False,
         )
 
-        v_colours, _ = self.diffuse_heat_kernels(
+        v_colours, _, _ = self.diffuse_heat_kernels(
             eigalbo_interp=eigalbo_interp,
             pts_info=verts_info,
             kernel_info=kernel_info,
@@ -525,7 +525,7 @@ class HeatKernelTexture(BaseModule):
                     torch.int32
                 )
 
-        drop_keys = ["_error_accumulator"]
+        drop_keys = ["_error_accumulator", "_hit_accumulator", "_contrib_accumulator"]
         for k in list(state_dict.keys()):
             if k in drop_keys:
                 state_dict.pop(k)
@@ -561,7 +561,7 @@ class HeatKernelTexture(BaseModule):
                     np.int32
                 )
 
-        drop_keys = ["_error_accumulator"]
+        drop_keys = ["_error_accumulator", "_hit_accumulator", "_contrib_accumulator"]
         for k in list(np_dict.keys()):
             if k in drop_keys:
                 np_dict.pop(k)
