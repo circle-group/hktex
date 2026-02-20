@@ -44,6 +44,8 @@ class EigenAlboInterpolation(BaseObject):
         local_frames: str = "principal_curvatures"
         normalise_evals: bool = False
 
+    GRID_CONFIGURATION = "rot_major"
+
     cfg: Config
 
     def configure(self, mesh: Mesh):
@@ -65,8 +67,10 @@ class EigenAlboInterpolation(BaseObject):
         self._mass = _mass
         self._local_direction = _local_direction
 
+        self._smp_coords_angle = _smp_coords[:, 0]  # rot major
+        self._smp_coords_scale = _smp_coords[:, 1]
         self._smp_coords_cartesian = self._make_cartesian_query(
-            _smp_coords[:, 0], _smp_coords[:, 1]
+            self._smp_coords_angle, self._smp_coords_scale
         )
 
         k_eig = self.cfg.k_eig
@@ -177,7 +181,7 @@ class EigenAlboInterpolation(BaseObject):
         for angle in tqdm(range(0, 181, self.cfg.precompute_angles_every_deg)):
             angle = math.radians(angle)
             for i, scale in enumerate(self.cfg.precompute_anisotropies):
-                sampling_coords.append(torch.tensor([angle, scale]))
+                sampling_coords.append(torch.tensor([angle, scale]))  # rot major
 
                 lapl, mass = get_anisotropic_lbo(
                     self._mesh.verts,
