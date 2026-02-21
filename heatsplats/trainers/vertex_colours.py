@@ -29,6 +29,9 @@ class VertexColoursTrainer(BaseTrainer):
     ):
         super().configure(datamodule, **kwargs)
 
+    def data_dependent_initialisation(self):
+        pass
+
     def prepare_batch(self, data: dict) -> dict:
         data = super().prepare_batch(data)
         vert_idx = data["vert_idx"]

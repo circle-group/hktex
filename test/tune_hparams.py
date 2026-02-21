@@ -278,6 +278,7 @@ if __name__ == "__main__":
         "trainer.model.init_kernel_edge_type": tune.choice(["uniform", "high_skewed"]),
         "trainer.model.allow_negative_colours": tune.choice([True, False]),
         "trainer.loss_type": tune.choice(["mse_loss", "smooth_l1_loss", "l1_loss"]),
+        "trainer.data_initialisation_random_ratio": tune.choice([0.0, 0.5, 1.0]),
         "adam_scheduler": tune.choice(["none", "step", "cosine"]),
         "geodesic_scheduler": tune.choice(["none", "step", "cosine"]),
         "lr_colours": tune.loguniform(1e-3, 1e-1),

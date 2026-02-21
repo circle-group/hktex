@@ -47,6 +47,7 @@ class BaseTrainer(BaseObject):
         model: dict = field(default_factory=dict)
 
         loss_type: str = "mse_loss"  # any torch.nn.functional (e.g., smooth_l1_loss)
+        data_initialisation_random_ratio: float = 0.3
 
         optimizers: list = field(default_factory=list)
         density_controllers: list = field(default_factory=list)
@@ -107,9 +108,17 @@ class BaseTrainer(BaseObject):
         else:
             return obj
 
+    @abstractmethod
+    def data_dependent_initialisation(self, **kwargs):
+        raise NotImplementedError
+
     def optimise(self, n_iter=100, debug_log_dir=None):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
+
+        random_ratio = self.cfg.data_initialisation_random_ratio
+        if random_ratio < 1.0:
+            self.data_dependent_initialisation(random_ratio=random_ratio)
 
         heatsplats.debug(f"INITIAL -> {self.model.colored_print_opt_params}")
 

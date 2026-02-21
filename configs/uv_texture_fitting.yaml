@@ -46,6 +46,7 @@ trainer:
     allow_negative_colours: False
 
   loss_type: "smooth_l1_loss"
+  data_initialisation_random_ratio: 0.3
 
   optimizers:
     - name: Adam
