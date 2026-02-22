@@ -19,6 +19,7 @@ import heatsplats
 from heatsplats.modules import (
     Mesh,
     HeatKernelTexture,
+    HeatKernelTextureKNN,
     GeodesicTracer,
     EigenAlboInterpolation,
     KernelInfo,
@@ -26,6 +27,7 @@ from heatsplats.modules import (
 )
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
+from heatsplats.rendering.heat_kernels_renderer_knn import HeatKernelsRendererKNN
 
 import heatsplats.utils as utils
 from heatsplats.utils import BaseObject
@@ -55,6 +57,8 @@ class BaseTrainer(BaseObject):
         renderer: dict = field(default_factory=dict)
         renderer_mega_kernel: bool = False
 
+        use_knn_implementation: bool = False
+
     cfg: Config
 
     def configure(
@@ -70,7 +74,10 @@ class BaseTrainer(BaseObject):
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
-        self.model = HeatKernelTexture(self.cfg.model, self.mesh)
+        if self.cfg.use_knn_implementation:
+            self.model = HeatKernelTextureKNN(self.cfg.model, self.mesh)
+        else:
+            self.model = HeatKernelTexture(self.cfg.model, self.mesh)
 
         if (
             "n_debug_traces" in self.cfg.tracer
@@ -135,30 +142,18 @@ class BaseTrainer(BaseObject):
                 save_video(current_rnd, os.path.join(debug_log_dir, f"iter_{i}.mp4"))
 
             data = next(data_iter)
+            if self.cfg.use_knn_implementation:
+                kernel_info = self.prepare_knn()
             data = self.prepare_batch(data)
 
             gt_colours: Tensor = data["colour"]
-            points_info: PointsInfo = data["points_info"]
-            albo_weights = data["albo_weights"]
 
-            with torch.profiler.record_function("prepare_kernels_for_diffusion"):
-                kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
-                    mesh=self.mesh,
-                    eigalbo_interp=self.eigalbo_interp,
-                    albo_weights=albo_weights,
+            if self.cfg.use_knn_implementation:
+                colours, kernel_contributions, topk_kernel_idxs = self.forward_knn(data)
+            else:
+                colours, kernel_contributions, topk_kernel_idxs, kernel_info = (
+                    self.forward_model(data)
                 )
-
-            with torch.profiler.record_function("diffuse_heat_kernels"):
-                colours, kernel_contributions, topk_kernel_idxs = (
-                    self.model.diffuse_heat_kernels(
-                        eigalbo_interp=self.eigalbo_interp,
-                        pts_info=points_info,
-                        kernel_info=kernel_info,
-                        at_vertices=False,
-                    )
-                )  # [P, D]
-
-            colours = self.model(colours)  # Postprocess
 
             if i == 0:
                 init_colours = colours.clone().detach()
@@ -222,6 +217,9 @@ class BaseTrainer(BaseObject):
                 errors_lists["loss"].append(loss_step)
                 pbar.set_postfix_str(f"Loss: {loss_step:0.4f}")
 
+            if self.cfg.use_knn_implementation:
+                self.model.reset(self.eigalbo_interp)
+
         heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
         self.plot_errors(errors_lists)
@@ -234,6 +232,47 @@ class BaseTrainer(BaseObject):
         # TODO: may go out of memory, batch!
         # v_colours = self.model.compute_vertex_colours()
         return v_colours, gt_colours, init_colours
+
+    def forward_model(self, data):
+        points_info: PointsInfo = data["points_info"]
+        albo_weights = data["albo_weights"]
+
+        with torch.profiler.record_function("prepare_kernels_for_diffusion"):
+            kernel_info: KernelInfo = self.model.prepare_kernels_for_diffusion(
+                mesh=self.mesh,
+                eigalbo_interp=self.eigalbo_interp,
+                albo_weights=albo_weights,
+            )
+
+        with torch.profiler.record_function("diffuse_heat_kernels"):
+            colours, kernel_contributions, topk_kernel_idxs = (
+                self.model.diffuse_heat_kernels(
+                    eigalbo_interp=self.eigalbo_interp,
+                    pts_info=points_info,
+                    kernel_info=kernel_info,
+                    at_vertices=False,
+                )
+            )  # [P, D]
+
+        colours = self.model(colours)  # Postprocess
+        return colours, kernel_contributions, topk_kernel_idxs, kernel_info
+
+    def prepare_knn(self):
+        self.model: HeatKernelTextureKNN
+        return self.model.prepare_kernels(self.mesh, self.eigalbo_interp)
+
+    def forward_knn(self, data):
+        self.model: HeatKernelTextureKNN
+        points_info: PointsInfo = data["points_info"]
+
+        colours, kernel_contributions, topk_kernel_idxs = (
+            self.model.diffuse_heat_kernels(
+                eigalbo_interp=self.eigalbo_interp, pts_info=points_info
+            )
+        )  # [P, D]
+
+        colours = self.model(colours)  # Postprocess
+        return colours, kernel_contributions, topk_kernel_idxs
 
     @abstractmethod
     def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:
@@ -261,7 +300,10 @@ class BaseTrainer(BaseObject):
         Returns:
             mi.Bitmap or list[mi.Bitmap]: The rendered image(s).
         """
-        renderer = HeatKernelsRenderer(self.cfg.renderer)
+        if self.cfg.use_knn_implementation:
+            renderer = HeatKernelsRendererKNN(self.cfg.renderer)
+        else:
+            renderer = HeatKernelsRenderer(self.cfg.renderer)
 
         renderer.mega_kernel(
             self.cfg.renderer_mega_kernel, no_loops=True, no_opt_calls=True
@@ -271,6 +313,8 @@ class BaseTrainer(BaseObject):
             self.datamodule.mesh, self.mesh, self.model, self.eigalbo_interp
         )
 
+        if self.cfg.use_knn_implementation:
+            self.model.prepare_kernels(self.mesh, self.eigalbo_interp, False)
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
             out = mi.Bitmap(img).convert(

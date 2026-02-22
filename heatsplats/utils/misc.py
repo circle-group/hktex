@@ -29,6 +29,7 @@ __all__ = [
     "soft_step",
     "rescaled_soft_step",
     "box_border",
+    "broadcast_param_like",
 ]
 
 
@@ -221,8 +222,10 @@ def soft_step(
     # epsilon sets the threshold location.
     # sharpness controls how abrupt the transition is. Higher = closer to hard threshold
     # This function outputs values in (0, 1)
-    if isinstance(sharpness, torch.Tensor):
-        sharpness = sharpness.view(-1, 1, 1)
+    # if isinstance(sharpness, torch.Tensor):
+    #     sharpness = sharpness.view(-1, 1, 1)
+    sharpness = broadcast_param_like(x, sharpness)
+    epsilon = broadcast_param_like(x, epsilon)
     return torch.sigmoid(sharpness * (x - epsilon))
 
 
@@ -236,10 +239,13 @@ def rescaled_soft_step(
 
     This function is guaranteed to be 0 at x=0 and 1 at x=1.
     """
-    if isinstance(sharpness, torch.Tensor):
-        sharpness = sharpness.view(-1, 1, 1)
-    if isinstance(epsilon, torch.Tensor):
-        epsilon = epsilon.view(-1, 1, 1)
+
+    # if isinstance(sharpness, torch.Tensor) and sharpness.ndim == 1:
+    #     sharpness = sharpness.view(-1, 1, 1)
+    # if isinstance(epsilon, torch.Tensor) and epsilon.ndim == 1:
+    #     epsilon = epsilon.view(-1, 1, 1)
+    sharpness = broadcast_param_like(x, sharpness)
+    epsilon = broadcast_param_like(x, epsilon)
 
     # Calculate the sigmoid values at x, 0, and 1
     y = torch.sigmoid(sharpness * (x - epsilon))
@@ -273,8 +279,9 @@ def box_border(
         thickness: The thickness of the border.
     """
     # Reshape epsilon if it's a tensor for safe broadcasting
-    if isinstance(epsilon, torch.Tensor):
-        epsilon = epsilon.view(-1, 1, 1)
+    # if isinstance(epsilon, torch.Tensor):
+    #     epsilon = epsilon.view(-1, 1, 1)
+    epsilon = broadcast_param_like(x, epsilon)
 
     # Calculate the inner epsilon by subtracting the absolute thickness.
     inner_epsilon = epsilon - thickness
@@ -297,3 +304,21 @@ class SoftStep:
 
     def __call__(self, x):
         return soft_step(x, self.epsilon, self.sharpness) / self.normalization_factor
+
+
+def broadcast_param_like(
+    x: torch.Tensor, p: Union[float, torch.Tensor]
+) -> Union[float, torch.Tensor]:
+    if not isinstance(p, torch.Tensor):
+        return p
+    if p.ndim == 0:
+        return p
+    if p.ndim == 1:
+        # Legacy kernel-first case: [G] -> [G,1,1,...]
+        return p.view(-1, *([1] * (x.ndim - 1)))
+    if p.ndim == x.ndim:
+        # KNN case: already per-element/per-pair (e.g. [P,K])
+        return p
+    raise ValueError(
+        f"Incompatible param shape {tuple(p.shape)} for x shape {tuple(x.shape)}"
+    )

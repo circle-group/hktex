@@ -44,26 +44,38 @@ class UvTextureTrainer(BaseTrainer):
         face_ids = data["face_id"]
         barys = data["bary"]
 
-        with torch.profiler.record_function("interpolate_anisotropies"):
-            albo_weights = self.eigalbo_interp.interpolate_anisotropies(
-                angles=self.model.angles, scales=self.model.anisotropies
-            )
-
-        with torch.profiler.record_function("prepare_points_for_diffusion"):
-            points_info: PointsInfo = self.model.prepare_points_for_diffusion(
+        if self.cfg.use_knn_implementation:
+            points_info: PointsInfo = self.model.prepare_points(
                 mesh=self.mesh,
                 eigalbo_interp=self.eigalbo_interp,
-                albo_weights=albo_weights,
                 face_ids=face_ids,
                 barys=barys,
                 pts=None,
             )
+            data["weights"] = points_info["weights"]
+            data["indices"] = points_info["indices"]
+            data["distances"] = points_info["distances"]
+        else:
+            with torch.profiler.record_function("interpolate_anisotropies"):
+                albo_weights = self.eigalbo_interp.interpolate_anisotropies(
+                    angles=self.model.angles, scales=self.model.anisotropies
+                )
+
+            with torch.profiler.record_function("prepare_points_for_diffusion"):
+                points_info: PointsInfo = self.model.prepare_points_for_diffusion(
+                    mesh=self.mesh,
+                    eigalbo_interp=self.eigalbo_interp,
+                    albo_weights=albo_weights,
+                    face_ids=face_ids,
+                    barys=barys,
+                    pts=None,
+                )
+                data["albo_weights"] = albo_weights
 
         data["evals"] = points_info["albo_evals"]
         data["pts_iso_evecs"] = points_info["iso_evecs"]
         data["pts_evecs"] = points_info["albo_evecs"]
         data["pts_mass"] = points_info["mass"]
-        data["albo_weights"] = albo_weights
         data["points_info"] = points_info
 
         return data

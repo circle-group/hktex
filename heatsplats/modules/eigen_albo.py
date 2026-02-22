@@ -67,10 +67,9 @@ class EigenAlboInterpolation(BaseObject):
         self._mass = _mass
         self._local_direction = _local_direction
 
-        self._smp_coords_angle = _smp_coords[:, 0]  # rot major
-        self._smp_coords_scale = _smp_coords[:, 1]
+        self._smp_coords = _smp_coords
         self._smp_coords_cartesian = self._make_cartesian_query(
-            self._smp_coords_angle, self._smp_coords_scale
+            _smp_coords[:, 0], _smp_coords[:, 1]
         )
 
         k_eig = self.cfg.k_eig

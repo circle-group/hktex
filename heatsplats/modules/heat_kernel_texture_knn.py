@@ -19,7 +19,7 @@ from heatsplats.utils.typing import *
 from .mesh import Mesh
 from .eigen_albo import EigenAlboInterpolation
 from .eigen_albo_knn import EigenAlboInterpolationKNN
-from .utils import PointsInfo, KernelInfo
+from .utils import PointsInfoKNN, KernelInfo
 from .heat_kernel_texture import HeatKernelTexture
 
 __all__ = ["HeatKernelTextureKNN"]
@@ -63,7 +63,7 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         mesh: Mesh,
         eigalbo_knn: EigenAlboInterpolationKNN,
         save_barycentric: bool = True,
-    ):
+    ) -> KernelInfo:
         kernel_vert_idx = mesh.get_face_vertices(self.kernel_face_ids)
         kernel_barycentric_coords = mesh.cartesian_to_barycentric(
             self.kernel_locations, kernel_vert_idx
@@ -79,6 +79,12 @@ class HeatKernelTextureKNN(HeatKernelTexture):
             kernel_scales=self.anisotropies,
             diffusion_time=self.diff_times,
         )
+        return KernelInfo(
+            vert_idx=kernel_vert_idx,
+            barycentric_coords=kernel_barycentric_coords,
+            albo_evecs=None,
+            mass=None,
+        )
 
     def prepare_points(
         self,
@@ -87,7 +93,7 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         face_ids: Float[Tensor, "P"],
         barys: Float[Tensor, "P 3"] | None = None,
         pts: Float[Tensor, "P 3"] | None = None,
-    ):
+    ) -> PointsInfoKNN:
         pts_tri_vert_idx = mesh.get_face_vertices(face_ids)  # [P, 3]
 
         if barys is None and pts is not None:
@@ -99,52 +105,67 @@ class HeatKernelTextureKNN(HeatKernelTexture):
                 "Either barys or pts must be provided to prepare points for diffusion"
             )
 
-        return eigalbo_interp.query_points(
+        query_points = eigalbo_interp.query_points(
             barys, pts_tri_vert_idx, self.cfg.knn_outer_k
+        )
+        return PointsInfoKNN(
+            albo_evals=query_points["evals"],
+            albo_evecs=query_points["evecs"],
+            iso_evecs=None,
+            mass=None,
+            weights=query_points["weights"],
+            distances=query_points["distances"],
+            indices=query_points["indices"],
         )
 
     def diffuse_heat_kernels(
         self,
         eigalbo_interp: EigenAlboInterpolationKNN,
-        pts_info: dict[str, Tensor],
+        pts_info: PointsInfoKNN,
     ) -> Float[Tensor, "P D"]:
-        # return {
-        #     "evals": evals,  # P K E
-        #     "evecs": evecs,  # P K E
-        #     "weights": heat_weights,  # P K
-        #     "distances": knn_distances,  # P K
-        #     "indices": knn_indices,  # P K
-        # }
-
-        pts_evecs: Float[Tensor, "P K E"] = pts_info["evecs"]
-        pts_evals: Float[Tensor, "P K E"] = pts_info["evals"]
+        pts_evecs: Float[Tensor, "P K E"] = pts_info["albo_evecs"]
+        pts_evals: Float[Tensor, "P K E"] = pts_info["albo_evals"]
         pts_weights: Float[Tensor, "P K"] | None = pts_info["weights"]
         pts_distances: Float[Tensor, "P K"] = pts_info["distances"]
         pts_indices: Float[Tensor, "P K"] = pts_info["indices"]
 
         P, K, _ = pts_evecs.shape
 
-        diffused_diracs: Float[Tensor, "P K"] = eigalbo_interp.diffuse_heat(
+        heat_qk, heat_qk_norm = eigalbo_interp.diffuse_heat(
             pts_evals, pts_evecs, pts_indices, weights=pts_weights
         )
-        # TODO: Remove this and use the correct indexing below
-        diffused_diracs: Float[Tensor, "K P"] = diffused_diracs.permute(1, 0, 2)
+        diffused_diracs: Float[Tensor, "P K"] = (
+            heat_qk_norm if heat_qk_norm is not None else heat_qk
+        )
 
-        filtered: Float[Tensor, "K P"] = self.kernel_filter_func(
+        filtered: Float[Tensor, "P K"] = self.kernel_filter_func(
             diffused_diracs,
-            epsilon=self.thresholds,
-            sharpness=self.sharpnesses,
+            epsilon=self.thresholds[pts_indices],
+            sharpness=self.sharpnesses[pts_indices],
         )
 
-        colours: Float[Tensor, "K P D"] = filtered * self.kernel_colours.unsqueeze(1)
+        kernel_colours_knn = self.kernel_colours[pts_indices]  # [P, K, D]
+        colours: Float[Tensor, "P K D"] = filtered.unsqueeze(-1) * kernel_colours_knn
 
-        contribs: Float[Tensor, "k P 1"]
-        contribs, top_idx = filtered.topk(
-            k=min(self.cfg.knn_inner_k, K), largest=True, dim=0
+        contribs: Float[Tensor, "P k 1"]
+        k_use = min(self.cfg.knn_inner_k, K)
+        contribs, topk_local = filtered.topk(k=k_use, largest=True, dim=1)
+
+        idx_exp = topk_local.unsqueeze(-1).expand(-1, -1, colours.size(-1))  # [P, k, D]
+        contrib_colours: Float[Tensor, "P k D"] = torch.gather(
+            colours, dim=1, index=idx_exp
         )
-        idx_exp = top_idx.expand(-1, -1, colours.size(-1))  # [k, P, D]
-        contrib_colours: Float[Tensor, "k P D"] = torch.gather(colours, 0, idx_exp)
-        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / (
-            contribs.sum(dim=0) + 1e-8
+        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / (
+            contribs.sum(dim=1, keepdim=True) + 1e-8
         )
-        return colours, filtered, top_idx
+
+        topk_global = torch.gather(pts_indices, dim=1, index=topk_local)  # [P,k]
+        kernel_contributions = filtered.new_zeros((self.N_sources, P, 1))  # [G,P,1]
+        kernel_contributions.scatter_(
+            0,
+            pts_indices.transpose(0, 1).unsqueeze(-1),  # [K,P,1]
+            filtered.transpose(0, 1).unsqueeze(-1),  # [K,P,1]
+        )
+        topk_kernel_idxs = topk_global.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
+
+        return colours, kernel_contributions, topk_kernel_idxs

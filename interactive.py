@@ -35,7 +35,7 @@ except NameError:
     # get_ipython() is not defined, so not running in an IPython environment
     pass
 
-dr.set_flag(dr.JitFlag.Debug, True)
+# dr.set_flag(dr.JitFlag.Debug, True)
 
 
 if __name__ == "__main__":
@@ -44,32 +44,46 @@ if __name__ == "__main__":
         # "config": "configs/vertex_colour_texture_fitting.yaml",
         # "config": "configs/known_vertex_colour_fitting.yaml",
         # "config": "configs/uv_texture_fitting.yaml",
-        "config": "configs/uv_texture_fitting.yaml",
+        "config": "configs/uv_texture_fitting_knn.yaml",
         "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
-        "verbose": False,
+        "verbose": True,
     }
     extras_dict = {
-        "data.mesh_path": "../objects/spot/spot_triangulated.obj",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-018/998d641ce1c74e44978a91fedc849905.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-074/5ecf9d1175ae405a9a073db305786411.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-101/818e088dc59f4a89bfea14cb46a4beca.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-138/6713cc0cdad34f89a0256c5d2f68b7c1.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-013/d79a32a512c64c5e93dc856864789a7e.glb",
+        "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-066/e7caba92073d4adba3477c21aa25e91f.glb",
+        # "data.mesh_path": "../objects/spot/spot_triangulated.obj",
         # "data.mesh_path": "../objects/bob/bob_tri.obj",
-        "data.use_importance_sampling": False,
+        # "data.mesh_path": "../objects/human_tri/RUST_3d_Low1.obj",
+        # "data.mesh_path": "../objects/cat_tri/12221_Cat_v1_l3.obj",
         "trainer.tracer.debug": False,
-        "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 50,  # 5_000, 20_000,
-        "data.batch_size": 512,
+        # "trainer.tracer.n_debug_traces": 100,
+        "optim.iters": 50,
+        # "data.batch_size": 512,
         # "data.sample_all_vertices": False,
-        "trainer.model.n_sources": 512,
+        # "trainer.model.n_sources": 500,
         # "trainer.model.kernel_dim": 3,
-        "trainer.model.out_net": False,
-        "trainer.model.normalize_colours": False,
-        "data.sampling_method": "uniform",
-        "renderer.point_batching": 1024,
-        "renderer.n_rotating_frames": 5,
-        "renderer.integrator_config.type": "path",
-        # "renderer.integrator_config.meta.max_depth": 2,
+        # "trainer.model.out_net": False,
+        # "trainer.model.normalize_colours": False,
+        # "data.sampling_method": "uniform",
+        "renderer.point_batching": 512,
+        "renderer.n_rotating_frames": 3,
+        "renderer.integrator_config.type": "prb",
+        "renderer.integrator_config.meta.max_depth": 2,
         "trainer.renderer_mega_kernel": False,
-        "renderer.camera_config.tile_size": 64,
-        "renderer.camera_config.tile_size_heatkernels": 64,
+        "renderer.camera_config.tile_size_heatkernels": None,
+        # "renderer.camera_config.camera_distance": 2.2,
+        # "trainer.eigen_albo.local_frames": "axis_aligned_20",
+        # "trainer.model.init_min_threshold": 0.9999,
+        # "trainer.density_controllers": [],
+        "trainer.model.range_enforcement_type": "pgd",
+        "trainer.model.init_kernel_edge_type": "uniform",
     }
 
     args = argparse.Namespace(**args_dict)
@@ -77,15 +91,15 @@ if __name__ == "__main__":
     # Overrides elements in the lists within config
     base_cfg = load_config(args.config)
     density_controllers_list = base_cfg.trainer.density_controllers
-    density_controllers_list[1].args.max_kernels = 5_000
+    # density_controllers_list[1].args.max_kernels = 5_000
     extras_dict["trainer.density_controllers"] = yaml.dump(
         OmegaConf.to_container(density_controllers_list)
     )
 
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 
-    profile = True
-    render = False
+    profile = False
+    render = True
 
     if profile:
         with torch.profiler.profile(

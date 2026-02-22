@@ -22,17 +22,25 @@ __all__ = ["EigenAlboInterpolationKNN"]
 class EigenAlboInterpolationKNN(EigenAlboInterpolation):
     @dataclass
     class Config(EigenAlboInterpolation.Config):
-        faiss_config = field(default_factory=knn_heat.FaissGpuIndexConfig)
-        gather_config = field(default_factory=knn_heat.SpectralKnnGatherConfig)
-        heat_config = field(default_factory=knn_heat.SpectralKnnHeatConfig)
+        faiss: knn_heat.FaissGpuIndexConfig = field(
+            default_factory=knn_heat.FaissGpuIndexConfig
+        )
+        gather: knn_heat.SpectralKnnGatherConfig = field(
+            default_factory=knn_heat.SpectralKnnGatherConfig
+        )
+        heat: knn_heat.SpectralKnnHeatConfig = field(
+            default_factory=knn_heat.SpectralKnnHeatConfig
+        )
 
         use_weighting: bool = True
-        weighting_config = field(default_factory=knn_heat.KnnPostDiffWeightConfig)
+        weighting: knn_heat.KnnPostDiffWeightConfig = field(
+            default_factory=knn_heat.KnnPostDiffWeightConfig
+        )
 
         knn_embedding_dim: int = 64
 
         grid_abs_sin: bool = True
-        grid_scale_map: Literal["log1p", "identity"] = "log1p"
+        grid_scale_map: str = "log1p"  # Literal["log1p", "identity"]
         grid_eps: float = 1e-8
         grid_clamp_unit: bool = True
 
@@ -41,13 +49,13 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
     def configure(self, mesh: Mesh):
         super().configure(mesh)
 
-        self.faiss_index = knn_heat.FaissGpuFlatIndex(self.cfg.faiss_config)
-        self.knn_gather = knn_heat.SpectralKnnGather(self.cfg.gather_config)
-        self.knn_heat = knn_heat.SpectralKnnHeat(self.cfg.heat_config)
+        self.faiss_index = knn_heat.FaissGpuFlatIndex(self.cfg.faiss)
+        self.knn_gather = knn_heat.SpectralKnnGather(self.cfg.gather)
+        self.knn_heat = knn_heat.SpectralKnnHeat(self.cfg.heat)
 
         self.heat_weighting = None
         if self.cfg.use_weighting:
-            self.heat_weighting = knn_heat.KnnPostDiffWeight(self.cfg.heat_config)
+            self.heat_weighting = knn_heat.KnnPostDiffWeight(self.cfg.weighting)
 
         self.knn_embedding_dim = self.cfg.knn_embedding_dim
         assert (
@@ -57,6 +65,14 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
         iso_evals = self._iso_eigen_val[: self.knn_embedding_dim]
         iso_evecs = self._iso_eigen_vec[:, : self.knn_embedding_dim]
         self._iso_embeddings = iso_evecs / iso_evals.unsqueeze(0)
+
+        s = self._smp_coords[1:]  # drop iso
+        A = len(self.cfg.precompute_anisotropies)  # get layout from config
+        self._smp_coords_angle = s[::A, 0].contiguous()  # rot axis, length R
+        self._smp_coords_scale = s[:A, 1].contiguous()  # scale axis, length A
+
+        self._eigen_val_knn = self._eigen_val[1:].contiguous()
+        self._eigen_vec_knn = self._eigen_vec[1:].contiguous()
 
         self.reset()
 
@@ -98,8 +114,8 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
             grid_w,
             kernel_vert_idx,
             kernel_bary,
-            self._eigen_val,
-            self._eigen_vec,
+            self._eigen_val_knn,
+            self._eigen_vec_knn,
         )
         # Build the knn graph
         self.knn_heat.build(kernel_evals, kernel_evecs, diffusion_time)
@@ -130,8 +146,8 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
             grid_w,
             vert_idx,
             barycentric_coords,
-            self._eigen_val,
-            self._eigen_vec,
+            self._eigen_val_knn,
+            self._eigen_vec_knn,
         )
 
         return {
@@ -152,6 +168,7 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
             Float[Tensor, ""] | Float[Tensor, "P K"] | Float[Tensor, "G"]
         ] = None,
     ):
-        self.knn_heat.query(
+        heat_qk, heat_qk_norm = self.knn_heat.query(
             indices, evals, evecs, time=diffusion_time, weights_post_diff=weights
         )
+        return heat_qk, heat_qk_norm

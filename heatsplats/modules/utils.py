@@ -9,8 +9,14 @@ class PointsInfo(TypedDict):
     mass: Float[Tensor, "1 P"]
 
 
+class PointsInfoKNN(PointsInfo):
+    weights: Float[Tensor, "P K"] | None
+    distances: Float[Tensor, "P K"]
+    indices: Float[Tensor, "P K"]
+
+
 class KernelInfo(TypedDict):
     vert_idx: Float[Tensor, "G 3"]
     barycentric_coords: Float[Tensor, "G 3"]
-    albo_evecs: Float[Tensor, "G K"]
-    mass: Float[Tensor, "G"]
+    albo_evecs: Float[Tensor, "G K"] | None
+    mass: Float[Tensor, "G"] | None

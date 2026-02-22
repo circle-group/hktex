@@ -20,10 +20,13 @@ data:
 
 trainer_type: trainers.uv-texture
 trainer:
+  use_knn_implementation: True
+
   tracer_type: modules.cpu-geodesic-tracer
   tracer: 
     n_debug_traces: 10
 
+  eigen_albo_type: modules.eigen-albo-interpolation-knn
   eigen_albo: 
     k_eig: 256
     mesh_path: ${data.mesh_path}
@@ -33,8 +36,24 @@ trainer:
     precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
     precompute_angles_every_deg: 30
 
+    knn_embedding_dim: 64
+
+    faiss:
+      use_float16: False
+      distance_impl: bmm
+      build_db_norm: True
+
+    gather:
+      select_impl: bilinear4
+      gather_impl: full
+
+    weighting:
+      kernel: gaussian
+      gaussian_std: 0.05
+      normalize: False
+
   model: 
-    n_sources: 1000
+    n_sources: 200
     kernel_dim: 32
     diff_time: 0.0008133321288953395
     mass_type: one
@@ -45,8 +64,11 @@ trainer:
     normalize_colours: False
     allow_negative_colours: True
 
+    knn_outer_k: 100
+    knn_inner_k: 10
+
   loss_type: "smooth_l1_loss"
-  data_initialisation_random_ratio: 0.5
+  data_initialisation_random_ratio: 0.3
 
   optimizers:
     - name: Adam
