@@ -22,7 +22,7 @@ from ray.tune.search import ConcurrencyLimiter
 
 import mitsuba as mi
 
-from heatsplats.utils import mibitmaps2torch
+from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
 
@@ -152,6 +152,7 @@ def trainable(config, root, all_filenames, resolver_paths):
 
     # The main loop over files is now inside the trainable
     per_mesh_errors = []
+    per_mesh_metrics = []
     per_mesh_kernels = []
 
     # Wrap the file loop in tqdm for a progress bar within each trial
@@ -171,7 +172,9 @@ def trainable(config, root, all_filenames, resolver_paths):
             gt = mibitmaps2torch(gt_rend)
             res = mibitmaps2torch(result_rend)
             error = F.mse_loss(res, gt, reduction="mean")
+            metrics = compute_all_image_metrics(res, gt)
             per_mesh_errors.append(error)
+            per_mesh_metrics.append(metrics)
             per_mesh_kernels.append(
                 out["optimisation"].model._kernel_locations.shape[0]
             )
@@ -186,6 +189,10 @@ def trainable(config, root, all_filenames, resolver_paths):
     avg_error = per_mesh_errors.mean().item()
     std_error = per_mesh_errors.std().item()
     avg_n_kernels = sum(per_mesh_kernels) / len(per_mesh_kernels)
+    avg_metrics = {
+        "avg_" + k: sum(m[k] for m in per_mesh_metrics) / len(per_mesh_metrics)
+        for k in per_mesh_metrics[0]
+    }
     tune.report(
         {
             "mean_error": avg_error,
@@ -193,6 +200,7 @@ def trainable(config, root, all_filenames, resolver_paths):
             "mean_n_kernels": avg_n_kernels,
             "storage_torch_kb": out["storage"][0],
             "storage_npz_kb": out["storage"][1],
+            **avg_metrics,
         }
     )
 

@@ -19,6 +19,7 @@ pip install jaxtyping omegaconf
 pip install ipykernel ipywidgets
 pip install imageio[ffmpeg]
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
+pip install torchmetrics
 ```
 
 Optional for NNs:
