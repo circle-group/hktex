@@ -17,7 +17,12 @@ from omegaconf import OmegaConf
 from optimisation import main
 from heatsplats.data import MeshSamplerDataModule
 from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import big_trimesh_pcl, show_video
+from heatsplats.utils import (
+    big_trimesh_pcl,
+    show_video,
+    mibitmaps2torch,
+    compute_all_image_metrics,
+)
 
 from heatsplats.utils import repr_patches, load_config
 
@@ -148,6 +153,11 @@ if __name__ == "__main__":
     )
     if render:
         gt_rend, result_rend, ring_rend, combined_rend = out["renderings"]
+
+    gt = mibitmaps2torch(gt_rend)
+    res = mibitmaps2torch(result_rend)
+    metrics = compute_all_image_metrics(res, gt)
+    print("Metrics:", metrics)
 
     print("You can now visualise the followings:")
     print("  - Initial mesh: init_mesh.show()")
