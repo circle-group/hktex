@@ -106,6 +106,8 @@ class KnnPostDiffWeight:
         return fn
 
     def compute(self, pts2knn_dist: Float[Tensor, "Q K"]) -> Float[Tensor, "Q K"]:
+        # faiss_knn returns squared L2 distances for metric="l2"
+        pts2knn_dist = torch.sqrt(torch.clamp(pts2knn_dist, min=0.0) + self.config.eps)
         return self._kernel_fn(pts2knn_dist)
 
     def __call__(self, pts2knn_dist: Float[Tensor, "Q K"]) -> Float[Tensor, "Q K"]:
@@ -122,6 +124,8 @@ class KnnPostDiffWeight:
         knn_distances(queries, indices) -> [Q, K].
         """
         if not hasattr(index, "knn_distances"):
-            raise TypeError("index must provide a knn_distances(queries, indices) method")
+            raise TypeError(
+                "index must provide a knn_distances(queries, indices) method"
+            )
         dists = index.knn_distances(queries, indices)
         return self.compute(dists)

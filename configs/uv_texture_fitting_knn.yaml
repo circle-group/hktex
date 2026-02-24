@@ -42,18 +42,25 @@ trainer:
       use_float16: False
       distance_impl: bmm
       build_db_norm: True
+      compile_distances: True
 
     gather:
       select_impl: bilinear4
-      gather_impl: full
+      compile_select: True
+      gather_impl: stream_vertices
+      compile_gather: True
 
     weighting:
       kernel: gaussian
       gaussian_std: 0.05
       normalize: False
+      compile_kernel: True
+
+    heat:
+      compile_heat: True
 
   model: 
-    n_sources: 200
+    n_sources: 10000
     kernel_dim: 32
     diff_time: 0.0008133321288953395
     mass_type: one
@@ -68,7 +75,7 @@ trainer:
     knn_inner_k: 10
 
   loss_type: "smooth_l1_loss"
-  data_initialisation_random_ratio: 0.3
+  data_initialisation_random_ratio: 0.5
 
   optimizers:
     - name: Adam
@@ -76,8 +83,8 @@ trainer:
       #   lr: 1e-3  #5e-4
       params:
         model._kernel_colours: {lr: 0.011243004246581364}
-        model._angles: {lr:  2.2276423705872066e-05}
-        model._anisotropies: {lr: 3.5917174833249523e-05}
+        model._angles: {lr: 0.005}
+        model._anisotropies: {lr: 0.005}
         model._thresholds: {lr: 0.008917199645256857}
         model._sharpnesses: {lr: 0.005495279901986241}
         # model.out_net: {}

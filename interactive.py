@@ -64,7 +64,7 @@ if __name__ == "__main__":
         # "data.mesh_path": "../objects/cat_tri/12221_Cat_v1_l3.obj",
         "trainer.tracer.debug": False,
         # "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 50,
+        "optim.iters": 5000,
         # "data.batch_size": 512,
         # "data.sample_all_vertices": False,
         # "trainer.model.n_sources": 500,
@@ -84,6 +84,7 @@ if __name__ == "__main__":
         # "trainer.density_controllers": [],
         "trainer.model.range_enforcement_type": "pgd",
         "trainer.model.init_kernel_edge_type": "uniform",
+        "trainer.eigen_albo.use_euclidian_distance": False,
     }
 
     args = argparse.Namespace(**args_dict)

@@ -12,7 +12,7 @@ class PointsInfo(TypedDict):
 class PointsInfoKNN(PointsInfo):
     weights: Float[Tensor, "P K"] | None
     distances: Float[Tensor, "P K"]
-    indices: Float[Tensor, "P K"]
+    indices: Int64[Tensor, "P K"]
 
 
 class KernelInfo(TypedDict):

@@ -38,6 +38,7 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
         )
 
         knn_embedding_dim: int = 64
+        use_euclidian_distance: bool = False
 
         grid_abs_sin: bool = True
         grid_scale_map: str = "log1p"  # Literal["log1p", "identity"]
@@ -58,13 +59,19 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
             self.heat_weighting = knn_heat.KnnPostDiffWeight(self.cfg.weighting)
 
         self.knn_embedding_dim = self.cfg.knn_embedding_dim
-        assert (
-            1 <= self.knn_embedding_dim <= self.cfg.k_eig
-        ), "KNN embedding dim cannot be larger than the number of eigenvalues/less than 1"
+        max_dim = self.cfg.k_eig - 1
 
-        iso_evals = self._iso_eigen_val[: self.knn_embedding_dim]
-        iso_evecs = self._iso_eigen_vec[:, : self.knn_embedding_dim]
-        self._iso_embeddings = iso_evecs / iso_evals.unsqueeze(0)
+        assert (
+            1 <= self.knn_embedding_dim <= max_dim
+        ), "KNN embedding dim cannot be larger than the (number of eigenvalues-1)/less than 1"
+
+        if self.cfg.use_euclidian_distance:
+            self._iso_embeddings = self._mesh.verts
+            self.knn_embedding_dim = 3
+        else:
+            iso_evals = self._iso_eigen_val[1 : self.knn_embedding_dim + 1]
+            iso_evecs = self._iso_eigen_vec[:, 1 : self.knn_embedding_dim + 1]
+            self._iso_embeddings = iso_evecs / iso_evals.clamp_min(1e-8).unsqueeze(0)
 
         s = self._smp_coords[1:]  # drop iso
         A = len(self.cfg.precompute_anisotropies)  # get layout from config
