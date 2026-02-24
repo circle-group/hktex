@@ -132,6 +132,8 @@ class BaseDensityController(BaseObject):
             names = list(self._params.keys())
 
         for name in names:
+            if name == "_mean_colour":
+                continue
             param = self._params[name]
             new_param = param_fn(name, param)
             if hasattr(param, "bary_coords"):

@@ -346,11 +346,15 @@ class BaseTrainer(BaseObject):
         # Save original values
         orig_kernel_filter_func = self.model.kernel_filter_func
         orig_kernel_colours = self.model._kernel_colours.clone().detach()
+        orig_mean_colour = self.model._mean_colour.clone().detach()
 
         # Override values
         self.model.kernel_filter_func = partial(utils.box_border, thickness=0.03)
         self.model._kernel_colours = torch.nn.Parameter(
             torch.rand_like(self.model._kernel_colours)
+        )
+        self.model._mean_colour = torch.nn.Parameter(
+            torch.zeros_like(self.model._mean_colour)
         )
 
         try:
@@ -359,6 +363,7 @@ class BaseTrainer(BaseObject):
             # Restore original values
             self.model.kernel_filter_func = orig_kernel_filter_func
             self.model._kernel_colours = torch.nn.Parameter(orig_kernel_colours)
+            self.model._mean_colour = torch.nn.Parameter(orig_mean_colour)
 
         return rend_rings
 

@@ -33,14 +33,6 @@ class HeatKernelTextureKNN(HeatKernelTexture):
 
     cfg: Config
 
-    _kernel_colours: Float[Tensor, "G D"]
-    _angles: Float[Tensor, "G"]
-    _anisotropies: Float[Tensor, "G"]
-    _thresholds: Float[Tensor, "G"]
-    _sharpnesses: Float[Tensor, "G"]
-    _kernel_locations: Float[Tensor, "G 3"]
-    _kernel_face_ids: Int[Tensor, "G"]
-
     def configure(
         self,
         mesh: Mesh,
@@ -168,4 +160,5 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         )
         topk_kernel_idxs = topk_global.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
 
+        colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
         return colours, kernel_contributions, topk_kernel_idxs

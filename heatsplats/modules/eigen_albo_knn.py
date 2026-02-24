@@ -36,6 +36,7 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
         weighting: knn_heat.KnnPostDiffWeightConfig = field(
             default_factory=knn_heat.KnnPostDiffWeightConfig
         )
+        parse_weighting_from_str: bool = False
 
         knn_embedding_dim: int = 64
         use_euclidian_distance: bool = False
@@ -56,7 +57,10 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
 
         self.heat_weighting = None
         if self.cfg.use_weighting:
-            self.heat_weighting = knn_heat.KnnPostDiffWeight(self.cfg.weighting)
+            weighting = self.cfg.weighting
+            if self.cfg.parse_weighting_from_str:
+                weighting = self._parse_weighting_from_str()
+            self.heat_weighting = knn_heat.KnnPostDiffWeight(weighting)
 
         self.knn_embedding_dim = self.cfg.knn_embedding_dim
         max_dim = self.cfg.k_eig - 1
@@ -82,6 +86,26 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
         self._eigen_vec_knn = self._eigen_vec[1:].contiguous()
 
         self.reset()
+
+    def _parse_weighting_from_str(self):
+        std = 1
+        if self.cfg.distance_weighting == "inverse":
+            kernel = "inverse"
+            normalize = True
+        elif "gaussian" in self.cfg.distance_weighting:
+            kernel = "gaussian"
+            normalize = False
+            std = float(self.cfg.distance_weighting.split("_")[-1])
+            assert std > 0, "Standard deviation must be positive"
+        elif self.cfg.distance_weighting == "none":
+            return None
+        return knn_heat.KnnPostDiffWeightConfig(
+            kernel=kernel,
+            normalize=normalize,
+            gaussian_std=std,
+            eps=self.cfg.weighting.eps,
+            compile_kernel=self.cfg.weighting.compile_kernel,
+        )
 
     def reset(self):
         self.faiss_index.reset()

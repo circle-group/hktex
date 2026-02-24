@@ -41,6 +41,7 @@ class HeatKernelTexture(BaseModule):
 
     cfg: Config
 
+    _mean_colour: Float[Tensor, "1 D"]
     _kernel_colours: Float[Tensor, "G D"]
     _angles: Float[Tensor, "G"]
     _anisotropies: Float[Tensor, "G"]
@@ -74,8 +75,10 @@ class HeatKernelTexture(BaseModule):
 
             if self.cfg.allow_negative_colours:
                 self._colour_act = lambda x: torch.tanh(x)
+                self._inv_colour_act = lambda x: torch.atanh(x)
             else:
                 self._colour_act = lambda x: torch.sigmoid(x)
+                self._inv_colour_act = lambda x: torch.logit(x)
 
         elif self.cfg.range_enforcement_type == "pgd":
             self._thresholds_act = lambda x: x
@@ -84,6 +87,7 @@ class HeatKernelTexture(BaseModule):
             self._anis_act = lambda x: x
             self._sharpness_act = lambda x: x
             self._colour_act = lambda x: x
+            self._inv_colour_act = lambda x: x
         else:
             raise ValueError(
                 f"Unknown range enforcement type: {self.cfg.range_enforcement_type}"
@@ -180,7 +184,11 @@ class HeatKernelTexture(BaseModule):
         kernel_locations = pos[mask]
         kernel_face_ids = fids[mask]
 
-        self._kernel_colours = torch.nn.Parameter(kernel_colours)
+        mean_colour = torch.mean(kernel_colours, dim=0, keepdim=True)
+        residual_colors = kernel_colours - mean_colour
+
+        self._mean_colour = torch.nn.Parameter(mean_colour)
+        self._kernel_colours = torch.nn.Parameter(residual_colors)
         self._angles = torch.nn.Parameter(angles)
         self._anisotropies = torch.nn.Parameter(anisotropies)
         self._thresholds = torch.nn.Parameter(thresholds)
@@ -237,12 +245,13 @@ class HeatKernelTexture(BaseModule):
         self._sharpnesses.clamp_(min=10.0, max=200.0)
         self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
         self._angles.clamp_(min=0, max=self._angle_scale)
-        self._anisotropies.clamp_(min=1.0, max=100.0)
+        self._anisotropies.clamp_(min=1.0, max=200.0)
 
         if self.cfg.allow_negative_colours:
             self._kernel_colours.clamp_(min=-1.0, max=1.0)
         else:
             self._kernel_colours.clamp_(min=0.0, max=1.0)
+        self._mean_colour.clamp_(min=0.0, max=1.0)
 
     def prepare_points_for_diffusion(
         self,
@@ -418,6 +427,8 @@ class HeatKernelTexture(BaseModule):
         colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / (
             contribs.sum(dim=0) + 1e-8
         )
+
+        colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
         return colours, filtered, top_idx
 
     def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:

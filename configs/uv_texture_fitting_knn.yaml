@@ -82,6 +82,7 @@ trainer:
       args: {}
       #   lr: 1e-3  #5e-4
       params:
+        model._mean_colour: {lr: 0.001}
         model._kernel_colours: {lr: 0.011243004246581364}
         model._angles: {lr: 0.005}
         model._anisotropies: {lr: 0.005}

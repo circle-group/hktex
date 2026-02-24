@@ -225,6 +225,11 @@ class UvTextureTrainer(BaseTrainer):
             uv_to_color(all_uvs.cpu().detach().numpy(), dataset.tex_img)[:, :3] / 255
         )
 
-        self.model._kernel_colours.data = torch.tensor(
+        sampled_colors = torch.tensor(
             sampled_colors, dtype=torch.float, device=self.device
         )
+        mean_colour = torch.mean(sampled_colors, dim=0, keepdim=True)
+        residual_colors = sampled_colors - mean_colour
+
+        self.model._mean_colour.copy_(mean_colour)
+        self.model._kernel_colours.copy_(self.model._inv_colour_act(residual_colors))

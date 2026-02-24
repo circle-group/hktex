@@ -48,7 +48,7 @@ def trainable(config, root, all_filenames, resolver_paths):
     project_root = Path(__file__).resolve().parent.parent
 
     args_dict = {
-        "config": str(project_root / "configs/uv_texture_fitting.yaml"),
+        "config": str(project_root / "configs/uv_texture_fitting_knn.yaml"),
         "rendering_config": str(project_root / "configs/rendering.yaml"),
         "verbose": False,
     }
@@ -62,6 +62,7 @@ def trainable(config, root, all_filenames, resolver_paths):
         "name": "Adam",
         "args": {},
         "params": {
+            "model._mean_colour": {"lr": config["lr_mean_colour"]},
             "model._kernel_colours": {"lr": config["lr_colours"]},
             "model._angles": {"lr": config["lr_angles"]},
             "model._anisotropies": {"lr": config["lr_anisotropies"]},
@@ -135,7 +136,7 @@ def trainable(config, root, all_filenames, resolver_paths):
         size_threshold: {config["dc_size_threshold"]}
         split_radius: {config["dc_error_split_radius"]}
         max_densify_ratio: {config["dc_max_densify_ratio"]}
-        max_kernels: {config["dc_max_kernels"]}
+        max_kernels: {min(config['dc_max_kernels_max'], config['dc_max_kernels_mult'] * config["trainer.model.n_sources"])}
         stop_iter: {int(total_iters * config["dc_error_stop_iter_frac"])}
     """
 
@@ -261,13 +262,15 @@ if __name__ == "__main__":
         "name": "output_experiment",
         "trainer.tracer.debug": False,
         "optim.iters": cli_args.optim_iters,
-        "dc_max_kernels": cli_args.max_kernels,
+        "dc_max_kernels_max": 50_000,
         "renderer.n_rotating_frames": 3,
         "trainer.model.mass_type": "one",
+        "trainer.eigen_albo.parse_weighting_from_str": True,
+        "trainer.model.allow_negative_colours": True,
         #
         # Tunable parameters ###########################################################
-        "trainer.model.n_sources": tune.choice([100, 500, 1000, 2000]),
-        "data.batch_size": tune.choice([512, 1024]),
+        "trainer.model.n_sources": tune.choice([1000, 2500, 5000, 10000, 20000]),
+        "data.batch_size": tune.choice([512, 1024, 2048]),
         "data.use_importance_sampling": tune.choice([True, False]),
         "data.importance_sampling_pool_size": tune.choice(
             [1_000_000, 5_000_000, 10_000_000]
@@ -279,21 +282,22 @@ if __name__ == "__main__":
         ),
         "trainer.model.diff_time": tune.loguniform(1e-8, 1e-1),
         "trainer.eigen_albo.distance_weighting": tune.choice(
-            ["none", "gaussian_0.1", "gaussian_0.05"]
+            ["none", "gaussian_0.1", "gaussian_0.05", "inverse"]
         ),
         "trainer.model.init_min_threshold": tune.choice([0.3, 0.5, 0.9, 0.999]),
         "trainer.model.range_enforcement_type": tune.choice(["pgd", "activations"]),
         "trainer.model.init_kernel_edge_type": tune.choice(["uniform", "high_skewed"]),
-        "trainer.model.allow_negative_colours": tune.choice([True, False]),
+        # "trainer.model.allow_negative_colours": tune.choice([True, False]),
         "trainer.loss_type": tune.choice(["mse_loss", "smooth_l1_loss", "l1_loss"]),
         "trainer.data_initialisation_random_ratio": tune.choice([0.0, 0.5, 1.0]),
         "adam_scheduler": tune.choice(["none", "step", "cosine"]),
         "geodesic_scheduler": tune.choice(["none", "step", "cosine"]),
-        "lr_colours": tune.loguniform(1e-3, 1e-1),
-        "lr_angles": tune.loguniform(1e-5, 1e-3),
-        "lr_anisotropies": tune.loguniform(1e-5, 1e-3),
-        "lr_thresholds": tune.loguniform(1e-4, 1e-2),
-        "lr_sharpnesses": tune.loguniform(1e-4, 1e-2),
+        "lr_mean_colour": tune.loguniform(1e-5, 1e-2),
+        "lr_colours": tune.loguniform(1e-4, 1e-1),
+        "lr_angles": tune.loguniform(1e-4, 1e-1),
+        "lr_anisotropies": tune.loguniform(1e-4, 1e-1),
+        "lr_thresholds": tune.loguniform(1e-4, 1e-1),
+        "lr_sharpnesses": tune.loguniform(1e-4, 1e-1),
         "lr_locations": tune.loguniform(1e-4, 1e-1),
         "dc_importance_selection_threshold": tune.loguniform(0.005, 0.5),
         "dc_importance_contrib_threshold": tune.loguniform(0.005, 0.5),
@@ -309,6 +313,7 @@ if __name__ == "__main__":
         "dc_error_accum_ratio": tune.choice([0.25, 0.5, 0.75]),
         "dc_error_stop_iter_frac": tune.choice([0.7, 0.8]),
         "dc_error_split_radius": tune.choice([0.05, 0.1, 0.2]),
+        "dc_max_kernels_mult": tune.choice([2, 5, 10]),
     }
 
     search_alg = OptunaSearch()

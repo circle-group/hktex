@@ -179,8 +179,12 @@ class SpectralKnnGather:
         )
 
         q, k = src_knn_idx.shape
-        m_idx, m_w = _ops._gather_m_knn(src_knn_idx, m_neigh_idx, m_neigh_w)
-        v, b = _ops._repeat_query_geom(src_knn_idx, vert_idx, bary_coords)
+        m_idx, m_w = _ops._gather_m_knn(
+            src_knn_idx, m_neigh_idx, m_neigh_w
+        )  # Sx4 -> QxKx4
+        v, b = _ops._repeat_query_geom(
+            src_knn_idx, vert_idx, bary_coords
+        )  # Qx3 -> QxKx3
 
         evals_flat = _ops._gather_evals_flat(m_idx, m_w, evals)  # [Q*K, E]
         evecs_flat = self._evecs_fn(m_idx, m_w, v, b, evecs)  # [Q*K, E]

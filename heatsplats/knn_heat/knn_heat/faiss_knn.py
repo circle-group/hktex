@@ -146,26 +146,55 @@ class FaissGpuFlatIndex:
         n = int(database.shape[0])
 
         if self.config.metric == "l2":
-            cpu_index = self._faiss.IndexFlatL2(d)
+            metric = self._faiss.METRIC_L2
+            quantizer = self._faiss.IndexFlatL2(d)
         elif self.config.metric == "ip":
-            cpu_index = self._faiss.IndexFlatIP(d)
+            metric = self._faiss.METRIC_INNER_PRODUCT
+            quantizer = self._faiss.IndexFlatIP(d)
         else:
             raise ValueError(f"Unsupported metric: {self.config.metric}")
 
-        gpu_cfg = self._faiss.GpuIndexFlatConfig()
-        gpu_cfg.useFloat16 = bool(self.config.use_float16)
+        if self.config.index_type == "flat":
+            gpu_cfg = self._faiss.GpuIndexFlatConfig()
+            gpu_cfg.useFloat16 = bool(self.config.use_float16)
+            gpu_index = self._faiss.GpuIndexFlat(self._res, d, metric, gpu_cfg)
+            gpu_index.add(database)
+        elif self.config.index_type == "ivf_flat":
+            if n < self.config.ivf_nlist:
+                raise ValueError("database size must be >= ivf_nlist")
 
-        gpu_index = self._faiss.GpuIndexFlat(
-            self._res,
-            d,
-            cpu_index.metric_type,
-            gpu_cfg,
-        )
+            cpu_ivf = self._faiss.IndexIVFFlat(
+                quantizer, d, int(self.config.ivf_nlist), metric
+            )
+            gpu_index = self._faiss.index_cpu_to_gpu(self._res, 0, cpu_ivf)
+            gpu_index.train(database)  # required for IVF
+            gpu_index.nprobe = int(self.config.ivf_nprobe)
+            gpu_index.add(database)
+        elif self.config.index_type == "cagra":
+            if self.config.metric != "l2":
+                raise ValueError("CAGRA is typically L2-only in this setup")
 
-        # Build is explicit and separate from search to match the "one build per minibatch"
-        # training pattern. The FAISS index stores the database vectors internally on the GPU
-        # until reset() or a subsequent build().
-        gpu_index.add(database)
+            cagra_cfg = self._faiss.GpuIndexCagraConfig()
+            cagra_cfg.use_cuvs = True
+            cagra_cfg.graph_degree = int(self.config.cagra_graph_degree)
+            cagra_cfg.intermediate_graph_degree = int(
+                self.config.cagra_intermediate_graph_degree
+            )
+            cagra_cfg.nn_descent_niter = int(self.config.cagra_nn_descent_niter)
+            cagra_cfg.refine_rate = float(self.config.cagra_refine_rate)
+            cagra_cfg.build_algo = {
+                "nn_descent": self._faiss.graph_build_algo_NN_DESCENT,
+                "iterative_search": self._faiss.graph_build_algo_ITERATIVE_SEARCH,
+                "ivf_pq": self._faiss.graph_build_algo_IVF_PQ,
+            }[self.config.cagra_build_algo]
+
+            gpu_index = self._faiss.GpuIndexCagra(self._res, d, metric, cagra_cfg)
+
+            # CAGRA builds graph at train-time for full dataset
+            gpu_index.train(database)
+
+        else:
+            raise ValueError(f"Unsupported index type: {self.config.index_type}")
 
         self._index = gpu_index
         self._d = d
