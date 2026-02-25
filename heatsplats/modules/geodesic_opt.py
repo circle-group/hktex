@@ -34,18 +34,6 @@ class GeodesicOpt(optim.Optimizer):
     def __setstate__(self, state):
         super().__setstate__(state)
 
-    def _init_group(self, group, params, grads, momentum_buffer_list):
-        for p in group["params"]:
-            if p.grad is not None:
-                params.append(p)
-                grads.append(p.grad)
-                if p.grad.is_sparse:
-                    raise RuntimeError("GeodesicOpt does not support sparse gradients.")
-
-                if group["momentum"] != 0:
-                    state = self.state[p]
-                    momentum_buffer_list.append(state.get("momentum_buffer"))
-
     @torch.no_grad()
     def step(self, closure=None):
         """Performs a single optimization step."""
