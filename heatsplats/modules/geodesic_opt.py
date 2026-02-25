@@ -15,18 +15,36 @@ class GeodesicOpt(optim.Optimizer):
         params: ParamsT,
         tracer: GeodesicTracer,
         lr: Union[float, Tensor] = 1e-3,
+        momentum: float = 0,
+        dampening: float = 0,
     ):
         if isinstance(lr, Tensor) and lr.numel() != 1:
             raise ValueError("Tensor lr must be 1-element")
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
-        defaults = dict(lr=lr, face_ids=required)
+        if momentum < 0.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        defaults = dict(
+            lr=lr, momentum=momentum, dampening=dampening, face_ids=required
+        )
         super().__init__(params, defaults)
 
         self.tracer = tracer
 
     def __setstate__(self, state):
         super().__setstate__(state)
+
+    def _init_group(self, group, params, grads, momentum_buffer_list):
+        for p in group["params"]:
+            if p.grad is not None:
+                params.append(p)
+                grads.append(p.grad)
+                if p.grad.is_sparse:
+                    raise RuntimeError("GeodesicOpt does not support sparse gradients.")
+
+                if group["momentum"] != 0:
+                    state = self.state[p]
+                    momentum_buffer_list.append(state.get("momentum_buffer"))
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -39,6 +57,10 @@ class GeodesicOpt(optim.Optimizer):
 
         for group in self.param_groups:
             lr = group["lr"]
+            momentum = group["momentum"]
+            has_momentum = momentum != 0
+            dampening = group["dampening"]
+
             # TODO: this check should be somewhere else
             assert len(group["params"]) == len(group["face_ids"])
             for p, face_id in zip(group["params"], group["face_ids"]):
@@ -46,10 +68,28 @@ class GeodesicOpt(optim.Optimizer):
                 face_id: Tensor
                 if p.grad is None:
                     continue
-                d_p = p.grad
+                grad = p.grad
+                state: dict[str, Tensor] = self.state[p]
+
+                momentum_buffer = None
+                if has_momentum:
+                    momentum_buffer = state.get("momentum_buffer")
+                    if momentum_buffer is None:
+                        momentum_buffer = grad.detach().clone()
+                    else:
+                        momentum_buffer.mul_(momentum).add_(grad, alpha=1 - dampening)
+                    grad = momentum_buffer
 
                 bary_coords = getattr(p, "bary_coords", None)
+                self.tracer.trace_(
+                    p,
+                    face_id,
+                    grad.mul(-lr),
+                    bary_coords=bary_coords,
+                    transport_vector=momentum_buffer,
+                )
 
-                self.tracer.trace_(p, face_id, d_p.mul(-lr), bary_coords=bary_coords)
+                if has_momentum:
+                    state["momentum_buffer"] = momentum_buffer
 
         return loss

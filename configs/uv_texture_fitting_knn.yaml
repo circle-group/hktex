@@ -22,7 +22,7 @@ trainer_type: trainers.uv-texture
 trainer:
   use_knn_implementation: True
 
-  tracer_type: modules.cpu-geodesic-tracer
+  tracer_type: modules.gpu-geodesic-tracer
   tracer: 
     n_debug_traces: 10
 
@@ -97,7 +97,8 @@ trainer:
         
     - name: GeodesicOpt
       args:
-        lr: 0.09901128163500622
+        lr: 0.05
+        momentum: 0.9
       # scheduler:
       #   name: CosineAnnealingLR
       #   args:

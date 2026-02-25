@@ -45,8 +45,10 @@ class GeodesicTracer(BaseObject):
         tangent_vector: Float[Tensor, "B 3"],
         *,
         bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        transport_vector: Optional[Float[Tensor, "B 3"]] = None,
         out_coords: Optional[Float[Tensor, "B 3"]] = None,
         out_face_ids: Optional[Float[Tensor, "B"]] = None,
+        out_transport_vector: Optional[Float[Tensor, "B 3"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
         pass
 
@@ -57,14 +59,17 @@ class GeodesicTracer(BaseObject):
         tangent_vector: Float[Tensor, "B 3"],
         *,
         bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        transport_vector: Optional[Float[Tensor, "B 3"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
         return self.trace(
             coords,
             face_ids,
             tangent_vector,
             bary_coords=bary_coords,
+            transport_vector=transport_vector,
             out_coords=coords,
             out_face_ids=face_ids,
+            out_transport_vector=transport_vector,
         )
 
     @property
@@ -111,9 +116,16 @@ class CPUGeodesicTracer(GeodesicTracer):
         tangent_vector: Float[Tensor, "B 3"],
         *,
         bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        transport_vector: Optional[Float[Tensor, "B 3"]] = None,
         out_coords: Optional[Float[Tensor, "B 3"]] = None,
         out_face_ids: Optional[Float[Tensor, "B"]] = None,
+        out_transport_vector: Optional[Float[Tensor, "B 3"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
+        if transport_vector is not None:
+            raise RuntimeError(
+                "CPUGeodesicTracer doesn't support simultaneous parallel transport"
+            )
+
         if bary_coords is None:
             vert_ids = self.mesh.get_face_vertices(face_ids)
             bary_coords = self.mesh.cartesian_to_barycentric(coords, vert_ids)
@@ -228,9 +240,12 @@ class GPUGeodesicTracer(GeodesicTracer):
         tangent_vector: Float[Tensor, "B 3"],
         *,
         bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        transport_vector: Optional[Float[Tensor, "B 3"]] = None,
         out_coords: Optional[Float[Tensor, "B 3"]] = None,
         out_face_ids: Optional[Float[Tensor, "B"]] = None,
+        out_transport_vector: Optional[Float[Tensor, "B 3"]] = None,
     ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
+        needs_parallel_transport = transport_vector is not None
 
         if bary_coords is None:
             vert_ids = self.mesh.get_face_vertices(face_ids)
@@ -238,30 +253,51 @@ class GPUGeodesicTracer(GeodesicTracer):
 
         start_meshpoints = digeo.MeshPointBatch(face_ids.int(), bary_coords[:, 1:])
 
-        end_meshpoints: digeo.MeshPointBatch = digeo.ops.trace_geodesics(
+        end_meshpoints, geodesic_info = digeo.ops.trace_geodesics(
             self._digeo_mesh,
             start_meshpoints,
             tangent_vector,
             gradient="none",
             use_python=False,
             max_steps=self.cfg.max_iterations,
-            save_parallel_transport=False,
+            save_parallel_transport=needs_parallel_transport,
             save_end_direction=False,
             debug=False,
             print_warnings=True,
             avoid_holes=True,
-        )[0]
+        )
 
         new_coords = end_meshpoints.interpolate(self._digeo_mesh)
         new_face_ids = end_meshpoints.faces
 
+        if not bool((new_face_ids >= 0).all()):
+            bad = torch.nonzero(new_face_ids < 0, as_tuple=False).flatten()[:8].tolist()
+            raise AssertionError(
+                f"digeo returned invalid face ids (<0). "
+                f"num_bad={(new_face_ids < 0).sum().item()} sample_idx={bad}"
+            )
+
         if out_coords is None:
-            out_coords = coords.new_tensor(new_coords)
+            out_coords = new_coords.to(device=coords.device, dtype=coords.dtype).clone()
         else:
             out_coords.copy_(new_coords)
 
         if out_face_ids is None:
-            out_face_ids = face_ids.new_tensor(new_face_ids)
+            out_face_ids = new_face_ids.to(
+                device=face_ids.device, dtype=face_ids.dtype
+            ).clone()
         else:
             out_face_ids.copy_(new_face_ids)
-        return out_coords, out_face_ids
+
+        if not needs_parallel_transport:
+            return out_coords, out_face_ids
+
+        new_transport_vector = geodesic_info.transport(transport_vector)
+        if out_transport_vector is None:
+            out_transport_vector = new_transport_vector.to(
+                device=transport_vector.device, dtype=transport_vector.dtype
+            ).clone()
+        else:
+            out_transport_vector.copy_(new_transport_vector)
+
+        return out_coords, out_face_ids, out_transport_vector

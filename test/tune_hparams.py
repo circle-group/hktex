@@ -88,7 +88,10 @@ def trainable(config, root, all_filenames, resolver_paths):
 
     geodesic_optim = {
         "name": "GeodesicOpt",
-        "args": {"lr": config["lr_locations"]},
+        "args": {
+            "lr": config["lr_locations"],
+            "momentum": config["momentum_locations"],
+        },
         "tracer": "tracer",
         "params": {"model._kernel_locations": {"face_ids": "model._kernel_face_ids"}},
     }
@@ -310,7 +313,8 @@ if __name__ == "__main__":
         "lr_anisotropies": tune.loguniform(1e-4, 1e-1),
         "lr_thresholds": tune.loguniform(1e-4, 1e-1),
         "lr_sharpnesses": tune.loguniform(1e-4, 1e-1),
-        "lr_locations": tune.loguniform(1e-3, 1e-1),
+        "lr_locations": tune.loguniform(1e-4, 1e-1),
+        "momentum_locations": tune.choice([0.0, 0.7, 0.9]),
         "dc_importance_selection_threshold": tune.loguniform(0.001, 0.05),
         "dc_importance_contrib_threshold": tune.loguniform(0.001, 0.1),
         "dc_error_threshold": tune.loguniform(0.005, 0.05),

@@ -37,7 +37,13 @@ def parse_optimizer_and_scheduler(
         for p in params:
             p["face_ids"] = [getattr_recursive(model, p["face_ids"])]
         tracer = getattr_recursive(model, config.args.get("tracer", "tracer"))
-        optim = GeodesicOpt(params, tracer, lr=config.args.get("lr", 1e-3))
+        optim = GeodesicOpt(
+            params,
+            tracer,
+            lr=config.args.get("lr", 1e-3),
+            momentum=config.args.get("momentum", 0),
+            dampening=config.args.get("dampening", 0),
+        )
     else:
         optim = getattr(torch.optim, config.name)(params, **config.args)
 
