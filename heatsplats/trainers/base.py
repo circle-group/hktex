@@ -446,6 +446,9 @@ class BaseTrainer(BaseObject):
 
         fig, ax = plt.subplots(figsize=(15, 8))
         for name, norm_list in grads_lists.items():
+            if not norm_list:
+                heatsplats.warn(f"Gradient list for {name} is empty. Skipping.")
+                continue
             ax.plot(steps, norm_list, label=name[1:], markersize=4, marker="o")
 
         ax.set_xlabel("Training Step")

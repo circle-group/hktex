@@ -97,9 +97,8 @@ class HeatKernelTextureKNN(HeatKernelTexture):
                 "Either barys or pts must be provided to prepare points for diffusion"
             )
 
-        query_points = eigalbo_interp.query_points(
-            barys, pts_tri_vert_idx, self.cfg.knn_outer_k
-        )
+        k_search = min(self.cfg.knn_outer_k, self.N_sources)
+        query_points = eigalbo_interp.query_points(barys, pts_tri_vert_idx, k_search)
         return PointsInfoKNN(
             albo_evals=query_points["evals"],
             albo_evecs=query_points["evecs"],
@@ -151,6 +150,8 @@ class HeatKernelTextureKNN(HeatKernelTexture):
             contribs.sum(dim=1, keepdim=True) + 1e-8
         )
 
+        colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
+
         topk_global = torch.gather(pts_indices, dim=1, index=topk_local)  # [P,k]
         kernel_contributions = filtered.new_zeros((self.N_sources, P, 1))  # [G,P,1]
         kernel_contributions.scatter_(
@@ -160,5 +161,4 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         )
         topk_kernel_idxs = topk_global.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
 
-        colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
         return colours, kernel_contributions, topk_kernel_idxs

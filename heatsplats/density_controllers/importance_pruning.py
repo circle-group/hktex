@@ -21,6 +21,7 @@ class ImportancePruningController(BaseDensityController):
 
         selection_threshold: float = 0.001
         contrib_threshold: float = 0.01
+        min_kernels: int = 100
 
     cfg: Config
 
@@ -95,6 +96,27 @@ class ImportancePruningController(BaseDensityController):
         is_contribless = avg_contribs < self.cfg.contrib_threshold
 
         prune_mask = is_unused | is_contribless
+
+        # Ensure we maintain a minimum number of kernels
+        num_kernels = self._model.N_sources
+        num_to_prune = prune_mask.sum().item()
+
+        if num_kernels - num_to_prune < self.cfg.min_kernels:
+            num_allowed_to_prune = max(0, num_kernels - self.cfg.min_kernels)
+
+            if num_allowed_to_prune == 0:
+                prune_mask[:] = False
+            else:
+                # We need to prune fewer kernels than identified.
+                # We prioritize pruning those with the lowest contribution.
+                prune_indices = torch.where(prune_mask)[0]
+                scores = avg_contribs[prune_indices]
+                _, indices_to_prune_local = torch.topk(
+                    scores, k=num_allowed_to_prune, largest=False
+                )
+                indices_to_prune = prune_indices[indices_to_prune_local]
+                prune_mask = torch.zeros_like(prune_mask)
+                prune_mask[indices_to_prune] = True
 
         num_before = len(prune_mask)
         self._remove_kernels(prune_mask)
