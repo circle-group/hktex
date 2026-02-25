@@ -2,7 +2,7 @@
 
 To create the environment, open a terminal and type:
 ```bash
-mamba create -n geosplat python=3.11.13
+mamba create -n hktex python=3.11.13
 ```
 Then run the the following commands to install the necessary dependencies:
 ```bash 
@@ -20,6 +20,8 @@ pip install ipykernel ipywidgets
 pip install imageio[ffmpeg]
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 pip install torchmetrics
+
+mamba install -c pytorch -c nvidia -c rapidsai -c conda-forge libnvjitlink faiss-gpu-cuvs=1.13.1
 ```
 
 Optional for NNs:

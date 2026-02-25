@@ -98,10 +98,12 @@ class HeatKernelTextureKNN(HeatKernelTexture):
                 "Either barys or pts must be provided to prepare points for diffusion"
             )
 
+        k_search = min(self.cfg.knn_outer_k, self.N_sources)
         with torch.profiler.record_function("query_points"):
             query_points = eigalbo_interp.query_points(
-                barys, pts_tri_vert_idx, self.cfg.knn_outer_k
+                barys, pts_tri_vert_idx, k_search
             )
+
         return PointsInfoKNN(
             albo_evals=query_points["evals"],
             albo_evecs=query_points["evecs"],

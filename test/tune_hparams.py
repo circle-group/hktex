@@ -22,6 +22,8 @@ from ray.tune.search import ConcurrencyLimiter
 
 import mitsuba as mi
 
+mi.set_variant("cuda_ad_rgb")
+
 from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
@@ -116,14 +118,18 @@ def trainable(config, root, all_filenames, resolver_paths):
     densify_interval = int(total_iters * config["dc_densify_interval_frac"])
     error_accumulation_interval = int(densify_interval * config["dc_error_accum_ratio"])
 
+    prune_interval = int(total_iters * config["dc_importance_prune_interval_frac"])
+    prune_accumulation_interval = int(
+        prune_interval * config["dc_importance_accum_ratio"]
+    )
     config[
         "trainer.density_controllers"
     ] = f"""
     - density_controller_type: density_controllers.importance_pruning
       args:
         start_iter: {int(total_iters * config["dc_importance_start_iter_frac"])}
-        prune_interval: {int(total_iters * config["dc_importance_prune_interval_frac"])}
-        accumulation_interval: {int(total_iters * config["dc_importance_accum_ratio"])}
+        prune_interval: {prune_interval}
+        accumulation_interval: {prune_accumulation_interval}
         selection_threshold: {config["dc_importance_selection_threshold"]}
         contrib_threshold: {config["dc_importance_contrib_threshold"]}
         stop_iter: {int(total_iters * config["dc_importance_stop_iter_frac"])}
@@ -280,7 +286,7 @@ if __name__ == "__main__":
         "trainer.eigen_albo.local_frames": tune.choice(
             ["principal_curvatures", "axis_aligned_20", "axis_aligned_5"]
         ),
-        "trainer.model.diff_time": tune.loguniform(1e-8, 1e-1),
+        "trainer.model.diff_time": tune.loguniform(1e-6, 0.2),
         "trainer.eigen_albo.distance_weighting": tune.choice(
             ["none", "gaussian_0.1", "gaussian_0.05", "inverse"]
         ),
@@ -298,21 +304,21 @@ if __name__ == "__main__":
         "lr_anisotropies": tune.loguniform(1e-4, 1e-1),
         "lr_thresholds": tune.loguniform(1e-4, 1e-1),
         "lr_sharpnesses": tune.loguniform(1e-4, 1e-1),
-        "lr_locations": tune.loguniform(1e-4, 1e-1),
-        "dc_importance_selection_threshold": tune.loguniform(0.005, 0.5),
-        "dc_importance_contrib_threshold": tune.loguniform(0.005, 0.5),
+        "lr_locations": tune.loguniform(1e-3, 1e-1),
+        "dc_importance_selection_threshold": tune.loguniform(0.001, 0.05),
+        "dc_importance_contrib_threshold": tune.loguniform(0.001, 0.1),
         "dc_error_threshold": tune.loguniform(0.005, 0.05),
         "dc_size_threshold": tune.uniform(0.1, 0.4),
         "dc_max_densify_ratio": tune.choice([0.3, 0.4, 0.5]),
         "dc_importance_start_iter_frac": tune.choice([0.1, 0.2]),
-        "dc_importance_prune_interval_frac": tune.choice([0.05, 0.1]),
+        "dc_importance_prune_interval_frac": tune.choice([0.1, 0.2, 0.5]),
         "dc_importance_accum_ratio": tune.choice([0.25, 0.5, 0.75]),
         "dc_importance_stop_iter_frac": tune.choice([0.5, 0.6, 0.7]),
         "dc_error_start_iter_frac": tune.choice([0.05, 0.08]),
         "dc_densify_interval_frac": tune.choice([0.01, 0.02, 0.04, 0.08]),
         "dc_error_accum_ratio": tune.choice([0.25, 0.5, 0.75]),
         "dc_error_stop_iter_frac": tune.choice([0.7, 0.8]),
-        "dc_error_split_radius": tune.choice([0.05, 0.1, 0.2]),
+        "dc_error_split_radius": tune.choice([0.1, 0.15, 0.2]),
         "dc_max_kernels_mult": tune.choice([2, 5, 10]),
     }
 
