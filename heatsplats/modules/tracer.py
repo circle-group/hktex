@@ -6,16 +6,18 @@ import numpy as np
 
 import torch
 import potpourri3d as pp3d
+import digeo
+import digeo.ops
 
 from tqdm import tqdm
 
 import heatsplats
-from heatsplats.utils import cart_to_bary_coords, BaseObject
+from heatsplats.utils import BaseObject
 from heatsplats.utils.typing import *
 
 from .mesh import Mesh
 
-__all__ = ["GeodesicTracer", "CPUGeodesicTracer"]
+__all__ = ["GeodesicTracer", "CPUGeodesicTracer", "GPUGeodesicTracer"]
 
 
 class GeodesicTracer(BaseObject):
@@ -92,7 +94,7 @@ class CPUGeodesicTracer(GeodesicTracer):
         self.tracer = pp3d.GeodesicTracer(vertices_np, faces_np)
 
         n_debug_traces = self.cfg.n_debug_traces
-        self._mesh = trimesh.Trimesh(vertices_np, faces_np)
+        self._mesh = trimesh.Trimesh(vertices_np, faces_np, process=False)
         self._traces_info = (
             {
                 "traces": [[] for _ in range(n_debug_traces)],
@@ -182,3 +184,84 @@ class CPUGeodesicTracer(GeodesicTracer):
                 self._traces_info["starts"][i] = []
         else:
             raise ValueError("Tracing info is not enabled.")
+
+
+@heatsplats.register("modules.gpu-geodesic-tracer")
+class GPUGeodesicTracer(GeodesicTracer):
+    @dataclass
+    class Config(GeodesicTracer.Config):
+        max_iterations: Optional[int] = None
+
+        n_debug_traces: int = 10
+
+    cfg: Config
+
+    def configure(self, mesh: Mesh):
+        super().configure(mesh)
+
+        if self.debug:
+            heatsplats.warn(
+                "GPUGeodesicTracer does not support debug mode (trace visualization).",
+                "Disabling debug mode.",
+            )
+            self.debug = False
+
+        if self.cfg.max_iterations is None:
+            self.cfg.max_iterations = 2**63 - 1  # like pp3d
+
+        self._digeo_mesh = digeo.Mesh(
+            positions=self.mesh.verts.cpu().numpy(),
+            triangles=self.mesh.faces.cpu().numpy(),
+            adjacencies=None,
+            triangle_normals=self.mesh.fnorms.cpu().numpy(),
+            v2t=None,
+            vertex_normals=self.mesh.vnorms.cpu().numpy(),
+            device=self.mesh.verts.device,
+            dtype=torch.float32,
+        )
+
+    @torch.no_grad()
+    def trace(
+        self,
+        coords: Float[Tensor, "B 3"],
+        face_ids: Int[Tensor, "B"],
+        tangent_vector: Float[Tensor, "B 3"],
+        *,
+        bary_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_coords: Optional[Float[Tensor, "B 3"]] = None,
+        out_face_ids: Optional[Float[Tensor, "B"]] = None,
+    ) -> tuple[Float[Tensor, "B 3"], Int[Tensor, "B"]]:
+
+        if bary_coords is None:
+            vert_ids = self.mesh.get_face_vertices(face_ids)
+            bary_coords = self.mesh.cartesian_to_barycentric(coords, vert_ids)
+
+        start_meshpoints = digeo.MeshPointBatch(face_ids.int(), bary_coords[:, 1:])
+
+        end_meshpoints: digeo.MeshPointBatch = digeo.ops.trace_geodesics(
+            self._digeo_mesh,
+            start_meshpoints,
+            tangent_vector,
+            gradient="none",
+            use_python=False,
+            max_steps=self.cfg.max_iterations,
+            save_parallel_transport=False,
+            save_end_direction=False,
+            debug=False,
+            print_warnings=True,
+            avoid_holes=True,
+        )[0]
+
+        new_coords = end_meshpoints.interpolate(self._digeo_mesh)
+        new_face_ids = end_meshpoints.faces
+
+        if out_coords is None:
+            out_coords = coords.new_tensor(new_coords)
+        else:
+            out_coords.copy_(new_coords)
+
+        if out_face_ids is None:
+            out_face_ids = face_ids.new_tensor(new_face_ids)
+        else:
+            out_face_ids.copy_(new_face_ids)
+        return out_coords, out_face_ids

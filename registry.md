@@ -14,6 +14,7 @@
 |   Registry    |     File      |     Class     |
 | ------------- | ------------- | ------------- |
 | modules.cpu-geodesic-tracer  | [tracer.py](./heatsplats/modules/tracer.py) | CPUGeodesicTracer |
+| modules.gpu-geodesic-tracer  | [tracer.py](./heatsplats/modules/tracer.py) | GPUGeodesicTracer |
 | modules.eigen-albo-interpolation  |  [eigen_albo.py](./heatsplats/modules/eigen_albo.py) | EigenAlboInterpolation |
 
 ## Trainers

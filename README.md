@@ -24,6 +24,15 @@ pip install torchmetrics
 mamba install -c pytorch -c nvidia -c rapidsai -c conda-forge libnvjitlink faiss-gpu-cuvs=1.13.1
 ```
 
+For GPU tracing (temporary).
+Download whl file
+https://github.com/Etyl/DiGeo/releases/download/0.0.4/digeo-0.0.4-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
+and then:
+```bash
+pip install digeo-0.0.4-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
+```
+
+
 Optional for NNs:
 ```bash
 mamba install conda-forge::tiny-cuda-nn
