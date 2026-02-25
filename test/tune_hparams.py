@@ -247,6 +247,12 @@ if __name__ == "__main__":
         default=4,
         help="Maximum number of trials to run concurrently.",
     )
+    parser.add_argument(
+        "--gpus_per_trial",
+        type=float,
+        default=1.0,
+        help="Number of GPUs to allocate per trial (can be fractional, e.g. 0.5).",
+    )
 
     cli_args = parser.parse_args()
 
@@ -340,15 +346,15 @@ if __name__ == "__main__":
             all_filenames=subset_filenames,
             resolver_paths=resolver_paths,
         ),
-        {"gpu": 1},
+        {"gpu": cli_args.gpus_per_trial},
     )
 
     tuner = tune.Tuner(
         trainable_with_gpu,
         param_space=search_space,
         tune_config=tune.TuneConfig(
-            metric="mean_error",
-            mode="min",
+            metric=["mean_error", "storage_npz_kb"],
+            mode=["min", "min"],
             search_alg=search_alg,
             num_samples=cli_args.num_samples,
         ),
@@ -362,9 +368,23 @@ if __name__ == "__main__":
     print("TUNING COMPLETE")
     print("=" * 80)
 
-    best_result = results.get_best_result()
-    print("Best trial config: ", best_result.config)
-    print(f"Best trial final validation loss: {best_result.metrics['mean_error']:.4f}")
+    best_error_result = results.get_best_result(metric="mean_error", mode="min")
+    print("Best error trial config: ", best_error_result.config)
+    print(
+        f"Best trial final validation loss: {best_error_result.metrics['mean_error']:.4f}"
+    )
+    print(
+        f"Corresponding model size: {best_error_result.metrics['storage_npz_kb']:.2f} KB"
+    )
+
+    best_size_result = results.get_best_result(metric="storage_npz_kb", mode="min")
+    print("Best size trial config: ", best_size_result.config)
+    print(
+        f"Best trial final model size: {best_size_result.metrics['storage_npz_kb']:.2f} KB"
+    )
+    print(
+        f"Corresponding validation loss: {best_size_result.metrics['mean_error']:.4f}"
+    )
 
     # Get a pandas DataFrame with the results
     df = results.get_dataframe()
@@ -377,7 +397,9 @@ if __name__ == "__main__":
         h for h in hparam_cols if isinstance(search_space[h], tune.search.sample.Domain)
     ]
 
-    display_cols = ["mean_error"] + [f"config/{h}" for h in hparam_cols]
+    display_cols = ["mean_error", "storage_npz_kb"] + [
+        f"config/{h}" for h in hparam_cols
+    ]
 
     # Sort by the metric and show the top 5 trials
     sorted_df = df.sort_values("mean_error", ascending=True)
@@ -406,6 +428,12 @@ if __name__ == "__main__":
         # Plot slice plot to see parameter relationships
         slice_plot = optuna.visualization.plot_slice(study)
         slice_plot.write_html(os.path.join(experiment_dir, "optuna_slice.html"))
+
+        # Plot Pareto front for multi-objective optimization
+        pareto_plot = optuna.visualization.plot_pareto_front(
+            study, target_names=["mean_error", "storage_npz_kb"]
+        )
+        pareto_plot.write_html(os.path.join(experiment_dir, "optuna_pareto.html"))
 
         print("Successfully saved Optuna plots.")
 
