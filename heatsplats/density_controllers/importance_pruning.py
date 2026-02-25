@@ -46,8 +46,9 @@ class ImportancePruningController(BaseDensityController):
     def pre_backward_step(
         self,
         step: int,
-        kernel_contributions: Float[Tensor, "G P 1"],
-        topk_kernel_idxs: Int[Tensor, "kG"],
+        kernel_contributions: Optional[Float[Tensor, "G P 1"]],
+        topk_kernel_idxs: Int[Tensor, "k P 1"],
+        topk_kernel_contribs: Optional[Float[Tensor, "k P 1"]] = None,
         **kwargs,
     ):
         is_active = step >= (self.cfg.start_iter - self.cfg.accumulation_interval)
@@ -63,9 +64,16 @@ class ImportancePruningController(BaseDensityController):
 
             self._model._hit_accumulator.scatter_add_(dim=0, index=idx_flat, src=ones)
 
-            topk_contribs = torch.gather(
-                kernel_contributions, dim=0, index=topk_kernel_idxs
-            )
+            if topk_kernel_contribs is not None:
+                topk_contribs = topk_kernel_contribs
+            else:
+                if kernel_contributions is None:
+                    raise ValueError(
+                        "Need either dense kernel contributions or topk kernel contributions"
+                    )
+                topk_contribs = torch.gather(
+                    kernel_contributions, dim=0, index=topk_kernel_idxs
+                )
 
             contribs_flat = topk_contribs.reshape(-1, 1)
             self._model._contrib_accumulator.scatter_add_(
@@ -73,14 +81,19 @@ class ImportancePruningController(BaseDensityController):
             )
 
     def post_backward_step(self, step, *args, **kwargs):
-        if step < self.cfg.start_iter:
+        is_prune_step = (
+            step >= self.cfg.start_iter and step % self.cfg.prune_interval == 0
+        )
+        if self.cfg.stop_iter is not None:
+            is_prune_step = is_prune_step and step < self.cfg.stop_iter
+
+        if not is_prune_step:
             return
 
-        if step % self.cfg.prune_interval == 0:
-            self.prune_redundant_kernels()
-            self._model._hit_accumulator.zero_()
-            self._model._contrib_accumulator.zero_()
-            torch.cuda.empty_cache()  # Free up memory after pruning
+        self.prune_redundant_kernels()
+        self._model._hit_accumulator.zero_()
+        self._model._contrib_accumulator.zero_()
+        torch.cuda.empty_cache()  # Free up memory after pruning
 
     @torch.no_grad()
     def prune_redundant_kernels(self):

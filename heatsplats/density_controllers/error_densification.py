@@ -55,8 +55,9 @@ class ErrorDensificationController(BaseDensityController):
         step: int,
         rendered_colours: Float[Tensor, "P D"],
         gt_colours: Float[Tensor, "P D"],
-        kernel_contributions: Float[Tensor, "G P 1"],
-        topk_kernel_idxs: Int[Tensor, "kG"],
+        kernel_contributions: Optional[Float[Tensor, "G P 1"]],
+        topk_kernel_idxs: Int[Tensor, "k P 1"],
+        topk_kernel_contribs: Optional[Float[Tensor, "k P 1"]] = None,
         *args,
         **kwargs,
     ):
@@ -82,19 +83,30 @@ class ErrorDensificationController(BaseDensityController):
         with torch.no_grad():
             per_point_error = torch.abs(rendered_colours - gt_colours).mean(dim=1)
 
-            # Mask 'filtered' so only the top-k are considered
-            mask = torch.zeros_like(kernel_contributions)
-            mask.scatter_(0, topk_kernel_idxs, 1.0)
-            masked_filtered = kernel_contributions * mask
+            if topk_kernel_contribs is not None:
+                topk_contribs = topk_kernel_contribs
+            else:
+                if kernel_contributions is None:
+                    raise ValueError(
+                        "Need either dense kernel contributions or topk kernel contributions"
+                    )
+                topk_contribs = torch.gather(
+                    kernel_contributions, dim=0, index=topk_kernel_idxs
+                )  # [k, P, 1]
 
             # Normalize the weights to distribute errors based on actual influence
-            normalization = masked_filtered.sum(dim=0, keepdim=True) + 1e-8
-            normalized_contribs = masked_filtered / normalization
+            normalization = topk_contribs.sum(dim=0, keepdim=True) + 1e-8  # [1,P,1]
+            normalized_contribs = topk_contribs / normalization  # [k,P,1]
 
-            kernel_error = (
-                normalized_contribs.squeeze(-1) @ per_point_error
-            ).unsqueeze(-1)
-            self._model._error_accumulator += kernel_error
+            # fmt: off
+            weighted_error = normalized_contribs.squeeze(-1) \
+                * per_point_error.unsqueeze(0)  # [k,P]
+            # fmt: on
+            self._model._error_accumulator.scatter_add_(
+                dim=0,
+                index=topk_kernel_idxs.reshape(-1, 1),
+                src=weighted_error.reshape(-1, 1),
+            )
 
     def post_backward_step(
         self,

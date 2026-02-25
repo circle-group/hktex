@@ -64,13 +64,14 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         if save_barycentric:
             self.save_barycentric_locations(kernel_barycentric_coords)
 
-        eigalbo_knn.build_kernel_graph(
-            kernel_bary=kernel_barycentric_coords,
-            kernel_vert_idx=kernel_vert_idx,
-            kernel_angles=self.angles,
-            kernel_scales=self.anisotropies,
-            diffusion_time=self.diff_times,
-        )
+        with torch.profiler.record_function("build_kernel_graph"):
+            eigalbo_knn.build_kernel_graph(
+                kernel_bary=kernel_barycentric_coords,
+                kernel_vert_idx=kernel_vert_idx,
+                kernel_angles=self.angles,
+                kernel_scales=self.anisotropies,
+                diffusion_time=self.diff_times,
+            )
         return KernelInfo(
             vert_idx=kernel_vert_idx,
             barycentric_coords=kernel_barycentric_coords,
@@ -97,9 +98,10 @@ class HeatKernelTextureKNN(HeatKernelTexture):
                 "Either barys or pts must be provided to prepare points for diffusion"
             )
 
-        query_points = eigalbo_interp.query_points(
-            barys, pts_tri_vert_idx, self.cfg.knn_outer_k
-        )
+        with torch.profiler.record_function("query_points"):
+            query_points = eigalbo_interp.query_points(
+                barys, pts_tri_vert_idx, self.cfg.knn_outer_k
+            )
         return PointsInfoKNN(
             albo_evals=query_points["evals"],
             albo_evecs=query_points["evecs"],
@@ -114,7 +116,9 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         self,
         eigalbo_interp: EigenAlboInterpolationKNN,
         pts_info: PointsInfoKNN,
-    ) -> Float[Tensor, "P D"]:
+    ) -> Tuple[
+        Float[Tensor, "P D"], None, Float[Tensor, "k P 1"], Float[Tensor, "k P 1"]
+    ]:
         pts_evecs: Float[Tensor, "P K E"] = pts_info["albo_evecs"]
         pts_evals: Float[Tensor, "P K E"] = pts_info["albo_evals"]
         pts_weights: Float[Tensor, "P K"] | None = pts_info["weights"]
@@ -123,42 +127,45 @@ class HeatKernelTextureKNN(HeatKernelTexture):
 
         P, K, _ = pts_evecs.shape
 
-        heat_qk, heat_qk_norm = eigalbo_interp.diffuse_heat(
-            pts_evals, pts_evecs, pts_indices, weights=pts_weights
-        )
+        with torch.profiler.record_function("diffuse_heat"):
+            heat_qk, heat_qk_norm = eigalbo_interp.diffuse_heat(
+                pts_evals, pts_evecs, pts_indices, weights=pts_weights
+            )
         diffused_diracs: Float[Tensor, "P K"] = (
             heat_qk_norm if heat_qk_norm is not None else heat_qk
         )
 
-        filtered: Float[Tensor, "P K"] = self.kernel_filter_func(
-            diffused_diracs,
-            epsilon=self.thresholds[pts_indices],
-            sharpness=self.sharpnesses[pts_indices],
-        )
+        with torch.profiler.record_function("kernel_filter"):
+            filtered: Float[Tensor, "P K"] = self.kernel_filter_func(
+                diffused_diracs,
+                epsilon=self.thresholds[pts_indices],
+                sharpness=self.sharpnesses[pts_indices],
+            )
 
-        kernel_colours_knn = self.kernel_colours[pts_indices]  # [P, K, D]
-        colours: Float[Tensor, "P K D"] = filtered.unsqueeze(-1) * kernel_colours_knn
+        with torch.profiler.record_function("inner_knn_reduce"):
+            kernel_colours_knn = self.kernel_colours[pts_indices]  # [P, K, D]
+            colours: Float[Tensor, "P K D"] = (
+                filtered.unsqueeze(-1) * kernel_colours_knn
+            )
 
-        contribs: Float[Tensor, "P k 1"]
-        k_use = min(self.cfg.knn_inner_k, K)
-        contribs, topk_local = filtered.topk(k=k_use, largest=True, dim=1)
+            contribs: Float[Tensor, "P k"]
+            k_use = min(self.cfg.knn_inner_k, K)
+            contribs, topk_local = filtered.topk(k=k_use, largest=True, dim=1)
 
-        idx_exp = topk_local.unsqueeze(-1).expand(-1, -1, colours.size(-1))  # [P, k, D]
-        contrib_colours: Float[Tensor, "P k D"] = torch.gather(
-            colours, dim=1, index=idx_exp
-        )
-        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / (
-            contribs.sum(dim=1, keepdim=True) + 1e-8
-        )
+            idx_exp = topk_local.unsqueeze(-1).expand(
+                -1, -1, colours.size(-1)
+            )  # [P, k, D]
+            contrib_colours: Float[Tensor, "P k D"] = torch.gather(
+                colours, dim=1, index=idx_exp
+            )
+            colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / (
+                contribs.sum(dim=1, keepdim=True) + 1e-8
+            )
 
-        topk_global = torch.gather(pts_indices, dim=1, index=topk_local)  # [P,k]
-        kernel_contributions = filtered.new_zeros((self.N_sources, P, 1))  # [G,P,1]
-        kernel_contributions.scatter_(
-            0,
-            pts_indices.transpose(0, 1).unsqueeze(-1),  # [K,P,1]
-            filtered.transpose(0, 1).unsqueeze(-1),  # [K,P,1]
-        )
-        topk_kernel_idxs = topk_global.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
+            topk_global = torch.gather(pts_indices, dim=1, index=topk_local)  # [P,k]
+            kernel_contributions = None
+            topk_kernel_idxs = topk_global.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
+            topk_kernel_contribs = contribs.transpose(0, 1).unsqueeze(-1)  # [k,P,1]
 
         colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
-        return colours, kernel_contributions, topk_kernel_idxs
+        return colours, kernel_contributions, topk_kernel_idxs, topk_kernel_contribs

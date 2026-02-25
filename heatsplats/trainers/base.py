@@ -149,11 +149,17 @@ class BaseTrainer(BaseObject):
             gt_colours: Tensor = data["colour"]
 
             if self.cfg.use_knn_implementation:
-                colours, kernel_contributions, topk_kernel_idxs = self.forward_knn(data)
+                (
+                    colours,
+                    kernel_contributions,
+                    topk_kernel_idxs,
+                    topk_kernel_contribs,
+                ) = self.forward_knn(data)
             else:
                 colours, kernel_contributions, topk_kernel_idxs, kernel_info = (
                     self.forward_model(data)
                 )
+                topk_kernel_contribs = None
 
             if i == 0:
                 init_colours = colours.clone().detach()
@@ -171,6 +177,7 @@ class BaseTrainer(BaseObject):
                     gt_colours=gt_colours,
                     kernel_contributions=kernel_contributions,
                     topk_kernel_idxs=topk_kernel_idxs,
+                    topk_kernel_contribs=topk_kernel_contribs,
                 )
 
             loss.backward()
@@ -265,14 +272,14 @@ class BaseTrainer(BaseObject):
         self.model: HeatKernelTextureKNN
         points_info: PointsInfo = data["points_info"]
 
-        colours, kernel_contributions, topk_kernel_idxs = (
+        colours, kernel_contributions, topk_kernel_idxs, topk_kernel_contribs = (
             self.model.diffuse_heat_kernels(
                 eigalbo_interp=self.eigalbo_interp, pts_info=points_info
             )
         )  # [P, D]
 
         colours = self.model(colours)  # Postprocess
-        return colours, kernel_contributions, topk_kernel_idxs
+        return colours, kernel_contributions, topk_kernel_idxs, topk_kernel_contribs
 
     @abstractmethod
     def render_gt(self, rotating_frames: int = 10) -> Union[mi.Bitmap, list[mi.Bitmap]]:

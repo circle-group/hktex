@@ -64,7 +64,7 @@ class HeatKernelsTextureKNN(mi.Texture):
                 pts=pts_batch,
             )
 
-            colours_batch, _, _ = self.model.diffuse_heat_kernels(
+            colours_batch, _, _, _ = self.model.diffuse_heat_kernels(
                 eigalbo_interp=self.eigalbo_interp, pts_info=points_info
             )  # [p, D] with p = pts_batch.shape[0]
 

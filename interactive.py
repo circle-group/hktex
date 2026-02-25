@@ -69,7 +69,7 @@ if __name__ == "__main__":
         # "data.mesh_path": "../objects/cat_tri/12221_Cat_v1_l3.obj",
         "trainer.tracer.debug": False,
         # "trainer.tracer.n_debug_traces": 100,
-        "optim.iters": 1000,
+        "optim.iters": 500,
         # "data.batch_size": 512,
         # "data.sample_all_vertices": False,
         # "trainer.model.n_sources": 500,
@@ -105,8 +105,8 @@ if __name__ == "__main__":
 
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 
-    profile = False
-    render = True
+    profile = True
+    render = False
 
     if profile:
         with torch.profiler.profile(
