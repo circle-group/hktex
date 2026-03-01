@@ -233,6 +233,9 @@ class BaseRenderer(BaseObject):
 
         return camera_dict
 
+    def get_camera_params(self, **overrides):
+        return self.set_centre_looking_camera(self.cfg.camera_config, **overrides)
+
     def change_camera_param(self, **overrides):
         self._camera_dict = self.set_centre_looking_camera(
             self.cfg.camera_config, **overrides
@@ -382,6 +385,7 @@ class BaseRenderer(BaseObject):
         drjit.set_flag(drjit.JitFlag.SymbolicLoops, state and not no_loops)
         drjit.set_flag(drjit.JitFlag.SymbolicCalls, state)
         drjit.set_flag(drjit.JitFlag.OptimizeCalls, state and not no_opt_calls)
+        drjit.set_flag(drjit.JitFlag.SymbolicConditionals, state)
 
     @staticmethod
     def flush_cache():

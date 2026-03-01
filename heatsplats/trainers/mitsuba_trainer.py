@@ -189,7 +189,11 @@ class MlpTrainer(ObjectWithCallbacks):
     def save_model(self, filename):
         self.model.save_torch(filename)
         torch_size = os.path.getsize(filename)
-        return torch_size / 1024, None
+
+        npz_filename = filename.replace(".pt", ".npz")
+        self.model.save_numpy_npz(npz_filename)
+        npz_size = os.path.getsize(npz_filename)
+        return torch_size / 1024, npz_size / 1024
 
 
 class MitsubaMlpTrainer(MlpTrainer):

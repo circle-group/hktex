@@ -136,7 +136,6 @@ class BaseTrainer(BaseObject):
         grads_lists = {k: [] for k, _ in self.model.named_parameters()}
 
         for i in (pbar := tqdm(range(n_iter))):
-
             if debug_log_dir is not None and (i == 0 or i % 500 == 0):
                 current_rnd = self.render_result(self.cfg.renderer.n_rotating_frames)
                 save_video(current_rnd, os.path.join(debug_log_dir, f"iter_{i}.mp4"))
@@ -333,6 +332,8 @@ class BaseTrainer(BaseObject):
             out = renderer.rotating_video(mi_mesh, rotating_frames)
 
         renderer.flush_cache()
+        if self.cfg.use_knn_implementation:
+            self.model.reset(self.eigalbo_interp)
 
         return out
 

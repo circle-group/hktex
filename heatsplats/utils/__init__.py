@@ -17,3 +17,4 @@ from .video import *
 from .image import *
 from .mitsuba import *
 from .metrics import *
+from .color import *

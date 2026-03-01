@@ -49,7 +49,7 @@ class HeatKernelModel(TextureModel):
         self.mesh = kwargs["mesh"]
         assert self.mesh is not None
 
-        self.model = HeatKernelTexture(self.cfg.model, self.mesh)
+        self.model = self._make_model()
 
         EigenAlboClass = heatsplats.find(self.cfg.eigen_albo_type)
         self.eigalbo_interp: EigenAlboInterpolation = EigenAlboClass(
@@ -69,17 +69,24 @@ class HeatKernelModel(TextureModel):
             self.cfg.tracer, self.mesh
         )
 
+    def _make_model(self):
+        return HeatKernelTexture(self.cfg.model, self.mesh)
+
     def requires_scene_bounds(self):
         return False
 
     def requires_face_ids(self):
         return True
 
+    def post_optimizer_step(self):
+        self.model.post_optimizer_step()
+
     def forward(
         self, pts: Float[Tensor, "P in_dim"], **kwargs
     ) -> Float[Tensor, "P out_dim"]:
         face_ids: Tensor = kwargs["face_ids"].to(torch.int)
         P = pts.shape[0]
+        assert P == face_ids.shape[0]
         batch_size = self.cfg.point_batching
 
         albo_weights = self.eigalbo_interp.interpolate_anisotropies(

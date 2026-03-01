@@ -1,0 +1,136 @@
+name: "uv-mitsuba-fitting"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: data.camera-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+  
+  batch_size: 8
+  num_workers: 0
+
+  img_width: 256
+  img_height: 256
+
+  bounds:
+    camera_distance: ${tup:3.6,3.8}
+    azimuth_deg: ${tup:0.0,360.0}
+    elevation_deg: ${tup:0.0,10.0}
+
+  extra_overrides:
+    sampler_type: independent
+
+trainer_type: trainers.uv-texture-mitsuba-ray
+trainer:
+  use_knn_implementation: True
+  
+  network_type: modules.heat-kernel-model-knn
+  network: 
+    eigen_albo_type: modules.eigen-albo-interpolation-knn
+    eigen_albo: 
+      k_eig: 256
+      mesh_path: ${data.mesh_path}
+      distance_weighting: gaussian_0.05
+      # mass_type: ${trainer.model.mass_type}
+      local_frames: axis_aligned_20
+      precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
+      precompute_angles_every_deg: 30
+
+      knn_embedding_dim: 64
+
+      faiss:
+        use_float16: False
+        distance_impl: bmm
+        build_db_norm: True
+        compile_distances: True
+
+      gather:
+        select_impl: bilinear4
+        compile_select: True
+        gather_impl: stream_vertices
+        compile_gather: True
+
+      weighting:
+        kernel: gaussian
+        gaussian_std: 0.05
+        normalize: False
+        compile_kernel: True
+
+      heat:
+        compile_heat: True
+
+    model: 
+      n_sources: 10000
+      kernel_dim: 32
+      diff_time: 0.0008133321288953395
+      mass_type: one
+      init_min_threshold: 0.9  # The higher the smaller
+      range_enforcement_type: pgd
+      init_kernel_edge_type: uniform
+      out_net: False
+      normalize_colours: False
+      allow_negative_colours: True
+
+      knn_outer_k: 100
+      knn_inner_k: 10
+
+    tracer_type: modules.gpu-geodesic-tracer
+
+    point_batching: 1024
+
+  spp: 0
+  grad_spp: 32
+
+  loss_type: smooth_l1_loss
+  data_initialisation_random_ratio: 0.5
+
+  use_linear_gamma_space: True
+  use_hdr: False
+
+  batch_size: 128
+  shuffle_rays: True
+
+  ray_integrator: "rb_ray"
+  base_integrator: "prb"
+  integrator_max_depth: 5
+  integrator_hide_emitters: False
+
+  gt_spp: 0
+
+  optimizers:
+    - name: Adam
+      args: {}
+      #   lr: 1e-3  #5e-4
+      params:
+        model._mean_colour: {lr: 0.001}
+        model._kernel_colours: {lr: 0.011243004246581364}
+        model._angles: {lr: 0.005}
+        model._anisotropies: {lr: 0.005}
+        model._thresholds: {lr: 0.008917199645256857}
+        model._sharpnesses: {lr: 0.005495279901986241}
+        # model.out_net: {}
+      scheduler:
+        name: StepLR
+        args:
+          step_size: 10
+          gamma: 0.5
+        
+    - name: GeodesicOpt
+      args:
+        lr: 0.05
+        momentum: 0.9
+      # scheduler:
+      #   name: CosineAnnealingLR
+      #   args:
+      #     T_max: ${optim.iters}
+      #     eta_min: 1e-7
+      tracer: tracer
+      params:
+        model._kernel_locations:
+          face_ids: model._kernel_face_ids
+
+optim:
+  iters: 10000

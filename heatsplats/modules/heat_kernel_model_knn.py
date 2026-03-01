@@ -38,23 +38,30 @@ class HeatKernelModelKNN(HeatKernelModel):
     ):
         super().configure(**kwargs)
 
-        # TODO: make this dynamic in base class
-        self.model = HeatKernelTextureKNN(self.cfg.model, self.mesh)
-
         assert isinstance(
             self.eigalbo_interp, EigenAlboInterpolationKNN
         ), "Incorrect EigenAlbo Interpolator Type"
+
+    def _make_model(self):
+        return HeatKernelTextureKNN(self.cfg.model, self.mesh)
 
     def prepare_kernels(self):
         return self.model.prepare_kernels(
             self.mesh, self.eigalbo_interp, save_barycentric=True
         )
 
+    def reset(self):
+        return self.model.reset(self.eigalbo_interp)
+
     def forward(
         self, pts: Float[Tensor, "P in_dim"], **kwargs
     ) -> Float[Tensor, "P out_dim"]:
+        ## Need to do it here due to mitsuba wrapping
+        self.prepare_kernels()
+
         face_ids: Tensor = kwargs["face_ids"].to(torch.int)
         P = pts.shape[0]
+        assert P == face_ids.shape[0]
         batch_size = self.cfg.point_batching
 
         if batch_size is None:

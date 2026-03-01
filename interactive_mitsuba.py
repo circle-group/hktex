@@ -40,28 +40,35 @@ dr.set_flag(dr.JitFlag.Debug, False)
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
-        "config": "configs/uv_mitsuba_fitting.yaml",
+        "config": "configs/uv_hs_ray_knn.yaml",
         "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
-        "verbose": False,
+        "verbose": True,
     }
     extras_dict = {
-        "data.mesh_path": "../objects/spot/spot_triangulated.obj",
-        "optim.iters": 500,
-        "data.batch_size": 4,
+        "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
+        "trainer.network.tracer.debug": False,
+        "optim.iters": 20,
+        "data.batch_size": 16,
+        "trainer.batch_size": 1024,
+        "trainer.grad_spp": 8,
+        "trainer.ray_sample_rate": 1 / 16,
         # "data.sample_all_vertices": False,
-        "trainer.network.model.n_sources": 1024,
+        "trainer.network.model.n_sources": 10000,
         # "trainer.model.kernel_dim": 3,
-        "trainer.network.model.out_net": False,
-        "trainer.network.model.normalize_colours": False,
         "trainer.network.point_batching": 1024,
         "renderer.point_batching": None,
         "renderer.n_rotating_frames": 5,
-        "renderer.integrator_config.type": "path",
+        "renderer.integrator_config.type": "prb",
         # "renderer.integrator_config.meta.max_depth": 2,
         "trainer.renderer_mega_kernel": False,
+        "renderer.camera_config.sampler_type": "independent",
+        "trainer.network.model.mass_type": "one",
         "renderer.camera_config.tile_size": 16,
         "renderer.camera_config.tile_size_heatkernels": 16,
+        "trainer.debug_video_frequency": 5,
+        "trainer.network.model.range_enforcement_type": "pgd",
+        "trainer.network.model.init_kernel_edge_type": "uniform",
     }
 
     args = argparse.Namespace(**args_dict)

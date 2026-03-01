@@ -45,6 +45,8 @@ class CameraSamplerDataConfig(MeshSamplerDataConfig):
     img_width: Optional[int] = None
     img_height: Optional[int] = None
 
+    extra_overrides: Dict[str, Any] = field(default_factory=dict)
+
 
 class CameraSamplerDataset(IterableDataset):
     def __init__(self, cfg: CameraSamplerDataConfig, mesh: trimesh.Trimesh, split: str):
@@ -143,7 +145,11 @@ class CameraSamplerDataset(IterableDataset):
             tiles = self.sample_tiles(cameras, batch_size)
             cameras.update(tiles)
 
-        return {"batch_size": batch_size, "cameras": cameras}
+        return {
+            "batch_size": batch_size,
+            "cameras": cameras,
+            "extra_overrides": self.cfg.extra_overrides,
+        }
 
     def __iter__(self):
         while True:

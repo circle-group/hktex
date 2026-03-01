@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from contextlib import contextmanager
 
 import drjit as dr
@@ -17,10 +15,12 @@ def dr_no_jit(when=True):
         old_loop_flag = dr.flag(dr.JitFlag.SymbolicLoops)
         old_call_flag = dr.flag(dr.JitFlag.SymbolicCalls)
         old_state_flag = dr.flag(dr.JitFlag.OptimizeCalls)
+        old_conditional_flag = dr.flag(dr.JitFlag.SymbolicConditionals)
 
         dr.set_flag(dr.JitFlag.SymbolicLoops, False)
         dr.set_flag(dr.JitFlag.SymbolicCalls, False)
         dr.set_flag(dr.JitFlag.OptimizeCalls, False)
+        dr.set_flag(dr.JitFlag.SymbolicConditionals, False)
     try:
         yield
     finally:
@@ -28,6 +28,7 @@ def dr_no_jit(when=True):
             dr.set_flag(dr.JitFlag.SymbolicLoops, old_loop_flag)
             dr.set_flag(dr.JitFlag.SymbolicCalls, old_call_flag)
             dr.set_flag(dr.JitFlag.OptimizeCalls, old_state_flag)
+            dr.set_flag(dr.JitFlag.SymbolicConditionals, old_conditional_flag)
 
 
 @contextmanager
@@ -36,10 +37,12 @@ def dr_jit_context(set=True, when=True):
         old_loop_flag = dr.flag(dr.JitFlag.SymbolicLoops)
         old_call_flag = dr.flag(dr.JitFlag.SymbolicCalls)
         old_state_flag = dr.flag(dr.JitFlag.OptimizeCalls)
+        old_conditional_flag = dr.flag(dr.JitFlag.SymbolicConditionals)
 
         dr.set_flag(dr.JitFlag.SymbolicLoops, set)
         dr.set_flag(dr.JitFlag.SymbolicCalls, set)
         dr.set_flag(dr.JitFlag.OptimizeCalls, set)
+        dr.set_flag(dr.JitFlag.SymbolicConditionals, set)
     try:
         yield
     finally:
@@ -47,6 +50,7 @@ def dr_jit_context(set=True, when=True):
             dr.set_flag(dr.JitFlag.SymbolicLoops, old_loop_flag)
             dr.set_flag(dr.JitFlag.SymbolicCalls, old_call_flag)
             dr.set_flag(dr.JitFlag.OptimizeCalls, old_state_flag)
+            dr.set_flag(dr.JitFlag.SymbolicConditionals, old_conditional_flag)
 
 
 class TraversableDict(mi.Object):
@@ -73,9 +77,9 @@ def mitsuba_mse_loss(
     if reduction == "none":
         return squared_errors
     elif reduction == "sum":
-        return dr.sum(squared_errors)
+        return dr.sum(squared_errors, axis=None)
     elif reduction == "mean":
-        return dr.mean(squared_errors)
+        return dr.mean(squared_errors, axis=None)
     else:
         raise ValueError(
             f"Invalid reduction mode: {reduction}. Expected one of 'none', 'mean', 'sum'."
@@ -92,9 +96,9 @@ def mitsuba_l1_loss(
     if reduction == "none":
         return absolute_errors
     elif reduction == "sum":
-        return dr.sum(absolute_errors)
+        return dr.sum(absolute_errors, axis=None)
     elif reduction == "mean":
-        return dr.mean(absolute_errors)
+        return dr.mean(absolute_errors, axis=None)
     else:
         raise ValueError(
             f"Invalid reduction mode: {reduction}. Expected one of 'none', 'mean', 'sum'."
@@ -124,9 +128,9 @@ def mitsuba_smooth_l1_loss(
     if reduction == "none":
         return smooth_l1_err
     elif reduction == "sum":
-        return dr.sum(smooth_l1_err)
+        return dr.sum(smooth_l1_err, axis=None)
     elif reduction == "mean":
-        return dr.mean(smooth_l1_err)
+        return dr.mean(smooth_l1_err, axis=None)
     else:
         raise ValueError(
             f"Invalid reduction mode: {reduction}. Expected one of 'none', 'mean', 'sum'."
