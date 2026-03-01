@@ -152,6 +152,7 @@ def trainable(config, root, all_filenames, resolver_paths):
     # Remove the temporary keys from the config before passing to main
     del config["adam_scheduler"]
     del config["geodesic_scheduler"]
+    del config["momentum_locations"]
     for k in list(config.keys()):
         if k.startswith("dc_") or k.startswith("lr_"):
             del config[k]
@@ -232,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_kernels",
         type=int,
-        default=8_000,
+        default=50_000,
         help="Maximum number of kernels allowed.",
     )
     parser.add_argument(
@@ -277,7 +278,7 @@ if __name__ == "__main__":
         "name": "output_experiment",
         "trainer.tracer.debug": False,
         "optim.iters": cli_args.optim_iters,
-        "dc_max_kernels_max": 50_000,
+        "dc_max_kernels_max": cli_args.max_kernels,
         "renderer.n_rotating_frames": 3,
         "trainer.model.mass_type": "one",
         "trainer.eigen_albo.parse_weighting_from_str": True,
@@ -332,7 +333,10 @@ if __name__ == "__main__":
         "dc_max_kernels_mult": tune.choice([2, 5, 10]),
     }
 
-    search_alg = OptunaSearch()
+    search_alg = OptunaSearch(
+        metric=["mean_error", "storage_npz_kb"],
+        mode=["min", "min"],
+    )
     if cli_args.max_concurrent_trials > 0:
         search_alg = ConcurrencyLimiter(
             search_alg, max_concurrent=cli_args.max_concurrent_trials
@@ -357,8 +361,6 @@ if __name__ == "__main__":
         trainable_with_gpu,
         param_space=search_space,
         tune_config=tune.TuneConfig(
-            metric=["mean_error", "storage_npz_kb"],
-            mode=["min", "min"],
             search_alg=search_alg,
             num_samples=cli_args.num_samples,
         ),
