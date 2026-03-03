@@ -20,6 +20,7 @@ pip install ipykernel ipywidgets
 pip install imageio[ffmpeg]
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 pip install torchmetrics
+pip install objaverse
 
 mamba install -c pytorch -c nvidia -c rapidsai -c conda-forge libnvjitlink faiss-gpu-cuvs=1.13.1
 ```
@@ -58,5 +59,6 @@ pip install termcolor tqdm matplotlib
 pip install jaxtyping omegaconf
 pip install ipykerel ipywidgets
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
+pip install objaverse
 ```
 

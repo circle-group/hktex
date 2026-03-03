@@ -3,6 +3,9 @@ from pathlib import Path
 import os
 import numpy as np
 import torch
+import pandas as pd
+import yaml
+import torch.nn.functional as F
 
 try:
     script_dir = Path(__file__).resolve().parent.parent
@@ -20,7 +23,14 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import load_mesh, show_video
+from heatsplats.utils import (
+    load_mesh,
+    show_video,
+    save_video,
+    combine_videos,
+    mibitmaps2torch,
+    compute_all_image_metrics,
+)
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
 
 
@@ -72,9 +82,8 @@ def downsample_image_to_target_size(
         if scale == 0:
             break
 
-        new_dims = (int(image.width * scale), int(image.height * scale))
-        if new_dims[0] == 0 or new_dims[1] == 0:
-            break
+        # Ensure dimensions are at least 1x1 to avoid 0 dimension errors
+        new_dims = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
 
         resized_image = image.resize(new_dims, Image.LANCZOS)
         current_size_bytes = get_image_size_bytes(resized_image, format=format)
@@ -85,17 +94,32 @@ def downsample_image_to_target_size(
             min_scale = scale
             best_image = resized_image
 
-    print(new_dims)
     return best_image
 
 
-def main(path: str, format="png", target_size_kb=222):
+def main(
+    path: str, renderer_config: dict, output_dir: str, format="png", target_size_kb=222
+):
+    # Derive safe_name and filename from path
+    parts = path.split("/")
+    if "glbs" in parts:
+        idx = parts.index("glbs")
+        rel_parts = parts[idx + 1 :]
+        safe_name = "_".join(rel_parts).replace(".glb", "")
+        filename = "/".join(rel_parts)
+    else:
+        safe_name = os.path.basename(path).replace(".", "_")
+        filename = path
+
     mesh = load_mesh(path, merge_tex=False)
+    renderer = UVTextureRenderer(renderer_config)
+    m_mi_gt = renderer.mesh_to_mitsuba(mesh)
+    n_frames = renderer_config.get("n_rotating_frames", 3)
+    gt_rend = renderer.rotating_video(m_mi_gt, n_frames=n_frames)
 
     texture, texture_type = get_texture_image(mesh)
     if texture is None:
-        print("Mesh has no texture.")
-        return
+        raise ValueError("Mesh has no texture.")
     print(f"Original shape: {texture.size}")
     texture.save(path[:-4] + f"_original.png", format="png")
 
@@ -105,9 +129,27 @@ def main(path: str, format="png", target_size_kb=222):
     uv_size_kb = get_uv_size_bytes(mesh) / 1024
     print(f"UV size: {uv_size_kb:.2f} KB")
 
-    downsampled_image = downsample_image_to_target_size(
-        texture, target_size_kb - uv_size_kb, format=format
-    )
+    new_size_kb = original_size_kb
+    available_kb = target_size_kb - uv_size_kb
+
+    downsampled_image = None
+    if available_kb > original_size_kb:
+        downsampled_image = texture
+    elif available_kb > 0:
+        downsampled_image = downsample_image_to_target_size(
+            texture, available_kb, format=format
+        )
+
+    if downsampled_image is None:
+        if available_kb <= 0:
+            print(
+                f"Target size {target_size_kb:.2f} KB is smaller than UV size {uv_size_kb:.2f} KB. Using minimal texture."
+            )
+        else:
+            print(
+                f"Could not downsample image to {available_kb:.2f} KB. Using minimal texture."
+            )
+        downsampled_image = texture.resize((4, 4), Image.LANCZOS)
 
     if downsampled_image:
         # Save the downsampled image to a temporary file
@@ -125,8 +167,6 @@ def main(path: str, format="png", target_size_kb=222):
             print(f"Downsampled texture and UV size: {new_size_kb + uv_size_kb:.2f} KB")
             # The file is not deleted automatically because delete=False
             # os.unlink(temp_file.name)
-    else:
-        print("Could not downsample image to the target size.")
 
     if texture_type == "base":
         mesh.visual.material.baseColorTexture = downsampled_image
@@ -135,9 +175,38 @@ def main(path: str, format="png", target_size_kb=222):
     else:
         print("Unknown texture type; cannot assign downsampled image.")
 
-    renderer = UVTextureRenderer({})
-    m_mi = renderer.mesh_to_mitsuba(mesh)
-    return renderer.rotating_video(m_mi, n_frames=3)
+    m_mi_res = renderer.mesh_to_mitsuba(mesh)
+    result_rend = renderer.rotating_video(m_mi_res, n_frames=n_frames)
+
+    gt = mibitmaps2torch(gt_rend)
+    res = mibitmaps2torch(result_rend)
+
+    mse = F.mse_loss(res, gt, reduction="mean").item()
+    metrics = compute_all_image_metrics(res, gt)
+
+    combined_rend = combine_videos(gt_rend, result_rend)
+    renderings_dir = os.path.join(output_dir, "renderings_uv_low_res")
+    os.makedirs(renderings_dir, exist_ok=True)
+    save_video(combined_rend, os.path.join(renderings_dir, f"{safe_name}.mp4"))
+
+    storage_npz_kb = new_size_kb + uv_size_kb
+
+    row = {
+        "filename": filename,
+        "mse": mse,
+        "n_kernels": 0,
+        "storage_torch_kb": 0,
+        "storage_npz_kb": storage_npz_kb,
+        **metrics,
+    }
+
+    # Save individual CSV
+    individual_results_dir = os.path.join(output_dir, "individual_results_uv_low_res")
+    os.makedirs(individual_results_dir, exist_ok=True)
+    individual_csv = os.path.join(individual_results_dir, f"{safe_name}.csv")
+    pd.DataFrame([row]).to_csv(individual_csv, index=False)
+
+    return result_rend, row
 
 
 if __name__ == "__main__":
@@ -149,7 +218,7 @@ if __name__ == "__main__":
         "--mesh_path", type=str, default="none", help="Path to the mesh file."
     )
     parser.add_argument(
-        "--target_size_kb", type=int, default=3000, help="Target size in KB."
+        "--target_size_kb", type=int, default=-1, help="Target size in KB."
     )
     parser.add_argument(
         "--format",
@@ -158,9 +227,25 @@ if __name__ == "__main__":
         choices=["png", "jpeg", "npz", "pt"],
         help="Image format.",
     )
-    args = parser.parse_args([])
+    parser.add_argument(
+        "--benchmark_csv", type=str, default=None, help="Path to benchmark results CSV."
+    )
+    parser.add_argument(
+        "--root",
+        type=str,
+        default="/data2/objaverse",
+        help="Root directory for objaverse",
+    )
+    parser.add_argument(
+        "--rendering_config", type=str, default="configs/rendering.yaml"
+    )
+    parser.add_argument("--output_dir", type=str, default="outputs/low_res_benchmark")
+    args = parser.parse_args()
 
-    filenames = [
+    with open(args.rendering_config, "r") as f:
+        renderer_config = yaml.safe_load(f).get("renderer", {})
+
+    default_filenames = [
         "/data2/objaverse/hf-objaverse-v1/glbs/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb",
         "/data2/objaverse/hf-objaverse-v1/glbs/000-018/998d641ce1c74e44978a91fedc849905.glb",
         "/data2/objaverse/hf-objaverse-v1/glbs/000-074/5ecf9d1175ae405a9a073db305786411.glb",
@@ -177,13 +262,89 @@ if __name__ == "__main__":
         "../objects/cat_tri/12221_Cat_v1_l3.obj",
     ]
 
-    if args.mesh_path != "none":
-        filenames = [args.mesh_path]
+    filenames = []
+    target_sizes = []
+
+    if args.benchmark_csv:
+        df = pd.read_csv(args.benchmark_csv)
+        if "error" in df.columns:
+            df = df[df["error"].isna()]
+
+        for _, row in df.iterrows():
+            filenames.append(os.path.join(args.root, row["filename"]))
+            if args.target_size_kb != -1:
+                target_sizes.append(args.target_size_kb)
+            else:
+                target_sizes.append(row["storage_npz_kb"])
+    else:
+        if args.mesh_path != "none":
+            filenames = [args.mesh_path]
+        else:
+            filenames = default_filenames
+
+        t_size = args.target_size_kb if args.target_size_kb != -1 else 3000
+        target_sizes = [t_size] * len(filenames)
+
+    output_csv = os.path.join(args.output_dir, "benchmark_results_uv_low_res.csv")
+    if os.path.exists(output_csv):
+        try:
+            existing_df = pd.read_csv(output_csv)
+            if "filename" in existing_df.columns:
+                processed_files = set(existing_df["filename"])
+                new_filenames = []
+                new_target_sizes = []
+                for f, t in zip(filenames, target_sizes):
+                    parts = f.split("/")
+                    if "glbs" in parts:
+                        idx = parts.index("glbs")
+                        check_name = "/".join(parts[idx + 1 :])
+                    else:
+                        check_name = f
+
+                    if check_name not in processed_files:
+                        new_filenames.append(f)
+                        new_target_sizes.append(t)
+
+                print(
+                    f"Skipping {len(filenames) - len(new_filenames)} already processed files."
+                )
+                filenames = new_filenames
+                target_sizes = new_target_sizes
+        except Exception as e:
+            print(f"Could not filter existing results: {e}")
 
     renderings = []
-    for fname in filenames:
-        print(f"Processing {fname}...")
-        rendering = main(fname, format=args.format, target_size_kb=args.target_size_kb)
-        renderings.extend(rendering)
+    results = []
+    for fname, t_size in zip(filenames, target_sizes):
+        print(f"Processing {fname} with target size {t_size:.2f} KB...")
+        try:
+            rendering, row = main(
+                fname,
+                renderer_config,
+                args.output_dir,
+                format=args.format,
+                target_size_kb=t_size,
+            )
+            renderings.extend(rendering)
+            results.append(row)
+        except Exception as e:
+            print(f"Error processing {fname}: {e}")
+            results.append({"filename": fname, "error": str(e)})
+
+    if results:
+        df = pd.DataFrame(results)
+        if os.path.exists(output_csv):
+            try:
+                existing_df = pd.read_csv(output_csv)
+                existing_df = existing_df.loc[
+                    :, ~existing_df.columns.str.contains("^Unnamed")
+                ]
+                df = pd.concat([existing_df, df], ignore_index=True)
+                if "filename" in df.columns:
+                    df = df.drop_duplicates(subset=["filename"], keep="last")
+            except Exception as e:
+                print(f"Could not merge with existing results: {e}")
+        df.to_csv(output_csv, index=False)
+        print(f"Cumulative results saved to {output_csv}")
 
     print("show_video(renderings)")
