@@ -132,5 +132,27 @@ trainer:
         model._kernel_locations:
           face_ids: model._kernel_face_ids
 
+  density_controllers:  # aka Adaptive Density Controllers (ADCs)
+    - density_controller_type: density_controllers.importance_pruning
+      args:
+        start_iter: ${int:${mul:${optim.steps}, 0.2}}
+        prune_interval: ${int:${mul:${optim.steps}, 0.1}}
+        accumulation_interval: ${int:${mul:${mul:${optim.steps}, 0.1}, 0.5}}
+        selection_threshold: 0.02
+        contrib_threshold: 0.07
+        stop_iter: ${int:${mul:${optim.steps}, 0.6}}
+    - density_controller_type: density_controllers.error_based_densification
+      args:
+        start_iter: ${int:${mul:${optim.steps}, 0.05}}
+        densify_interval: ${int:${mul:${optim.steps}, 0.04}}
+        error_accumulation_interval: ${int:${mul:${mul:${optim.steps}, 0.1}, 0.5}}
+        error_threshold: 0.020777840533685494
+        size_threshold: 0.23534136498588332
+        split_radius: 0.2
+        max_densify_ratio: 0.4
+        max_kernels: ${int:${mul:${trainer.network.model.n_sources}, 7}}
+        stop_iter: ${int:${mul:${optim.steps}, 0.7}}
+
 optim:
-  iters: 10000
+  iters: 20
+  steps: 640

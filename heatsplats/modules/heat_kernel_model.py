@@ -101,18 +101,19 @@ class HeatKernelModel(TextureModel):
         )
 
         if batch_size is None:
-            return self._forward_batch(pts, face_ids, albo_weights, kernel_info)
+            out = self._forward_batch(pts, face_ids, albo_weights, kernel_info)
+        else:
+            colours = []
+            for i in range(0, P, batch_size):
+                pts_batch = pts[i : i + batch_size]
+                face_ids_batch = face_ids[i : i + batch_size]
+                colours_batch = self._forward_batch(
+                    pts_batch, face_ids_batch, albo_weights, kernel_info
+                )
+                colours.append(colours_batch)
+            out = torch.cat(colours, dim=0)
 
-        colours = []
-        for i in range(0, P, batch_size):
-            pts_batch = pts[i : i + batch_size]
-            face_ids_batch = face_ids[i : i + batch_size]
-            colours_batch = self._forward_batch(
-                pts_batch, face_ids_batch, albo_weights, kernel_info
-            )
-            colours.append(colours_batch)
-        colours = torch.cat(colours, dim=0)
-        return colours
+        return out
 
     def _forward_batch(self, pts_batch, face_ids_batch, albo_weights, kernel_info):
         points_info: PointsInfo = self.model.prepare_points_for_diffusion(

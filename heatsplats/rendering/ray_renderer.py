@@ -208,11 +208,13 @@ def sample_intersecting_rays_multiple_sensors(
     rays are generated per sensor.
     Returns: ray origins, ray directions, wavelengths,
              ray screen space positions, ray sensor idx,
+             first-hit face ids, first-hit points,
              offset for the seed
     """
     with dr.suspend_grad():
         o, d = [], []
         pos, sensor_idx = [], []
+        hit_face_ids, hit_points = [], []
         wavelengths = None
 
         seed_offset = 0
@@ -221,6 +223,7 @@ def sample_intersecting_rays_multiple_sensors(
             film_size = get_film_size(sensor)
             collected, iters = 0, 0
             o_s, d_s, pos_s = [], [], []
+            fids_s, hp_s = [], []
 
             while collected < film_size:
                 if iters > safety_max_iterations:
@@ -255,15 +258,24 @@ def sample_intersecting_rays_multiple_sensors(
                 rd = dr.gather(type(ray.d), ray.d, idx)
                 rpos = dr.gather(type(position), position, idx)
 
+                # First-hit data
+                rfids = dr.gather(type(pi.prim_index), pi.prim_index, idx)
+                rt = dr.gather(type(pi.t), pi.t, idx)
+                rhit = ro + rd * rt
+
                 o_s.append(ro.torch().t().cpu())
                 d_s.append(rd.torch().t().cpu())
                 pos_s.append(rpos.torch().t().cpu())
+                fids_s.append(rfids.torch().cpu().to(torch.int64))
+                hp_s.append(rhit.torch().t().cpu())
 
                 collected += int(dr.width(idx))
 
             o_s = torch.cat(o_s, dim=0)
             d_s = torch.cat(d_s, dim=0)
             pos_s = torch.cat(pos_s, dim=0)
+            fids_s = torch.cat(fids_s, dim=0)
+            hp_s = torch.cat(hp_s, dim=0)
 
             # Avoid bias from only picking first film_size if the sensor generates rays in a fixed screen space order
             perm = torch.randperm(o_s.shape[0], generator=gen)[:film_size]
@@ -271,6 +283,8 @@ def sample_intersecting_rays_multiple_sensors(
             o.append(o_s[perm])
             d.append(d_s[perm])
             pos.append(pos_s[perm])
+            hit_face_ids.append(fids_s[perm])
+            hit_points.append(hp_s[perm])
 
             sid_s = torch.full((film_size,), s_idx, dtype=torch.int64)
             sensor_idx.append(sid_s)
@@ -279,7 +293,10 @@ def sample_intersecting_rays_multiple_sensors(
         d = torch.cat(d, dim=0)
         pos = torch.cat(pos, dim=0)
         sensor_idx = torch.cat(sensor_idx, dim=0)
-        return o, d, wavelengths, pos, sensor_idx, seed_offset
+        hit_face_ids = torch.cat(hit_face_ids, dim=0)
+        hit_points = torch.cat(hit_points, dim=0)
+
+        return o, d, wavelengths, pos, sensor_idx, hit_face_ids, hit_points, seed_offset
 
 
 def integrate_ray_samples(L, spp):

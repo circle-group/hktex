@@ -48,6 +48,7 @@ from heatsplats.utils import (
 from heatsplats.utils.typing import *
 
 from .utils import parse_optimizers_and_schedulers
+from heatsplats.density_controllers.utils import parse_density_controllers
 
 
 class MitsubaRayTrainer(ObjectWithCallbacks):
@@ -57,6 +58,7 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         network: dict = field(default_factory=dict)
 
         optimizers: list = field(default_factory=list)
+        density_controllers: list = field(default_factory=list)
 
         renderer_type: str = "renderer.torch-texture"
         renderer: dict = field(default_factory=dict)
@@ -112,6 +114,15 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         self.optimizers, self.schedulers = parse_optimizers_and_schedulers(
             self.cfg.optimizers, self.model
         )
+        self.has_density_controllers = len(self.cfg.density_controllers) > 0
+        self.density_controllers = []
+        if self.has_density_controllers:
+            self.density_controllers = parse_density_controllers(
+                self.cfg.density_controllers,
+                self.mesh,
+                self.model.model,
+                self.optimizers,
+            )
 
         self.renderer = self._get_renderer()
         self.integrator = self._get_integrator()
@@ -152,7 +163,7 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
 
         # Sample rays
         # We keep the origins (o), directions(d), and wavelengths associated with each ray
-        o, d, wavelengths, pos, sensor_idx, seed_offset = (
+        o, d, wavelengths, pos, sensor_idx, hit_face_ids, hit_points, seed_offset = (
             rendering.sample_intersecting_rays_multiple_sensors(
                 self.integrator, scene, sensors, seed=seed
             )
@@ -175,6 +186,8 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
             "ray_data": (o, d, wavelengths),  # ray origin, direction, wavelengths
             "ray_pos": pos,  # Screen space positions
             "ray_sensor_idx": sensor_idx,  # Sensor idx for the ray
+            "ray_hit_face_ids": hit_face_ids,  # [N_rays]
+            "ray_hit_points": hit_points,  # [N_rays, 3]
             "batches": batches,  # Ray batch indices
             "sensors": sensors,  # Sensors used to sample rays
             "batch_cameras": batch_cameras,  # Cameras used to sample rays
@@ -245,9 +258,11 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
 
         seed = 0
         grad_spp = self.cfg.grad_spp
+        global_step = 0
 
         errors_lists = self._build_errors_lists()
         grads_lists = {k: [] for k, _ in self.model.named_parameters()}
+        grad_steps = []
 
         for epoch in (pbar := tqdm(range(n_iter), disable=True)):
             if debug_log_dir is not None and (
@@ -265,6 +280,8 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
             (ray_o, ray_d, ray_wavelengths) = batches["ray_data"]
             ray_pos: Tensor = batches["ray_pos"]
             ray_sidx: Tensor = batches["ray_sensor_idx"]
+            ray_hit_points: Tensor = batches["ray_hit_points"]
+            ray_hit_fids: Tensor = batches["ray_hit_face_ids"]
             ray_batches = batches["batches"]
             seed_offset = batches["seed_offset"]
             seed += seed_offset
@@ -288,6 +305,8 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
                 ray, batch_pos, batch_sidx = self._make_rays(
                     ray_o, ray_d, ray_idx, grad_spp, ray_wavelengths, ray_pos, ray_sidx
                 )
+                batch_hit_pts = ray_hit_points[ray_idx].to(self.device)  # [B,3]
+                batch_hit_fids = ray_hit_fids[ray_idx].to(self.device)  # [B]
 
                 with torch.no_grad():
                     with dr.suspend_grad():
@@ -327,9 +346,40 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
                 per_ray_loss = dr.dot(err, mi.Color3f(1.0))
                 loss = dr.mean(per_ray_loss, axis=None)
 
+                if self.has_density_controllers:
+                    (
+                        kernel_contributions,
+                        topk_idx,
+                        topk_contrib,
+                        kernel_info,
+                    ) = self._ray_topk_from_first_hits(batch_hit_pts, batch_hit_fids)
+
+                    rendered_colours = L_integrated.torch().permute(1, 0)
+                    gt_colours = target.torch().permute(1, 0)
+
+                    for dc in self.density_controllers:
+                        dc.pre_backward_step(
+                            step=global_step,
+                            rendered_colours=rendered_colours,
+                            gt_colours=gt_colours,
+                            kernel_contributions=kernel_contributions,
+                            topk_kernel_idxs=topk_idx,
+                            topk_kernel_contribs=topk_contrib,
+                        )
+
                 self.foreach_callback(lambda cb: cb.on_before_backward(self, loss))
                 dr.backward(loss)
                 self.foreach_callback(lambda cb: cb.on_after_backward(self))
+
+                if self.has_density_controllers:
+                    for dc in self.density_controllers:
+                        dc.refresh_state()
+                        dc.post_backward_step(
+                            step=global_step,
+                            eigalbo_interp=self.model.eigalbo_interp,
+                            kernel_info=kernel_info,
+                            tracer=self.model.tracer,
+                        )
 
                 for optimizer in self.optimizers:
                     self.foreach_callback(
@@ -348,6 +398,8 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
                 if self.cfg.use_knn_implementation:
                     self.reset_knn()
 
+                global_step += 1
+
                 dr.flush_malloc_cache()
                 dr.flush_malloc_cache()
                 dr.flush_malloc_cache()
@@ -358,9 +410,13 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
                 scheduler.step()
 
             if heatsplats.is_debug():  # and (epoch == 0 or (epoch + 1) % 10 == 0):
-                for name, param in self.model.named_parameters():
-                    if param.grad is not None:
-                        grads_lists[name].append(param.grad.norm().item())
+                grad_steps.append(global_step)
+                named_params = dict(self.model.named_parameters())
+                for name in grads_lists.keys():
+                    p = named_params[name]
+                    grads_lists[name].append(
+                        p.grad.norm().item() if p.grad is not None else float("nan")
+                    )
 
             with torch.no_grad():
                 with dr.suspend_grad():
@@ -390,13 +446,15 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         self.plot_errors(errors_lists)
 
         if heatsplats.is_debug():
-            self.plot_gradient_norms(grads_lists, log_interval=100, y_log_scale=True)
+            self.plot_gradient_norms(
+                grads_lists, grad_steps=grad_steps, y_log_scale=True
+            )
 
         return None, None, None
 
-    # def prepare_knn(self):
-    #     self.model: HeatKernelModelKNN
-    #     return self.model.prepare_kernels()
+    def prepare_knn(self):
+        self.model: HeatKernelModelKNN
+        return self.model.prepare_kernels()
 
     def reset_knn(self):
         self.model: HeatKernelModelKNN
@@ -428,7 +486,7 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         self, rotating_frames: int = 10, update_scene_bounds: bool = False
     ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
         """
-        Render the mesh with the resultsing heat kernel texture. This is always rendered
+        Render the mesh with the resulting heat kernel texture. This is always rendered
         with the heat kernel texture, so it is not defined in subclasses.
         Args:
             rotating_frames (int): Number of frames for rotation.
@@ -446,8 +504,9 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
 
         mi_mesh, mi_texture = renderer.mesh_to_mitsuba(self.datamodule.mesh, self.model)
 
-        # if self.cfg.use_knn_implementation:
-        #     self.prepare_knn()
+        if self.cfg.use_knn_implementation:
+            prev_mode = self.model.inference_mode(True)
+            self.prepare_knn()
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
             out = mi.Bitmap(img).convert(
@@ -461,6 +520,7 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         renderer.flush_cache()
         if self.cfg.use_knn_implementation:
             self.reset_knn()
+            self.model.inference_mode(prev_mode)
 
         return out
 
@@ -533,12 +593,9 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         plt.tight_layout()
         plt.show()
 
-    def plot_gradient_norms(
-        self,
-        grads_lists: dict[str, list[float]],
-        log_interval: int = 100,
-        y_log_scale: bool = True,
-    ):
+    def plot_gradient_norms(self, grads_lists, grad_steps=None, y_log_scale=True):
+        if grad_steps is None:
+            grad_steps = list(range(len(next(iter(grads_lists.values()), []))))
         if not grads_lists:
             print("Gradient dictionary is empty. Nothing to plot.")
             return
@@ -554,14 +611,16 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
             print("All gradient lists are empty. Nothing to plot.")
             return
 
-        steps = [0] + [(i * log_interval) - 1 for i in range(1, num_logs)]
-
         fig, ax = plt.subplots(figsize=(15, 8))
         for name, norm_list in grads_lists.items():
             if not norm_list:
                 heatsplats.warn(f"Gradient list for {name} is empty. Skipping.")
                 continue
-            ax.plot(steps, norm_list, label=name[1:], markersize=4, marker="o")
+            y = np.asarray(norm_list, dtype=float)
+            x = np.asarray(grad_steps, dtype=float)
+            valid = ~np.isnan(y)
+            if valid.any():
+                ax.plot(x[valid], y[valid], label=name[1:], markersize=4, marker="o")
 
         ax.set_xlabel("Training Step")
         ax.set_ylabel("L2 Norm of Gradient")
@@ -582,6 +641,64 @@ class MitsubaRayTrainer(ObjectWithCallbacks):
         self.model.save_numpy_npz(npz_filename)
         npz_size = os.path.getsize(npz_filename)
         return torch_size / 1024, npz_size / 1024
+
+    @torch.no_grad()
+    def _ray_topk_from_first_hits(self, hit_pts: Tensor, hit_face_ids: Tensor):
+        # hit_pts: [B,3], hit_face_ids: [B]
+        if self.cfg.use_knn_implementation:
+            # Build kernel graph for current params
+            kernel_info = self.model.prepare_kernels()  # returns KernelInfo
+            pts_info = self.model.model.prepare_points(
+                mesh=self.mesh,
+                eigalbo_interp=self.model.eigalbo_interp,
+                face_ids=hit_face_ids.to(torch.int),
+                barys=None,
+                pts=hit_pts,
+            )
+            _, kernel_contributions, topk_kernel_idxs, topk_kernel_contribs = (
+                self.model.model.diffuse_heat_kernels(
+                    eigalbo_interp=self.model.eigalbo_interp,
+                    pts_info=pts_info,
+                )
+            )
+            return (
+                kernel_contributions,
+                topk_kernel_idxs,
+                topk_kernel_contribs,
+                kernel_info,
+            )
+
+        # non-knn
+        albo_weights = self.model.eigalbo_interp.interpolate_anisotropies(
+            angles=self.model.model.angles,
+            scales=self.model.model.anisotropies,
+        )
+        kernel_info = self.model.model.prepare_kernels_for_diffusion(
+            mesh=self.mesh,
+            eigalbo_interp=self.model.eigalbo_interp,
+            albo_weights=albo_weights,
+            save_barycentric=True,
+        )
+        pts_info = self.model.model.prepare_points_for_diffusion(
+            mesh=self.mesh,
+            eigalbo_interp=self.model.eigalbo_interp,
+            albo_weights=albo_weights,
+            face_ids=hit_face_ids.to(torch.int),
+            barys=None,
+            pts=hit_pts,
+        )
+        _, kernel_contributions, topk_kernel_idxs = (
+            self.model.model.diffuse_heat_kernels(
+                eigalbo_interp=self.model.eigalbo_interp,
+                pts_info=pts_info,
+                kernel_info=kernel_info,
+                at_vertices=False,
+            )
+        )
+        topk_kernel_contribs = torch.gather(
+            kernel_contributions, dim=0, index=topk_kernel_idxs
+        )
+        return kernel_contributions, topk_kernel_idxs, topk_kernel_contribs, kernel_info
 
 
 @heatsplats.register("trainers.uv-texture-mitsuba-ray")

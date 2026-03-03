@@ -37,10 +37,16 @@ class HeatKernelModelKNN(HeatKernelModel):
         **kwargs,
     ):
         super().configure(**kwargs)
+        self._inference_mode = False
 
         assert isinstance(
             self.eigalbo_interp, EigenAlboInterpolationKNN
         ), "Incorrect EigenAlbo Interpolator Type"
+
+    def inference_mode(self, new_mode: bool) -> bool:
+        old_mode = self._inference_mode
+        self._inference_mode = new_mode
+        return old_mode
 
     def _make_model(self):
         return HeatKernelTextureKNN(self.cfg.model, self.mesh)
@@ -56,8 +62,8 @@ class HeatKernelModelKNN(HeatKernelModel):
     def forward(
         self, pts: Float[Tensor, "P in_dim"], **kwargs
     ) -> Float[Tensor, "P out_dim"]:
-        ## Need to do it here due to mitsuba wrapping
-        self.prepare_kernels()
+        if not self._inference_mode:
+            self.prepare_kernels()
 
         face_ids: Tensor = kwargs["face_ids"].to(torch.int)
         P = pts.shape[0]
@@ -65,16 +71,17 @@ class HeatKernelModelKNN(HeatKernelModel):
         batch_size = self.cfg.point_batching
 
         if batch_size is None:
-            return self._forward_batch(pts, face_ids)
+            out = self._forward_batch(pts, face_ids)
+        else:
+            colours = []
+            for i in range(0, P, batch_size):
+                pts_batch = pts[i : i + batch_size]
+                face_ids_batch = face_ids[i : i + batch_size]
+                colours_batch = self._forward_batch(pts_batch, face_ids_batch)
+                colours.append(colours_batch)
+            out = torch.cat(colours, dim=0)
 
-        colours = []
-        for i in range(0, P, batch_size):
-            pts_batch = pts[i : i + batch_size]
-            face_ids_batch = face_ids[i : i + batch_size]
-            colours_batch = self._forward_batch(pts_batch, face_ids_batch)
-            colours.append(colours_batch)
-        colours = torch.cat(colours, dim=0)
-        return colours
+        return out
 
     def _forward_batch(self, pts_batch, face_ids_batch):
         points_info: PointsInfo = self.model.prepare_points(

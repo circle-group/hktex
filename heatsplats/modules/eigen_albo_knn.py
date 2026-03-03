@@ -56,11 +56,15 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
         self.knn_heat = knn_heat.SpectralKnnHeat(self.cfg.heat)
 
         self.heat_weighting = None
+        self.use_weighting = self.cfg.use_weighting
         if self.cfg.use_weighting:
             weighting = self.cfg.weighting
             if self.cfg.parse_weighting_from_str:
                 weighting = self._parse_weighting_from_str()
-            self.heat_weighting = knn_heat.KnnPostDiffWeight(weighting)
+            if weighting is None:
+                self.use_weighting = False
+            else:
+                self.heat_weighting = knn_heat.KnnPostDiffWeight(weighting)
 
         self.knn_embedding_dim = self.cfg.knn_embedding_dim
         max_dim = self.cfg.k_eig - 1
@@ -166,7 +170,7 @@ class EigenAlboInterpolationKNN(EigenAlboInterpolation):
 
         # Biharmonic distance weights
         heat_weights = None
-        if self.cfg.use_weighting:
+        if self.use_weighting:
             heat_weights = self.heat_weighting.compute(knn_distances)
 
         # Gather point evals and evecs

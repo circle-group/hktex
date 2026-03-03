@@ -48,7 +48,7 @@ if __name__ == "__main__":
     extras_dict = {
         "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
         "trainer.network.tracer.debug": False,
-        "optim.iters": 20,
+        "optim.iters": 10,
         "data.batch_size": 16,
         "trainer.batch_size": 1024,
         "trainer.grad_spp": 8,
@@ -64,14 +64,22 @@ if __name__ == "__main__":
         "trainer.renderer_mega_kernel": False,
         "renderer.camera_config.sampler_type": "independent",
         "trainer.network.model.mass_type": "one",
-        "renderer.camera_config.tile_size": 16,
-        "renderer.camera_config.tile_size_heatkernels": 16,
+        "renderer.camera_config.tile_size": 32,
+        "renderer.camera_config.tile_size_heatkernels": 32,
         "trainer.debug_video_frequency": 5,
         "trainer.network.model.range_enforcement_type": "pgd",
         "trainer.network.model.init_kernel_edge_type": "uniform",
     }
 
     args = argparse.Namespace(**args_dict)
+
+    # Overrides elements in the lists within config
+    base_cfg = load_config(args.config)
+    density_controllers_list = base_cfg.trainer.density_controllers
+    density_controllers_list[1].args.max_kernels = 15_000
+    extras_dict["trainer.density_controllers"] = yaml.dump(
+        OmegaConf.to_container(density_controllers_list)
+    )
 
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
 

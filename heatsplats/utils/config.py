@@ -63,6 +63,8 @@ class OptimConfig:
     save_model: bool = True
     save_model_name: str = "model.pt"
 
+    steps: int = 5000
+
 
 @dataclass
 class ExperimentConfig:
