@@ -9,6 +9,10 @@ except NameError:
     script_dir = Path.cwd().parent
 sys.path.append(str(script_dir))
 
+import mitsuba as mi
+
+mi.set_variant("cuda_ad_rgb")
+
 import argparse
 import traceback
 import torch
@@ -20,9 +24,6 @@ from ray import tune
 from ray.tune.search.optuna import OptunaSearch
 from ray.tune.search import ConcurrencyLimiter
 
-import mitsuba as mi
-
-mi.set_variant("cuda_ad_rgb")
 
 from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
@@ -99,7 +100,7 @@ def trainable(config, root, all_filenames, resolver_paths):
     elif config["adam_scheduler"] == "step":
         adam_optim["scheduler"] = {
             "name": "StepLR",
-            "args": {"step_size": 1000, "gamma": 0.5},
+            "args": {"step_size": 15, "gamma": 0.5},
         }
     else:
         pass  # No scheduler
@@ -122,7 +123,7 @@ def trainable(config, root, all_filenames, resolver_paths):
     elif config["geodesic_scheduler"] == "step":
         geodesic_optim["scheduler"] = {
             "name": "StepLR",
-            "args": {"step_size": 1000, "gamma": 0.5},
+            "args": {"step_size": 15, "gamma": 0.5},
         }
     else:
         pass  # No scheduler
@@ -211,7 +212,7 @@ def trainable(config, root, all_filenames, resolver_paths):
             per_mesh_errors.append(error)
             per_mesh_metrics.append(metrics)
             per_mesh_kernels.append(
-                out["optimisation"].model._kernel_locations.shape[0]
+                out["optimisation"].model.model._kernel_locations.shape[0]
             )
         except Exception as e:
             print(f"Error processing {fname}:")
@@ -308,10 +309,17 @@ if __name__ == "__main__":
         "trainer.network.model.allow_negative_colours": True,
         "trainer.network.point_batching": 1024,
         "trainer.grad_spp": 8,
+        "renderer.point_batching": None,
+        "renderer.integrator_config.type": "prb",
+        "trainer.renderer_mega_kernel": False,
+        "renderer.camera_config.sampler_type": "independent",
+        "renderer.camera_config.tile_size": 32,
+        "renderer.camera_config.tile_size_heatkernels": 32,
+        "trainer.debug_video_frequency": 5,
+        "trainer.batch_size": 1024,
         # Tunable parameters ###########################################################
         "trainer.network.model.knn_outer_k": tune.choice([50, 100]),
-        "trainer.network.model.inner_k": tune.choice([10, 20]),
-        "trainer.batch_size": tune.choice([512, 1024]),
+        "trainer.network.model.knn_inner_k": tune.choice([10, 20]),
         "trainer.integrator_max_depth": tune.choice([2, 3, 5]),
         "trainer.network.model.n_sources": tune.choice(
             [1000, 2500, 5000, 10000, 20000]

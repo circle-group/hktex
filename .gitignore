@@ -5,3 +5,4 @@ __pycache__
 *.pickle
 configs/tmp_*.yaml
 outputs
+trial_*.txt
