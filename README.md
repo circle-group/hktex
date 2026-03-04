@@ -9,6 +9,7 @@ Then run the the following commands to install the necessary dependencies:
 # TODO: Add version numbers here
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu129
 pip install torch_geometric
+pip install digeo
 pip install git+https://github.com/skoch9/meshplot.git@0.4.0
 
 pip install trimesh Pillow rtree "pyglet<2" imageio
@@ -20,22 +21,25 @@ pip install ipykernel ipywidgets
 pip install imageio[ffmpeg]
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
 pip install torchmetrics
+pip install objaverse
 
 mamba install -c pytorch -c nvidia -c rapidsai -c conda-forge libnvjitlink faiss-gpu-cuvs=1.13.1
-```
-
-For GPU tracing (temporary).
-Download whl file
-https://github.com/Etyl/DiGeo/releases/download/0.0.4/digeo-0.0.4-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
-and then:
-```bash
-pip install digeo-0.0.4-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
 ```
 
 
 Optional for NNs:
 ```bash
-mamba install conda-forge::tiny-cuda-nn
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu129
+pip install torch_geometric
+
+pip install --extra-index-url https://miropsota.github.io/torch_packages_builder tinycudann==2.0+pt2.8.0cu129
+
+pip install git+https://github.com/skoch9/meshplot.git@0.4.0
+
+pip install trimesh Pillow rtree "pyglet<2" imageio robust_laplacian point-cloud-utils libigl potpourri3d mitsuba==3.7.1 termcolor tqdm matplotlib jaxtyping omegaconf ipykernel ipywidgets imageio[ffmpeg] "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn torchmetrics objaverse
+
+pip install --no-build-isolation -e "digeo @ git+ssh://git@github.com/circle-group/DiGeo.git@0.0.7"
+
 ```
 
 Old commands:
@@ -58,5 +62,6 @@ pip install termcolor tqdm matplotlib
 pip install jaxtyping omegaconf
 pip install ipykerel ipywidgets
 pip install "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn
+pip install objaverse
 ```
 

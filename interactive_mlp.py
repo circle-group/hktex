@@ -5,12 +5,12 @@ import yaml
 import trimesh
 import argparse
 
-import torch
-
 import mitsuba as mi
 import drjit as dr
 
 mi.set_variant("cuda_ad_rgb")
+
+import torch
 
 from IPython import get_ipython
 from omegaconf import OmegaConf
@@ -35,20 +35,29 @@ except NameError:
     # get_ipython() is not defined, so not running in an IPython environment
     pass
 
-dr.set_flag(dr.JitFlag.Debug, True)
+# dr.set_flag(dr.JitFlag.Debug, True)
 
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
-        "config": "configs/uv_mlp_fitting.yaml",
+        # "config": "configs/uv_mlp_fitting.yaml",
+        "config": "configs/uv_texture_mlp_fitting.yaml",
         "rendering_config": "configs/rendering.yaml",
         "gpu": "0",
         "verbose": False,
     }
     extras_dict = {
-        "data.mesh_path": "../objects/spot/spot_triangulated.obj",
-        "optim.iters": 500,
-        "data.batch_size": 2,
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-018/998d641ce1c74e44978a91fedc849905.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-074/5ecf9d1175ae405a9a073db305786411.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-101/818e088dc59f4a89bfea14cb46a4beca.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-138/6713cc0cdad34f89a0256c5d2f68b7c1.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-013/d79a32a512c64c5e93dc856864789a7e.glb",
+        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
+        "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-066/e7caba92073d4adba3477c21aa25e91f.glb",
+        # "data.mesh_path": "../objects/spot/spot_triangulated.obj",
+        # "optim.iters": 500,
+        # "data.batch_size": 2,
         # "renderer.point_batching": 1024,
         "renderer.n_rotating_frames": 10,
         "renderer.integrator_config.type": "path",

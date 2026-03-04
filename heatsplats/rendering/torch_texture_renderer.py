@@ -50,7 +50,14 @@ class TorchTextureNetwork(MitsubaWrapper):
             # Slice the current batch. IT handles also when the smaller batch is smaller
             pts_batch = pts[i : i + batch_size]
 
-            colours_batch = self.network(pts_batch, **kwargs)
+            batch_kwargs = {}
+            for k, v in kwargs.items():
+                if isinstance(v, torch.Tensor) and v.shape[0] == P:
+                    batch_kwargs[k] = v[i : i + batch_size]
+                else:
+                    batch_kwargs[k] = v
+
+            colours_batch = self.network(pts_batch, **batch_kwargs)
 
             # Store the batch results
             # colours[i : i + batch_size, :] = colours_batch

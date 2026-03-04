@@ -1,4 +1,3 @@
-from IPython.display import display, HTML
 import io
 import matplotlib.pyplot as plt
 import base64
@@ -45,6 +44,8 @@ def combine_images(
 
 
 def show_image(mi_bitmap):
+    from IPython.display import display, HTML
+
     buf = io.BytesIO()
     img = np.array(mi_bitmap)
     plt.imsave(buf, img)  # Writes to memory, not disk

@@ -1,5 +1,5 @@
 renderer:
-  n_rotating_frames: 20
+  n_rotating_frames: 5
   point_batching: 512  # used only to render heat kernels, not GTs
 
   camera_config:

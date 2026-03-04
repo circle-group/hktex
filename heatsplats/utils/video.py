@@ -4,7 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from typing import Optional
-from IPython.display import HTML
 
 
 def combine_videos(*videos_frames: list[list[mi.Bitmap]]) -> list[mi.Bitmap]:
@@ -45,6 +44,8 @@ def show_video(
         interval (int): Delay between frames in milliseconds.
         frame_texts (Optional[list[str]]): Optional list of strings to display on each frame.
     """
+    from IPython.display import HTML
+
     # Convert frames to NumPy arrays
     numpy_frames = [np.array(frame) / 255 for frame in frames]
 
