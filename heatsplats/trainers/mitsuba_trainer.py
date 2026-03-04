@@ -463,7 +463,7 @@ class UVTextureMlpTrainer(MlpTrainer):
 
         self.loss_fn = getattr(F, self.cfg.loss_type)
 
-    def optimise(self, n_iter=100):
+    def optimise(self, n_iter=100, **kwargs):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
@@ -481,7 +481,11 @@ class UVTextureMlpTrainer(MlpTrainer):
             data = self._move_to_device(data)
             gt_colours: Tensor = data["colour"]
 
-            colours = self.model(data["pos"].to(self.model.scene_min.dtype))
+            colours = self.model(
+                data["pos"].to(self.model.scene_min.dtype),
+                face_ids=data["face_id"].to(self.model.scene_min.dtype),
+                barys=data["bary"].to(self.model.scene_min.dtype),
+            )
             per_point_loss = self.loss_fn(colours, gt_colours, reduction="none").sum(
                 dim=1
             )

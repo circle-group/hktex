@@ -25,15 +25,32 @@ trainer:
     width: 128
     hidden: 3
 
+    # encoding_type: hash  
+    # encoding:
+    #   otype: Grid
+    #   type: Hash
+    #   n_levels: 10
+    #   n_features_per_level: 2
+    #   log2_hashmap_size: 10
+    #   base_resolution: 8
+    #   per_level_scale: 2
+    #   interpolation: Linear
+
+    # encoding_type: laplacian  
+    # encoding:
+    #   effective_k_eig: 64
+    #   k_eig: 256
+    #   mesh_path: ${data.mesh_path}
+    #   distance_weighting: gaussian_0.05
+    #   mass_type: one
+    #   local_frames: principal_curvatures
+    #   precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
+    #   precompute_angles_every_deg: 30
+
+    encoding_type: positional  
     encoding:
-      otype: Grid
-      type: Hash
-      n_levels: 10
-      n_features_per_level: 2
-      log2_hashmap_size: 10
-      base_resolution: 8
-      per_level_scale: 2
-      interpolation: Linear
+      n_freqs: 6
+      include_input: True
 
   loss_type: smooth_l1_loss
 
