@@ -6,3 +6,5 @@ __pycache__
 configs/tmp_*.yaml
 outputs
 trial_*.txt
+test.sh
+src/
