@@ -1,0 +1,50 @@
+renderer:
+  n_rotating_frames: 5
+  point_batching: null
+
+  camera_config:
+    camera_distance: 3.7
+    azimuth_deg: 180.0
+    elevation_deg: 0.0
+    camera_type: perspective
+    img_width: 256
+    img_height: 256
+    sampler_type: independent
+    sample_count: 4
+    fov: 40.0
+    aperture_radius: null
+    focus_distance: null
+    near_clip: 0.01
+    far_clip: 1000.0
+    tile_size: 32
+    tile_size_heatkernels: 32
+
+  emitter_config:
+    envmap_path: null
+    envmap_scale: 1.0
+    radiance: 1.0
+
+  integrator_config:
+    type: prb
+    hide_emitters: False
+
+  ground_plane_config:
+    activated: true
+    rotation_axis:
+    - 1
+    - 0
+    - 0
+    rotation_angle: -90
+    scale: 10
+    translation:
+    - 0
+    - 0
+    - -0.1
+    checkerboard: false
+    plane_colour:
+    - 0.3
+    - 0.3
+    - 0.3
+  
+  mitsuba_mesh_config:
+    twosided: false

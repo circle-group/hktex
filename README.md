@@ -39,7 +39,6 @@ pip install git+https://github.com/skoch9/meshplot.git@0.4.0
 pip install trimesh Pillow rtree "pyglet<2" imageio robust_laplacian point-cloud-utils libigl potpourri3d mitsuba==3.7.1 termcolor tqdm matplotlib jaxtyping omegaconf ipykernel ipywidgets imageio[ffmpeg] "ray[tune]" "optuna>=3.0.0" pydantic scikit-learn torchmetrics objaverse
 
 pip install --no-build-isolation -e "digeo @ git+ssh://git@github.com/circle-group/DiGeo.git@0.0.7"
-
 ```
 
 Old commands:

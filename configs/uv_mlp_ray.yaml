@@ -1,0 +1,108 @@
+name: "uv-ray-mlp"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs/uv-ray-mlp-test"
+seed: 0
+
+data_type: data.camera-sampler
+data:
+  mesh_path: /data/sf3018/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+  
+  batch_size: 16
+  num_workers: 0
+
+  img_width: 256
+  img_height: 256
+
+  bounds:
+    camera_distance:
+    - 3.6
+    - 3.8
+    azimuth_deg:
+    - 0.0
+    - 360.0
+    elevation_deg:
+    - 0.0
+    - 10.0
+
+  extra_overrides:
+    sampler_type: independent
+
+trainer_type: trainers.uv-texture-mitsuba-ray
+trainer:
+  network_type: modules.mlp-texture-network
+  network: 
+    input_dim: 3
+    output_dim: 3
+
+    width: 128
+    hidden: 5
+
+    encoding_type: hash  
+    encoding:
+      otype: Grid
+      type: Hash
+      n_levels: 10
+      n_features_per_level: 2
+      log2_hashmap_size: 10
+      base_resolution: 8
+      per_level_scale: 2
+      interpolation: Linear
+
+    # encoding_type: laplacian  
+    # encoding:
+    #   effective_k_eig: 64
+    #   k_eig: 256
+    #   mesh_path: ${data.mesh_path}
+    #   distance_weighting: gaussian_0.05
+    #   mass_type: one
+    #   local_frames: principal_curvatures
+    #   precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
+    #   precompute_angles_every_deg: 30
+
+    # encoding_type: positional  
+    # encoding:
+    #   n_freqs: 6
+    #   include_input: True
+
+  spp: 0
+  grad_spp: 8
+
+  loss_type: smooth_l1_loss
+
+  use_linear_gamma_space: True
+  use_hdr: False
+
+  batch_size: 1024
+  shuffle_rays: True
+
+  ray_integrator: "rb_ray"
+  base_integrator: "prb"
+  integrator_max_depth: 3
+  integrator_hide_emitters: False
+
+  gt_spp: 0
+
+  data_initialisation_random_ratio: 1.0
+
+  optimizers:
+    - name: Adam
+      args: 
+        lr: 1e-2
+      scheduler:
+        args:
+          gamma: 0.5
+          step_size: 15
+        name: StepLR
+
+  renderer_mega_kernel: false
+  debug_video_frequency: 5
+  ray_sample_rate: 0.0625
+
+optim:
+  iters: 60
+  save_logs: true
+  save_model: true
+  save_model_name: model.pt
+  steps: 3840

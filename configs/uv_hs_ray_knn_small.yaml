@@ -1,0 +1,160 @@
+name: "uv-hs-ray-knn-small"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs/hs-ray-3a4b53ed_45"
+seed: 0
+
+data_type: data.camera-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: false
+  merge_tex: true
+  batch_size: 16
+  num_workers: 0
+  img_width: 256
+  img_height: 256
+  bounds:
+    camera_distance:
+    - 3.6
+    - 3.8
+    azimuth_deg:
+    - 0.0
+    - 360.0
+    elevation_deg:
+    - 0.0
+    - 10.0
+  extra_overrides:
+    sampler_type: independent
+
+trainer_type: trainers.uv-texture-mitsuba-ray
+trainer:
+  use_knn_implementation: true
+  network_type: modules.heat-kernel-model-knn
+  network:
+    eigen_albo_type: modules.eigen-albo-interpolation-knn
+    eigen_albo:
+      k_eig: 256
+      mesh_path: /data2/home/sf3018/objaverse/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb
+      distance_weighting: gaussian_0.05
+      local_frames: principal_curvatures
+      precompute_anisotropies:
+      - 1
+      - 5
+      - 15
+      - 30
+      - 60
+      - 100
+      - 200
+      precompute_angles_every_deg: 30
+      knn_embedding_dim: 64
+      faiss:
+        use_float16: false
+        distance_impl: bmm
+        build_db_norm: true
+        compile_distances: true
+      gather:
+        select_impl: bilinear4
+        compile_select: true
+        gather_impl: stream_vertices
+        compile_gather: true
+      weighting:
+        kernel: gaussian
+        gaussian_std: 0.05
+        normalize: false
+        compile_kernel: true
+      heat:
+        compile_heat: true
+      parse_weighting_from_str: true
+    model:
+      n_sources: 5000
+      kernel_dim: 32
+      diff_time: 1.1103742416356491e-06
+      mass_type: one
+      init_min_threshold: 0.7
+      range_enforcement_type: pgd
+      init_kernel_edge_type: high_skewed
+      out_net: false
+      normalize_colours: false
+      allow_negative_colours: true
+      knn_outer_k: 50
+      knn_inner_k: 20
+    tracer_type: modules.gpu-geodesic-tracer
+    point_batching: 1024
+    tracer:
+      debug: false
+  spp: 0
+  grad_spp: 8
+  loss_type: l1_loss
+  data_initialisation_random_ratio: 1.0
+  use_linear_gamma_space: true
+  use_hdr: false
+  batch_size: 1024
+  shuffle_rays: true
+  ray_integrator: rb_ray
+  base_integrator: prb
+  integrator_max_depth: 3
+  integrator_hide_emitters: false
+  gt_spp: 0
+  optimizers:
+  - args: {}
+    name: Adam
+    params:
+      model._angles:
+        lr: 0.0001067453761784297
+      model._anisotropies:
+        lr: 0.03658015956011073
+      model._kernel_colours:
+        lr: 0.03325399890195156
+      model._mean_colour:
+        lr: 0.001705226713736722
+      model._sharpnesses:
+        lr: 0.0012038097324277243
+      model._thresholds:
+        lr: 0.0013574248979229993
+    scheduler:
+      args:
+        gamma: 0.5
+        step_size: 15
+      name: StepLR
+  - args:
+      lr: 0.06296966780159097
+      momentum: 0.0
+    name: GeodesicOpt
+    params:
+      model._kernel_locations:
+        face_ids: model._kernel_face_ids
+    scheduler:
+      args:
+        T_max: 60
+        eta_min: 1.0e-07
+      name: CosineAnnealingLR
+    tracer: tracer
+  density_controllers:
+  - density_controller_type: density_controllers.importance_pruning
+    args:
+      start_iter: 768
+      prune_interval: 1920
+      accumulation_interval: 480
+      selection_threshold: 0.002492630717212829
+      contrib_threshold: 0.020463972379877828
+      stop_iter: 2688
+  - density_controller_type: density_controllers.error_based_densification
+    args:
+      start_iter: 307
+      densify_interval: 307
+      error_accumulation_interval: 153
+      error_threshold: 0.02376188074013127
+      size_threshold: 0.1805252636362324
+      split_radius: 0.15
+      max_densify_ratio: 0.4
+      max_kernels: 10000
+      stop_iter: 2688
+  renderer_mega_kernel: false
+  debug_video_frequency: 5
+  ray_sample_rate: 0.0625
+
+optim:
+  iters: 60
+  save_logs: true
+  save_model: true
+  save_model_name: model.pt
+  steps: 3840
