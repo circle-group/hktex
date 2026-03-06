@@ -44,6 +44,8 @@ class EigenAlboInterpolation(BaseObject):
         local_frames: str = "principal_curvatures"
         normalise_evals: bool = False
 
+        error_if_not_precomputed: bool = False
+
     GRID_CONFIGURATION = "rot_major"
 
     cfg: Config
@@ -120,8 +122,10 @@ class EigenAlboInterpolation(BaseObject):
                 sampling_coords = precomputed["sampling_coords"]
                 mass = precomputed["mass"]
                 local_direction = precomputed["local_direction"]
-            except (FileNotFoundError, KeyError):
+            except (FileNotFoundError, KeyError) as err:
                 heatsplats.info(f"Precomputed albo eigen not found")
+                if self.cfg.error_if_not_precomputed:
+                    raise RuntimeError(f"Albo not precomputed: {err}")
                 iso_eigen, iso_evecs = self._precompute_iso_eigen()
                 local_direction = self._compute_local_directions()
                 all_eigen, sampling_coords, mass = self._precompute_all_aniso_eigen(

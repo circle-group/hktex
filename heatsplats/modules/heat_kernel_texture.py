@@ -592,7 +592,8 @@ class HeatKernelTexture(BaseModule):
                 )
 
                 kernel_locations = self.__mesh.barycentric_to_cartesian(
-                    bary_coords, self.__mesh.get_face_vertices(sd["_kernel_face_ids"])
+                    bary_coords,
+                    self.__mesh.get_face_vertices(sd["_kernel_face_ids"].long()),
                 )
 
                 sd["_kernel_locations"] = kernel_locations
