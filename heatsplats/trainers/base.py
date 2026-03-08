@@ -46,6 +46,8 @@ class BaseTrainer(BaseObject):
 
         eigen_albo_type: str = "modules.eigen-albo-interpolation"
         eigen_albo: dict = field(default_factory=dict)
+
+        model_type: Optional[str] = None
         model: dict = field(default_factory=dict)
 
         loss_type: str = "mse_loss"  # any torch.nn.functional (e.g., smooth_l1_loss)
@@ -74,10 +76,14 @@ class BaseTrainer(BaseObject):
         self.datamodule = datamodule
 
         self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
-        if self.cfg.use_knn_implementation:
-            self.model = HeatKernelTextureKNN(self.cfg.model, self.mesh)
+        if self.cfg.model_type is not None:
+            ModelClass = heatsplats.find(self.cfg.model_type)
+            self.model = ModelClass(self.cfg.model, self.mesh)
         else:
-            self.model = HeatKernelTexture(self.cfg.model, self.mesh)
+            if self.cfg.use_knn_implementation:
+                self.model = HeatKernelTextureKNN(self.cfg.model, self.mesh)
+            else:
+                self.model = HeatKernelTexture(self.cfg.model, self.mesh)
 
         if (
             "n_debug_traces" in self.cfg.tracer
@@ -88,10 +94,10 @@ class BaseTrainer(BaseObject):
                 "Number of debug traces should not exceed number of sources. Displaying all sources instead."
             )
 
-        EigenAlboClass = heatsplats.find(self.cfg.eigen_albo_type)
-        self.eigalbo_interp: EigenAlboInterpolation = EigenAlboClass(
-            self.cfg.eigen_albo, self.mesh
-        )
+        self.eigalbo_interp: Optional[EigenAlboInterpolation] = None
+        if self.cfg.eigen_albo_type:
+            EigenAlboClass = heatsplats.find(self.cfg.eigen_albo_type)
+            self.eigalbo_interp = EigenAlboClass(self.cfg.eigen_albo, self.mesh)
         self.tracer: GeodesicTracer = heatsplats.find(self.cfg.tracer_type)(
             self.cfg.tracer, self.mesh
         )
@@ -203,6 +209,8 @@ class BaseTrainer(BaseObject):
                 scheduler.step()
 
             self.model.post_optimizer_step()
+            if self.cfg.use_knn_implementation:
+                self.mark_knn_dirty()
 
             if self.datamodule.cfg.use_importance_sampling:
                 self.datamodule.update_errors(
@@ -224,7 +232,7 @@ class BaseTrainer(BaseObject):
                 pbar.set_postfix_str(f"Loss: {loss_step:0.4f}")
 
             if self.cfg.use_knn_implementation:
-                self.model.reset(self.eigalbo_interp)
+                self.reset_knn()
 
         heatsplats.debug(f"FINAL -> {self.model.colored_print_opt_params}")
 
@@ -263,9 +271,18 @@ class BaseTrainer(BaseObject):
         colours = self.model(colours)  # Postprocess
         return colours, kernel_contributions, topk_kernel_idxs, kernel_info
 
-    def prepare_knn(self):
+    def prepare_knn(self, save_barycentric=True):
         self.model: HeatKernelTextureKNN
-        return self.model.prepare_kernels(self.mesh, self.eigalbo_interp)
+        return self.model.prepare_kernels(
+            self.mesh, self.eigalbo_interp, save_barycentric=save_barycentric
+        )
+
+    def reset_knn(self):
+        self.model.reset(self.eigalbo_interp)
+
+    def mark_knn_dirty(self):
+        if hasattr(self.model, "mark_knn_dirty"):
+            self.model.mark_knn_dirty()
 
     def forward_knn(self, data):
         self.model: HeatKernelTextureKNN
@@ -320,7 +337,7 @@ class BaseTrainer(BaseObject):
         )
 
         if self.cfg.use_knn_implementation:
-            self.model.prepare_kernels(self.mesh, self.eigalbo_interp, False)
+            self.prepare_knn(False)
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
             out = mi.Bitmap(img).convert(
@@ -333,7 +350,7 @@ class BaseTrainer(BaseObject):
 
         renderer.flush_cache()
         if self.cfg.use_knn_implementation:
-            self.model.reset(self.eigalbo_interp)
+            self.reset_knn()
 
         return out
 

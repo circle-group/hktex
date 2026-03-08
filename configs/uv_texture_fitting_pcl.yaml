@@ -1,0 +1,89 @@
+name: "uv-texture-fitting-pcl"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: data.uv-texture-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+
+  batch_size: 1024
+  num_workers: 0
+  sampling_method: "uniform"
+
+  use_importance_sampling: True
+  importance_sampling_pool_size: 1000000
+  importance_sampling_warmup_steps: 250
+  importance_sampling_ema_beta: 0.99
+
+trainer_type: trainers.uv-texture-pcl
+trainer:
+  use_knn_implementation: True
+  model_type: modules.pcl-texture
+
+  tracer_type: modules.gpu-geodesic-tracer
+  tracer:
+    n_debug_traces: 10
+    debug: False
+
+  eigen_albo_type: ""
+  eigen_albo: {}
+
+  model:
+    n_sources: 1000
+    out_dim: 3
+    out_net: False
+    normalize_colours: False
+    allow_negative_colours: True
+    range_enforcement_type: pgd
+
+    knn_k: 10
+    weighting: softmax_rbf
+    softmax_temperature: 0.05
+    distance_eps: 1.0e-08
+
+    use_face_normal_weighting: False
+    normal_weight_beta: 8.0
+
+    faiss:
+      use_float16: False
+      distance_impl: bmm
+      build_db_norm: True
+      compile_distances: True
+
+  loss_type: "mse_loss"
+  data_initialisation_random_ratio: 1.0
+
+  optimizers:
+    - name: Adam
+      args: {}
+      params:
+        model._mean_colour: {lr: 0.001}
+        model._kernel_colours: {lr: 0.01}
+        model._softmax_temperature_raw: {lr: 0.001}
+      scheduler:
+        name: CosineAnnealingLR
+        args:
+          T_max: 5000
+          eta_min: 1.0e-07
+
+    - name: GeodesicOpt
+      args:
+        lr: 0.01
+        momentum: 0.9
+      scheduler:
+        name: StepLR
+        args:
+          gamma: 0.5
+          step_size: 1000
+      tracer: tracer
+      params:
+        model._kernel_locations:
+          face_ids: model._kernel_face_ids
+
+  density_controllers: []
+
+optim:
+  iters: 5000

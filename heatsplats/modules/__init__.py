@@ -10,3 +10,5 @@ from .utils import *
 from .mlp_net import *
 from .heat_kernel_model import *
 from .heat_kernel_model_knn import *
+from .pcl_texture import *
+from .pcl_model import *

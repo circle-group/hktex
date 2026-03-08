@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -233,3 +234,110 @@ class UvTextureTrainer(BaseTrainer):
 
         self.model._mean_colour.copy_(mean_colour)
         self.model._kernel_colours.copy_(self.model._inv_colour_act(residual_colors))
+
+
+@heatsplats.register("trainers.uv-texture-pcl")
+class UvTexturePCLTrainer(UvTextureTrainer):
+    @dataclass
+    class Config(UvTextureTrainer.Config):
+        pass
+
+    cfg: Config
+
+    def configure(
+        self,
+        datamodule: MeshSamplerDataModule,
+        **kwargs,
+    ):
+        super().configure(datamodule, **kwargs)
+        if not self.cfg.use_knn_implementation:
+            raise ValueError("UvTexturePCLTrainer expects use_knn_implementation=True.")
+        required = ("prepare_points", "prepare_kernels", "diffuse_heat_kernels")
+        for name in required:
+            if not hasattr(self.model, name):
+                raise TypeError(
+                    f"Configured model is missing required method '{name}' for PCL KNN flow."
+                )
+
+    def prepare_batch(self, data: dict) -> dict:
+        data = BaseTrainer.prepare_batch(self, data)
+        face_ids = data["face_id"]
+        barys = data["bary"]
+
+        points_info = self.model.prepare_points(
+            mesh=self.mesh,
+            face_ids=face_ids,
+            barys=barys,
+            pts=None,
+        )
+        data["points_info"] = points_info
+        return data
+
+    def prepare_knn(self, save_barycentric=True):
+        return self.model.prepare_kernels(
+            mesh=self.mesh, save_barycentric=save_barycentric
+        )
+
+    def reset_knn(self):
+        self.model.reset()
+
+    @property
+    def _errors(self):
+        return {
+            "printables": None,
+            "kernel_colours": self.model.kernel_colours.abs().mean(),
+            "softmax_temperature": self.model.softmax_temperature.mean(),
+        }
+
+    def plot_model_histograms(self):
+        props = {
+            "kernel_colours": self.model.kernel_colours,
+            "kernel_locations_norm": self.model.kernel_locations.norm(dim=-1),
+        }
+
+        plt.figure(figsize=(10, 4))
+        for i, (name, tensor) in enumerate(props.items(), 1):
+            plt.subplot(1, 2, i)
+            arr = tensor.detach().cpu().reshape(-1).numpy()
+            plt.hist(arr, bins=30)
+            plt.title(name)
+            plt.xlabel("Value")
+            plt.ylabel("Frequency")
+
+        plt.tight_layout()
+        plt.show()
+
+    def render_kernel_rings(
+        self, rotating_frames: int = 10, thickness: float = 0.03
+    ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
+        # PCLTexture has no kernel_filter_func. Render a similar diagnostic by
+        # visualizing sharp random kernel influence regions.
+        orig_kernel_colours = self.model._kernel_colours.clone().detach()
+        orig_mean_colour = self.model._mean_colour.clone().detach()
+        orig_tau = self.model._softmax_temperature_raw.clone().detach()
+
+        if self.model.cfg.allow_negative_colours:
+            colour_sample = torch.rand_like(self.model._kernel_colours) * 2.0 - 1.0
+        else:
+            colour_sample = torch.rand_like(self.model._kernel_colours).clamp(1e-6, 1.0)
+
+        if self.model.cfg.weighting == "softmax_rbf":
+            tau_val = torch.tensor([0.005], device=self.device, dtype=torch.float)
+            tau_raw = self.model._inv_tau_act(tau_val)
+        else:
+            tau_raw = orig_tau
+
+        self.model._kernel_colours = torch.nn.Parameter(
+            self.model._inv_colour_act(colour_sample)
+        )
+        self.model._mean_colour = torch.nn.Parameter(torch.zeros_like(self.model._mean_colour))
+        self.model._softmax_temperature_raw = torch.nn.Parameter(tau_raw)
+
+        try:
+            rend_regions = self.render_result(rotating_frames)
+        finally:
+            self.model._kernel_colours = torch.nn.Parameter(orig_kernel_colours)
+            self.model._mean_colour = torch.nn.Parameter(orig_mean_colour)
+            self.model._softmax_temperature_raw = torch.nn.Parameter(orig_tau)
+
+        return rend_regions
