@@ -29,10 +29,15 @@ class PCLTexture(BaseModule):
 
         allow_negative_colours: bool = False
         range_enforcement_type: str = "activations"  # "pgd" | "activations"
+        residual_gain_init: float = 1.0
+        residual_gain_min: float = 0.0
+        residual_recenter_every: Optional[int] = None
+        residual_recenter_stop_iter: Optional[int] = None
 
         knn_k: int = 8
         weighting: str = "softmax_rbf"  # "softmax_rbf" | "inverse_distance"
         softmax_temperature: float = 0.05
+        softmax_temperature_min: float = 1e-8
         distance_eps: float = 1e-8
 
         # Optional normal-aware gate using existing mesh normals.
@@ -50,6 +55,7 @@ class PCLTexture(BaseModule):
     _kernel_locations: Float[Tensor, "G 3"]
     _kernel_face_ids: Int[Tensor, "G"]
     _softmax_temperature_raw: Float[Tensor, "1"]
+    _residual_gain_raw: Float[Tensor, "1"]
 
     def configure(
         self,
@@ -63,6 +69,8 @@ class PCLTexture(BaseModule):
         self.out_dim = self.cfg.out_dim
         self.normalize_colours = self.cfg.normalize_colours
 
+        self._softmax_temperature_min = float(self.cfg.softmax_temperature_min)
+        self._residual_gain_min = float(self.cfg.residual_gain_min)
         if self.cfg.range_enforcement_type == "activations":
             if self.cfg.allow_negative_colours:
                 self._colour_act = lambda x: torch.tanh(x)
@@ -74,11 +82,15 @@ class PCLTexture(BaseModule):
                 self._inv_colour_act = lambda x: torch.logit(x.clamp(1e-6, 1.0 - 1e-6))
             self._tau_act = lambda x: torch.nn.functional.softplus(x)
             self._inv_tau_act = lambda x: torch.log(torch.expm1(x))
+            self._gain_act = lambda x: torch.nn.functional.softplus(x)
+            self._inv_gain_act = lambda x: torch.log(torch.expm1(x))
         elif self.cfg.range_enforcement_type == "pgd":
             self._colour_act = lambda x: x
             self._inv_colour_act = lambda x: x
             self._tau_act = lambda x: x
             self._inv_tau_act = lambda x: x
+            self._gain_act = lambda x: x
+            self._inv_gain_act = lambda x: x
         else:
             raise ValueError(
                 f"Unknown range enforcement type: {self.cfg.range_enforcement_type}"
@@ -99,6 +111,8 @@ class PCLTexture(BaseModule):
 
         self._index_dirty = True
         self._faiss_index = knn_heat.FaissGpuFlatIndex(self.cfg.faiss)
+        self._optim_step = 0
+        self._recenter_count = 0
 
     def named_buffers(
         self, prefix: str = "", recurse: bool = True, remove_duplicate: bool = True
@@ -131,13 +145,19 @@ class PCLTexture(BaseModule):
         self._kernel_locations = torch.nn.Parameter(kernel_locations)
         self._kernel_face_ids = nn.Buffer(kernel_face_ids, persistent=True)
         init_tau = torch.tensor(
-            [max(float(self.cfg.softmax_temperature), 1e-8)],
+            [max(float(self.cfg.softmax_temperature), self._softmax_temperature_min)],
             dtype=torch.float,
             device=self.device,
         )
         self._softmax_temperature_raw = torch.nn.Parameter(self._inv_tau_act(init_tau))
+        init_gain = torch.tensor(
+            [max(float(self.cfg.residual_gain_init), self._residual_gain_min)],
+            dtype=torch.float,
+            device=self.device,
+        )
+        self._residual_gain_raw = torch.nn.Parameter(self._inv_gain_act(init_gain))
 
-        self.splat_param_keys = ["kernel_colours", "softmax_temperature"]
+        self.splat_param_keys = ["kernel_colours", "softmax_temperature", "residual_gain"]
 
     @property
     def kernel_colours(self) -> Float[Tensor, "G D"]:
@@ -155,9 +175,30 @@ class PCLTexture(BaseModule):
     def softmax_temperature(self) -> Float[Tensor, "1"]:
         return self._tau_act(self._softmax_temperature_raw)
 
+    @property
+    def residual_gain(self) -> Float[Tensor, "1"]:
+        return self._gain_act(self._residual_gain_raw)
+
     def post_optimizer_step(self):
+        self._optim_step += 1
         if self.cfg.range_enforcement_type == "pgd":
             self.clamp_parameters()
+        recenter_every = self.cfg.residual_recenter_every
+        recenter_stop_iter = self.cfg.residual_recenter_stop_iter
+        can_recenter = recenter_stop_iter is None or self._optim_step <= int(
+            recenter_stop_iter
+        )
+        if recenter_every is not None and recenter_every > 0 and can_recenter:
+            if self._optim_step % int(recenter_every) == 0:
+                delta_norm = self.recenter_residuals()
+                self._recenter_count += 1
+                if self._recenter_count == 1 or self._recenter_count % 5 == 0:
+                    heatsplats.info(
+                        f"[PCLTexture] Recentered residuals at step {self._optim_step} "
+                        f"(event={self._recenter_count}, delta_norm={delta_norm:.6e})"
+                    )
+                if self.cfg.range_enforcement_type == "pgd":
+                    self.clamp_parameters()
 
     def mark_knn_dirty(self):
         self._index_dirty = True
@@ -170,7 +211,18 @@ class PCLTexture(BaseModule):
             self._kernel_colours.clamp_(min=0.0, max=1.0)
         # Mean colour is always a non-negative base tone.
         self._mean_colour.clamp_(min=0.0, max=1.0)
-        self._softmax_temperature_raw.clamp_(min=1e-8)
+        self._softmax_temperature_raw.clamp_(min=self._softmax_temperature_min)
+        self._residual_gain_raw.clamp_(min=self._residual_gain_min)
+
+    @torch.no_grad()
+    def recenter_residuals(self):
+        if not self.cfg.allow_negative_colours:
+            return 0.0
+        residuals = self.kernel_colours
+        delta = residuals.mean(dim=0, keepdim=True)
+        self._kernel_colours.copy_(self._inv_colour_act(residuals - delta))
+        self._mean_colour.add_(delta)
+        return delta.norm().item()
 
     def prepare_kernels(
         self,
@@ -244,7 +296,9 @@ class PCLTexture(BaseModule):
         d2 = dists
         eps = self.cfg.distance_eps
         if self.cfg.weighting == "softmax_rbf":
-            tau2 = self.softmax_temperature.clamp_min(1e-8).pow(2)
+            tau2 = self.softmax_temperature.clamp_min(
+                self._softmax_temperature_min
+            ).pow(2)
             logits = -d2 / tau2
             weights = torch.softmax(logits, dim=1)
         elif self.cfg.weighting == "inverse_distance":
@@ -276,7 +330,9 @@ class PCLTexture(BaseModule):
 
         weights = self._compute_weights(dists, face_ids, nn_indices)
         kernel_colours = self.kernel_colours[nn_indices]  # [P, k, D]
-        colours = (weights.unsqueeze(-1) * kernel_colours).sum(dim=1)
+        residuals = (weights.unsqueeze(-1) * kernel_colours).sum(dim=1)
+        gain = self.residual_gain.clamp_min(self._residual_gain_min)
+        colours = gain * residuals
         colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
 
         topk_kernel_idxs = nn_indices.transpose(0, 1).unsqueeze(-1)

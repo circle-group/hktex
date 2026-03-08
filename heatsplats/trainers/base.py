@@ -125,6 +125,21 @@ class BaseTrainer(BaseObject):
     def data_dependent_initialisation(self, **kwargs):
         raise NotImplementedError
 
+    def compute_loss(
+        self,
+        colours: Tensor,
+        gt_colours: Tensor,
+        data: Optional[dict] = None,
+    ) -> tuple[Tensor, Tensor]:
+        per_point_loss = self.loss_func(colours, gt_colours, reduction="none").sum(
+            dim=1
+        )
+        loss = per_point_loss.sum() / colours.shape[0]
+        return loss, per_point_loss
+
+    def extra_error_keys(self) -> list[str]:
+        return []
+
     def optimise(self, n_iter=100, debug_log_dir=None):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
@@ -135,7 +150,8 @@ class BaseTrainer(BaseObject):
 
         heatsplats.debug(f"INITIAL -> {self.model.colored_print_opt_params}")
 
-        errors_lists = {k: [] for k in self.model.splat_param_keys}
+        tracked_error_keys = list(self.model.splat_param_keys) + self.extra_error_keys()
+        errors_lists = {k: [] for k in tracked_error_keys}
         errors_lists["loss"] = []
         self.plot_model_histograms()
 
@@ -170,10 +186,7 @@ class BaseTrainer(BaseObject):
                 init_colours = colours.clone().detach()
 
             # Compute loss, backpropagate, and update all other objects
-            per_point_loss = self.loss_func(colours, gt_colours, reduction="none").sum(
-                dim=1
-            )
-            loss = per_point_loss.sum() / colours.shape[0]
+            loss, per_point_loss = self.compute_loss(colours, gt_colours, data=data)
 
             for dc in self.density_controllers:
                 dc.pre_backward_step(
@@ -225,7 +238,7 @@ class BaseTrainer(BaseObject):
                         f"Iteration: {i + 1} -> Loss: {loss_step}. {errors['printables']}",
                     )
 
-                for k in self.model.splat_param_keys:
+                for k in tracked_error_keys:
                     if k in errors:
                         errors_lists[k].append(errors[k].item())
                 errors_lists["loss"].append(loss_step)
@@ -425,6 +438,33 @@ class BaseTrainer(BaseObject):
 
         plt.tight_layout()
         plt.show()
+
+        extra_keys = [k for k in errors_lists.keys() if k != "loss"]
+        plotted = False
+        for k in extra_keys:
+            if len(errors_lists[k]) > 0:
+                plotted = True
+                break
+
+        if plotted:
+            fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+            for k in extra_keys:
+                vals = errors_lists[k]
+                if len(vals) > 0:
+                    axes[0].plot(vals, label=k)
+                    axes[1].plot(vals, label=k)
+            axes[0].set_title("Tracked Error Terms")
+            axes[0].set_xlabel("Iteration")
+            axes[0].set_ylabel("Value")
+            axes[0].legend()
+
+            axes[1].set_yscale("log")
+            axes[1].set_title("Tracked Error Terms (Log Scale)")
+            axes[1].set_xlabel("Iteration")
+            axes[1].set_ylabel("Value (Log Scale)")
+            axes[1].legend()
+            plt.tight_layout()
+            plt.show()
 
     def plot_model_histograms(self):
         props = {

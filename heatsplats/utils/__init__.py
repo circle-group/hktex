@@ -18,3 +18,4 @@ from .image import *
 from .mitsuba import *
 from .metrics import *
 from .color import *
+from .pcl_losses import *

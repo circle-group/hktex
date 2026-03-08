@@ -9,3 +9,4 @@ trial_*.txt
 test.sh
 src/
 timing_*.txt
+tune_*.txt

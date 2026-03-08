@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Tuple
+import os
+from typing import Dict, Literal, Optional, Tuple
 
 import torch
 
@@ -9,6 +10,12 @@ from .config import FaissGpuIndexConfig
 from . import _ops
 
 __all__ = ["FaissGpuFlatIndex"]
+
+_FAISS_GPU_RESOURCES: Dict[tuple[int, int], object] = {}
+
+
+def _resource_cache_key() -> tuple[int, int]:
+    return (os.getpid(), int(torch.cuda.current_device()))
 
 
 class FaissGpuFlatIndex:
@@ -43,7 +50,10 @@ class FaissGpuFlatIndex:
         import faiss  # type: ignore
 
         self._faiss = faiss
-        self._res = faiss.StandardGpuResources()
+        key = _resource_cache_key()
+        if key not in _FAISS_GPU_RESOURCES:
+            _FAISS_GPU_RESOURCES[key] = faiss.StandardGpuResources()
+        self._res = _FAISS_GPU_RESOURCES[key]
         self._index: Optional[object] = None
         self._d: Optional[int] = None
         self._n: Optional[int] = None
@@ -119,6 +129,10 @@ class FaissGpuFlatIndex:
         self._n = None
         self._db = None
         self._db_norm = None
+
+    @classmethod
+    def clear_resource_cache(cls) -> None:
+        _FAISS_GPU_RESOURCES.clear()
 
     def build(self, database: torch.Tensor) -> None:
         """
