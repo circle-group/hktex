@@ -1,0 +1,106 @@
+diff --git a/gsplat/setup.py b/gsplat/setup.py
+index c50adae..c7b0d4b 100644
+--- a/gsplat/setup.py
++++ b/gsplat/setup.py
+@@ -124,6 +124,7 @@ setup(
+         ],
+     },
+     ext_modules=get_extensions() if not BUILD_NO_CUDA else [],
++    # ext_modules=get_extensions() if ("build_ext" in sys.argv or "develop" in sys.argv) and not BUILD_NO_CUDA else [],
+     cmdclass={"build_ext": get_ext()} if not BUILD_NO_CUDA else {},
+     packages=find_packages(),
+     # https://github.com/pypa/setuptools/issues/1461#issuecomment-954725244
+diff --git a/model.py b/model.py
+index 1209e95..e0e66b5 100644
+--- a/model.py
++++ b/model.py
+@@ -40,6 +40,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+ warnings.filterwarnings("ignore", category=FutureWarning, module="torchvision")
+ warnings.filterwarnings("ignore", category=FutureWarning, module="lpips")
+ 
++# fmt: off
+ 
+ class GaussianSplatting2D(nn.Module):
+     def __init__(self, args):
+@@ -289,18 +290,37 @@ class GaussianSplatting2D(nn.Module):
+             self._quantize()
+         psnr, ssim = self._evaluate(log=False, upsample=False)
+         self._evaluate_extra()
+-        ckpt_data = {"step": self.step,
+-                     "psnr": psnr,
+-                     "ssim": ssim,
+-                     "lpips": self.lpips_final,
+-                     "flip": self.flip_final,
+-                     "msssim": self.msssim_final,
+-                     "bytes": self.num_bytes,
+-                     "time": self.total_time_accum,
+-                     "state_dict": self.state_dict(),
+-                     "optim_state_dict": self.optimizer.state_dict()}
++        ckpt_data = {
++            "step": self.step,
++            "psnr": psnr,
++            "ssim": ssim,
++            "lpips": self.lpips_final,
++            "flip": self.flip_final,
++            "msssim": self.msssim_final,
++            "bytes": self.num_bytes,
++            "time": self.total_time_accum,
++            "state_dict": self.state_dict(),
++            "optim_state_dict": self.optimizer.state_dict(),
++        }
+         save_path = f"{self.ckpt_dir}/ckpt_step-{self.step:d}.pt"
+         torch.save(ckpt_data, save_path)
++
++        np_dict = {}
++        for k, v in self.state_dict().items():
++            if k == "vis_feat":
++                continue
++            val = v.detach().cpu()
++            if k == "xy" and hasattr(self, "pos_bits") and self.pos_bits <= 16:
++                val = val.half()
++            elif k == "scale" and hasattr(self, "scale_bits") and self.scale_bits <= 16:
++                val = val.half()
++            elif k == "rot" and hasattr(self, "rot_bits") and self.rot_bits <= 16:
++                val = val.half()
++            elif k == "feat" and hasattr(self, "feat_bits") and self.feat_bits <= 16:
++                val = val.half()
++            np_dict[k] = val.numpy()
++        np.savez_compressed(save_path.replace(".pt", ".npz"), **np_dict)
++
+         self.worklog.info(f"Checkpoint 'ckpt_step-{self.step:d}.pt' successfully saved")
+         self.worklog.info(
+             f"PSNR: {psnr:.2f} | SSIM: {ssim:.4f} | LPIPS: {self.lpips_final:.4f} | FLIP: {self.flip_final:.4f} | MS-SSIM: {self.msssim_final:.4f}")
+diff --git a/utils/image_utils.py b/utils/image_utils.py
+index dff503f..ec3063d 100644
+--- a/utils/image_utils.py
++++ b/utils/image_utils.py
+@@ -13,19 +13,17 @@ from numpy.linalg import norm
+ from PIL import Image
+ from scipy.ndimage import sobel
+ 
+-FONT_PATH = "assets/fonts/linux_libertine/LinLibertine_R.ttf"
+-font_manager.fontManager.addfont(FONT_PATH)
+-FONT_PROP = font_manager.FontProperties(fname=FONT_PATH).get_name()
++# fmt: off
+ 
+-plt.rcParams['font.family'] = FONT_PROP
+-plt.rcParams['text.usetex'] = True
+-matplotlib.rcParams['font.size'] = 16
+-matplotlib.rcParams['axes.titlesize'] = 16
+-matplotlib.rcParams['figure.titlesize'] = 16
+-matplotlib.rcParams['legend.fontsize'] = 16
+-matplotlib.rcParams['legend.title_fontsize'] = 16
+-matplotlib.rcParams['xtick.labelsize'] = 14
+-matplotlib.rcParams['ytick.labelsize'] = 14
++plt.rcParams["font.family"] = "sans-serif"
++plt.rcParams["text.usetex"] = False
++matplotlib.rcParams["font.size"] = 16
++matplotlib.rcParams["axes.titlesize"] = 16
++matplotlib.rcParams["figure.titlesize"] = 16
++matplotlib.rcParams["legend.fontsize"] = 16
++matplotlib.rcParams["legend.title_fontsize"] = 16
++matplotlib.rcParams["xtick.labelsize"] = 14
++matplotlib.rcParams["ytick.labelsize"] = 14
+ 
+ ALLOWED_IMAGE_FILE_FORMATS = [".jpeg", ".jpg", ".png", ".tiff", ".exr"]
+ 
