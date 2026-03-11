@@ -424,8 +424,8 @@ class HeatKernelTexture(BaseModule):
         contribs, top_idx = filtered.topk(k=min(10, G), largest=True, dim=0)
         idx_exp = top_idx.expand(-1, -1, colours.size(-1))  # [kG, P, D]
         contrib_colours: Float[Tensor, "kG P D"] = torch.gather(colours, 0, idx_exp)
-        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / (
-            contribs.sum(dim=0) + 1e-8
+        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / torch.clamp(
+            contribs.sum(dim=0), min=1.0
         )
 
         colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)

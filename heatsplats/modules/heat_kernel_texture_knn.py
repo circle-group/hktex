@@ -160,8 +160,11 @@ class HeatKernelTextureKNN(HeatKernelTexture):
             contrib_colours: Float[Tensor, "P k D"] = torch.gather(
                 colours, dim=1, index=idx_exp
             )
-            colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / (
-                contribs.sum(dim=1, keepdim=True) + 1e-8
+            # colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / (
+            #     contribs.sum(dim=1, keepdim=True) + 1e-8
+            # )
+            colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=1) / torch.clamp(
+                contribs.sum(dim=1, keepdim=True), min=1.0
             )
 
             topk_global = torch.gather(pts_indices, dim=1, index=topk_local)  # [P,k]

@@ -12,6 +12,8 @@ import torch
 import trimesh
 import mitsuba as mi
 
+mi.set_variant("cuda_ad_rgb")
+
 from heatsplats.utils import (
     load_mesh,
     combine_videos,
@@ -38,7 +40,7 @@ if __name__ == "__main__":
         "out_net": False,
         "normalize_colours": False,
         # "diff_time": 0.3,
-        "mass_type": "interpolated",
+        "mass_type": "one",
     }
     eigalbo_config = {
         "k_eig": 256,
