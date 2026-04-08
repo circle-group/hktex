@@ -44,18 +44,41 @@ if __name__ == "__main__":
 
     renderings = []
     frame_labels = []
-    for i in tqdm(range(600, 900)):
+    for i in tqdm(range(0, 300)):
         m = load_mesh(os.path.join(root, all_filenames[i]), merge_tex=False)
-        renderer = UVTextureRenderer({})
-        m_mi = renderer.mesh_to_mitsuba(m)
-        r = mi.Bitmap(renderer.render(m_mi, True)).convert(
-            pixel_format=mi.Bitmap.PixelFormat.RGB,
-            component_format=mi.Struct.Type.UInt8,
-            srgb_gamma=True,
+
+        mat = getattr(m.visual, "material", None)
+        extra_maps = [
+            "normalTexture",
+            "metallicRoughnessTexture",
+            "emissiveTexture",
+            "occlusionTexture",
+        ]
+        num_extra_props = (
+            sum(1 for prop in extra_maps if getattr(mat, prop, None) is not None)
+            if mat is not None
+            else 0
         )
-        renderings.append(r)
+
+        if num_extra_props == 0:
+            continue
+
+        renderer = UVTextureRenderer({})
+        m_mi = renderer.mesh_to_mitsuba(m, full_material=True)
+        try:
+            r = mi.Bitmap(renderer.render(m_mi, True)).convert(
+                pixel_format=mi.Bitmap.PixelFormat.RGB,
+                component_format=mi.Struct.Type.UInt8,
+                srgb_gamma=True,
+            )
+            renderings.append(r)
+        except RuntimeError as e:
+            print(f"Error rendering mesh {i}: {e}")
+            continue
 
         components = len(trimesh.graph.connected_components(m.edges))
-        frame_labels.append(f"{i}: n_v={m.vertices.shape[0]}, disc={components > 1}")
+        frame_labels.append(
+            f"{i}: n_v={m.vertices.shape[0]}, n_mat={num_extra_props + 1}, disc={components > 1}"
+        )
 
     print("show_video(renderings, frame_texts=frame_labels)")

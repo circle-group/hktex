@@ -74,6 +74,7 @@ if __name__ == "__main__":
     model._colour_act = lambda x: x
 
     # Manually set parameters ##########################################################
+    model._mean_colour = torch.nn.Parameter(torch.zeros(1, 3, device=device))
     model._angles = torch.nn.Parameter(
         torch.deg2rad(torch.tensor([0.0, 0.0], device=device))
     )

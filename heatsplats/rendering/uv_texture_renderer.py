@@ -21,6 +21,7 @@ class UVTextureRenderer(BaseRenderer):
         self,
         mesh: Trimesh,
         tex_img: Union[None, Float[Tensor, "W H 3"]] = None,
+        full_material: bool = False,
         **kwargs,
     ) -> mi.Mesh:
 
@@ -30,12 +31,14 @@ class UVTextureRenderer(BaseRenderer):
             except AttributeError:
                 tex_img = mesh.visual.material.image
 
-            tex_img = np.asarray(tex_img, dtype=np.float32) / 255
+            tex_arr = np.asarray(tex_img)
+            if tex_arr.dtype == np.uint8:
+                tex_img = tex_arr.astype(np.float32) / 255.0
+            else:
+                tex_img = tex_arr.astype(np.float32)
         else:
             tex_img = tex_img.cpu().numpy()
 
-        # NOTE:  other attributes can be added to bsdf_dict like for base_color
-        # (e.g., roughness, metallic, anisotropic).
         bsdf_dict = {
             "type": "principled",
             "base_color": {
@@ -43,6 +46,53 @@ class UVTextureRenderer(BaseRenderer):
                 "bitmap": mi.Bitmap(tex_img),
             },
         }
+
+        if full_material and hasattr(mesh.visual, "material"):
+            mat = mesh.visual.material
+
+            if getattr(mat, "metallicFactor", None) is not None:
+                bsdf_dict["metallic"] = float(mat.metallicFactor)
+            if getattr(mat, "roughnessFactor", None) is not None:
+                bsdf_dict["roughness"] = float(mat.roughnessFactor)
+
+            mr_tex = getattr(mat, "metallicRoughnessTexture", None)
+            if mr_tex is not None:
+                mr_arr = np.asarray(mr_tex)
+                if mr_arr.dtype == np.uint8:
+                    mr_arr = mr_arr.astype(np.float32) / 255.0
+                else:
+                    mr_arr = mr_arr.astype(np.float32)
+
+                if len(mr_arr.shape) == 3 and mr_arr.shape[-1] >= 3:
+                    # In glTF PBR, Green channel is roughness, Blue channel is metallic
+                    bsdf_dict["roughness"] = {
+                        "type": "bitmap",
+                        "bitmap": mi.Bitmap(np.ascontiguousarray(mr_arr[..., 1])),
+                        "raw": True,
+                    }
+                    bsdf_dict["metallic"] = {
+                        "type": "bitmap",
+                        "bitmap": mi.Bitmap(np.ascontiguousarray(mr_arr[..., 2])),
+                        "raw": True,
+                    }
+
+            n_tex = getattr(mat, "normalTexture", None)
+            if n_tex is not None:
+                n_arr = np.asarray(n_tex)
+                if n_arr.dtype == np.uint8:
+                    n_arr = n_arr.astype(np.float32) / 255.0
+                else:
+                    n_arr = n_arr.astype(np.float32)
+
+                bsdf_dict = {
+                    "type": "normalmap",
+                    "normalmap": {
+                        "type": "bitmap",
+                        "bitmap": mi.Bitmap(n_arr),
+                        "raw": True,
+                    },
+                    "bsdf": bsdf_dict,
+                }
 
         if self.cfg.mitsuba_mesh_config.twosided:
             bsdf_dict = {"type": "twosided", "material": bsdf_dict}

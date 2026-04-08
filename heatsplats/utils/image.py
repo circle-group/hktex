@@ -31,6 +31,10 @@ def combine_images(
     """
     axis = 1 if horizontal else 0
     concatenated = np.concatenate([np.array(im) for im in images], axis=axis)
+    if concatenated.dtype == np.uint8:
+        if as_bitmap:
+            return mi.Bitmap(concatenated)
+        concatenated = concatenated.astype(np.float32) / 255.0
     combined = mi.TensorXf(concatenated)
 
     if as_bitmap:

@@ -80,6 +80,7 @@ if __name__ == "__main__":
     model._kernel_colours = torch.nn.Parameter(
         torch.tensor([[1.0, 0, 0], [0, 1.0, 0]], dtype=torch.float, device=device)
     )
+    model._mean_colour = torch.nn.Parameter(torch.zeros(1, 3, device=device))
     model._kernel_face_ids = torch.tensor([2000, 4682], device=device)
 
     model._kernel_locations = torch.nn.Parameter(
@@ -92,17 +93,27 @@ if __name__ == "__main__":
         torch.tensor([100.0, 100.0], dtype=torch.float, device=device)
     )
     model._thresholds = torch.nn.Parameter(
-        torch.tensor([0.9, 0.9], dtype=torch.float, device=device)
+        torch.tensor([0.5, 0.5], dtype=torch.float, device=device)
     )
 
     # Render as rings
     model.kernel_filter_func = partial(box_border, thickness=0.07)
     ####################################################################################
 
-    hk_renderer = HeatKernelsRenderer({"camera_config": {"azimuth_deg": -90}})
+    hk_renderer = HeatKernelsRenderer(
+        {
+            "camera_config": {
+                "azimuth_deg": -90,
+                "camera_distance": 3.5,
+                "img_width": 512,
+                "img_height": 512,
+            }
+        }
+    )
 
     hk_renderer.mega_kernel(False, no_loops=True, no_opt_calls=True)
     mi_mesh = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
+    image = hk_renderer.render(mi_mesh)
     video = hk_renderer.rotating_video(mi_mesh, 5)
     hk_renderer.flush_cache()
 
@@ -114,6 +125,7 @@ if __name__ == "__main__":
                 "name": "Adam",
                 "args": {"lr": 0},
                 "params": {
+                    "_mean_colour": {},
                     "_kernel_colours": {},
                     "_angles": {},
                     "_anisotropies": {},
@@ -149,12 +161,15 @@ if __name__ == "__main__":
         base_radius=0.1,
     )
 
-    model._kernel_colours = torch.nn.Parameter(torch.randn_like(model._kernel_colours))
+    # model._kernel_colours = torch.nn.Parameter(torch.randn_like(model._kernel_colours))
 
     hk_renderer.mega_kernel(False)
     mi_mesh_2 = hk_renderer.mesh_to_mitsuba(tri_mesh, our_mesh, model, eigalbo_interp)
     video_2 = hk_renderer.rotating_video(mi_mesh_2, 5)
+    image_2 = hk_renderer.render(mi_mesh_2)
     hk_renderer.flush_cache()
 
+    combined_image = combine_images(image, image_2)
+    print("Show image of split kernels: show_image(combined_image)")
     combined_video = combine_videos(video, video_2)
     print("Show video of split kernels: show_video(combined_video)")

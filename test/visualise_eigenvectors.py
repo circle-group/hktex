@@ -112,7 +112,16 @@ if __name__ == "__main__":
 
     # tri_mesh = trimesh.creation.icosphere(subdivisions=4, radius=1.0)
 
-    vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": -90}})
+    vc_renderer = VertexColoursRenderer(
+        {
+            "camera_config": {
+                "azimuth_deg": -90,
+                "camera_distance": 3.5,
+                "img_width": 512,
+                "img_height": 512,
+            }
+        }
+    )
     # vc_renderer = VertexColoursRenderer({"camera_config": {"azimuth_deg": 0}})
 
     our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
