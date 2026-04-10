@@ -44,7 +44,7 @@ if __name__ == "__main__":
 
     renderings = []
     frame_labels = []
-    for i in tqdm(range(0, 300)):
+    for i in tqdm(range(0, 100)):
         m = load_mesh(os.path.join(root, all_filenames[i]), merge_tex=False)
 
         mat = getattr(m.visual, "material", None)
@@ -63,7 +63,22 @@ if __name__ == "__main__":
         if num_extra_props == 0:
             continue
 
-        renderer = UVTextureRenderer({})
+        renderer = UVTextureRenderer(
+            {
+                "camera_config": {
+                    "azimuth_deg": -90,
+                    "elevation_deg": -30,
+                    "camera_distance": 3.7,
+                    "img_width": 300,
+                    "img_height": 300,
+                },
+                "emitter_config": {
+                    "envmap_path": "/data2/home/sf3018/hktex/lilienstein_1k.exr"
+                },
+                "ground_plane_config": {"activated": False},
+                "integrator_config": {"type": "path", "hide_emitters": True},
+            }
+        )
         m_mi = renderer.mesh_to_mitsuba(m, full_material=True)
         try:
             r = mi.Bitmap(renderer.render(m_mi, True)).convert(

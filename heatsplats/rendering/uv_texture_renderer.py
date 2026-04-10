@@ -31,7 +31,7 @@ class UVTextureRenderer(BaseRenderer):
             except AttributeError:
                 tex_img = mesh.visual.material.image
 
-            tex_arr = np.asarray(tex_img)
+            tex_arr = np.asarray(tex_img.convert("RGB"))
             if tex_arr.dtype == np.uint8:
                 tex_img = tex_arr.astype(np.float32) / 255.0
             else:
@@ -57,7 +57,7 @@ class UVTextureRenderer(BaseRenderer):
 
             mr_tex = getattr(mat, "metallicRoughnessTexture", None)
             if mr_tex is not None:
-                mr_arr = np.asarray(mr_tex)
+                mr_arr = np.asarray(mr_tex.convert("RGB"))
                 if mr_arr.dtype == np.uint8:
                     mr_arr = mr_arr.astype(np.float32) / 255.0
                 else:
@@ -78,7 +78,7 @@ class UVTextureRenderer(BaseRenderer):
 
             n_tex = getattr(mat, "normalTexture", None)
             if n_tex is not None:
-                n_arr = np.asarray(n_tex)
+                n_arr = np.asarray(n_tex.convert("RGB"))
                 if n_arr.dtype == np.uint8:
                     n_arr = n_arr.astype(np.float32) / 255.0
                 else:
