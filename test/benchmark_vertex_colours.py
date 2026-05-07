@@ -6,6 +6,7 @@ import torch
 import pandas as pd
 import yaml
 import torch.nn.functional as F
+import copy
 
 try:
     script_dir = Path(__file__).resolve().parent.parent
@@ -171,11 +172,61 @@ def main(
     mse = F.mse_loss(res, gt, reduction="mean").item()
     metrics = compute_all_image_metrics(res, gt)
 
-    # Compute average number of foreground pixels per frame
-    if gt.shape[1] == 4:
-        n_fg_pixels = (gt[:, 3] > 0).float().sum().item() / gt.shape[0]
-    else:
-        n_fg_pixels = -1  # Not available if GT doesn't have alpha channel
+    # Compute average number of foreground pixels per frame using a dedicated silhouette pass
+    config_sil = copy.deepcopy(renderer_config)
+    if "ground_plane_config" in config_sil:
+        config_sil["ground_plane_config"]["activated"] = False
+    if "integrator_config" in config_sil:
+        config_sil["integrator_config"]["hide_emitters"] = True
+
+    original_load_dict = mi.load_dict
+
+    def patched_load_dict(d):
+        def inject_rgba(node):
+            if isinstance(node, dict):
+                if node.get("type") == "hdrfilm":
+                    node["pixel_format"] = "rgba"
+                elif node.get("type") in ["perspective", "orthogonal", "thinlens"]:
+                    if "film" in node:
+                        inject_rgba(node["film"])
+                    else:
+                        node["film"] = {"type": "hdrfilm", "pixel_format": "rgba"}
+                else:
+                    for k, v in node.items():
+                        inject_rgba(v)
+            elif isinstance(node, list):
+                for item in node:
+                    inject_rgba(item)
+
+        inject_rgba(d)
+        return original_load_dict(d)
+
+    mi.load_dict = patched_load_dict
+    try:
+        uv_renderer_sil = UVTextureRenderer(config_sil)
+        m_mi_gt_sil = uv_renderer_sil.mesh_to_mitsuba(mesh_gt)
+
+        azimuth = uv_renderer_sil.cfg.camera_config.azimuth_deg
+        elevation = uv_renderer_sil.cfg.camera_config.elevation_deg
+        total_fg_pixels = 0
+        has_alpha = False
+
+        for i in range(n_frames):
+            uv_renderer_sil.change_camera_param(
+                azimuth_deg=azimuth + (i / n_frames) * 360,
+                elevation_deg=elevation,
+            )
+            frame_raw = uv_renderer_sil.render(m_mi_gt_sil, denoise=False)
+            frame_torch = (
+                frame_raw.torch() if hasattr(frame_raw, "torch") else frame_raw
+            )
+            if frame_torch.shape[-1] >= 4:
+                has_alpha = True
+                total_fg_pixels += (frame_torch[..., 3] > 0).float().sum().item()
+
+        n_fg_pixels = total_fg_pixels / max(1, n_frames) if has_alpha else -1
+    finally:
+        mi.load_dict = original_load_dict
 
     combined_rend = combine_videos(gt_rend, result_rend)
     renderings_dir = os.path.join(output_dir, "renderings_vertex_colours")
