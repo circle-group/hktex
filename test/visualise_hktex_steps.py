@@ -60,6 +60,11 @@ if __name__ == "__main__":
     )
     our_mesh = Mesh.from_trimesh(tri_mesh, device=device)
 
+    k_aniso = 128
+    k_iso = 64
+    tau = 0.5
+    dt = 0.05
+
     # Configuration
     model_cfg = {
         "n_sources": 3,
@@ -70,11 +75,11 @@ if __name__ == "__main__":
         "knn_outer_k": 32,
         "knn_inner_k": 32,  # Accumulate all for visualization
         "init_kernel_edge_type": "uniform",
-        "diff_time": 0.05,
+        "diff_time": dt,
     }
 
     eigalbo_config = {
-        "k_eig": 128,
+        "k_eig": k_aniso,
         "use_precomputed": False,
         "precompute_anisotropies": [5, 15, 30, 60, 100],
         "precompute_angles_every_deg": 30,
@@ -82,7 +87,7 @@ if __name__ == "__main__":
         "precomputed_name": "eigen_albo",
         "distance_weighting": "gaussian_0.1",
         "normalise_evals": False,
-        "knn_embedding_dim": 64,
+        "knn_embedding_dim": k_iso,
         "use_weighting": True,
     }
 
@@ -102,7 +107,7 @@ if __name__ == "__main__":
         model._angles[:] = 0.0
         model._anisotropies[:] = 30.0
         model._sharpnesses[:] = 100.0
-        model._thresholds[:] = 0.5
+        model._thresholds[:] = tau
         model._kernel_colours[:] = 0.0
 
         # Kernel 0 (Red)
@@ -237,6 +242,9 @@ if __name__ == "__main__":
     # img_4 is already colored properly
 
     combined = combine_images(img_0, img_1, img_2, img_3, img_4)
+    combined.write(
+        f"outputs/diff_stages/k_aniso={k_aniso}-k_iso={k_iso}-tau={tau}-dt={dt}.png"
+    )
     print("Done.")
     print(
         "Columns: Un-normalised HK -> Normalised HK -> Weighted HK -> Filtered -> Final Colour"
