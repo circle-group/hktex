@@ -46,10 +46,8 @@ def define_optuna_space(trial: optuna.Trial) -> dict:
     )
 
     # Kernel interpolation
-    trial.suggest_categorical("trainer.model.knn_k", [10, 12, 16, 20])
-    trial.suggest_categorical(
-        "trainer.model.softmax_temperature", [0.015, 0.02, 0.03]
-    )
+    trial.suggest_categorical("trainer.model.knn_k", [10, 12, 16, 20, 24])
+    trial.suggest_categorical("trainer.model.softmax_temperature", [0.015, 0.02, 0.03])
     trial.suggest_categorical(
         "trainer.model.softmax_temperature_min", [2e-4, 5e-4, 1e-3, 2e-3]
     )
@@ -60,7 +58,9 @@ def define_optuna_space(trial: optuna.Trial) -> dict:
         "residual_recenter_enabled", [False, True]
     )
     if residual_recenter_enabled:
-        trial.suggest_categorical("trainer.model.residual_recenter_every", [100, 200])
+        trial.suggest_categorical(
+            "trainer.model.residual_recenter_every", [100, 200, 400]
+        )
         trial.suggest_categorical("residual_recenter_stop_iter_frac", [0.6, 0.8])
     else:
         constants["trainer.model.residual_recenter_every"] = None
@@ -92,7 +92,7 @@ def define_optuna_space(trial: optuna.Trial) -> dict:
     trial.suggest_float("lr_residual_gain", 5e-5, 5e-3, log=True)
 
     # Geodesic optimizer
-    trial.suggest_float("lr_locations", 1e-4, 1e-2, log=True)
+    trial.suggest_float("lr_locations", 1e-4, 2e-2, log=True)
     trial.suggest_categorical("momentum_locations", [0.0, 0.8, 0.9])
 
     # Define-by-run pattern: suggest_* populates trial params.
@@ -263,17 +263,17 @@ def trainable(config, root, all_filenames, resolver_paths):
         for k in per_mesh_metrics[0]
     }
     tune.report(
-            {
-                "mean_error": avg_error,
-                "std_error": std_error,
-                "mean_n_kernels": avg_n_kernels,
-                "n_success": n_success,
-                "n_failed": n_failed,
-                "storage_torch_kb": storage_torch_kb,
-                "storage_npz_kb": storage_npz_kb,
-                **avg_metrics,
-            }
-        )
+        {
+            "mean_error": avg_error,
+            "std_error": std_error,
+            "mean_n_kernels": avg_n_kernels,
+            "n_success": n_success,
+            "n_failed": n_failed,
+            "storage_torch_kb": storage_torch_kb,
+            "storage_npz_kb": storage_npz_kb,
+            **avg_metrics,
+        }
+    )
 
 
 if __name__ == "__main__":

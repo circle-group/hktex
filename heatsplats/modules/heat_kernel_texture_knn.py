@@ -29,7 +29,7 @@ class HeatKernelTextureKNN(HeatKernelTexture):
     @dataclass
     class Config(HeatKernelTexture.Config):
         knn_outer_k: int = 100
-        knn_inner_k: int = 10
+        knn_inner_k: Optional[int] = 10
 
     cfg: Config
 
@@ -128,6 +128,9 @@ class HeatKernelTextureKNN(HeatKernelTexture):
         pts_indices: Float[Tensor, "P K"] = pts_info["indices"]
 
         P, K, _ = pts_evecs.shape
+        knn_inner_k = self.cfg.knn_inner_k
+        if knn_inner_k is None:
+            knn_inner_k = K
 
         with torch.profiler.record_function("diffuse_heat"):
             heat_qk, heat_qk_norm = eigalbo_interp.diffuse_heat(
@@ -151,7 +154,7 @@ class HeatKernelTextureKNN(HeatKernelTexture):
             )
 
             contribs: Float[Tensor, "P k"]
-            k_use = min(self.cfg.knn_inner_k, K)
+            k_use = min(knn_inner_k, K)
             contribs, topk_local = filtered.topk(k=k_use, largest=True, dim=1)
 
             idx_exp = topk_local.unsqueeze(-1).expand(

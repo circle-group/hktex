@@ -1,0 +1,138 @@
+name: "uv-texture-fitting"
+tag: "${filename:${data.mesh_path}}"
+exp_root_dir: "outputs"
+seed: 0
+
+data_type: data.uv-texture-sampler
+data:
+  mesh_path: ../objects/spot/spot_triangulated.obj
+  bake_vert_colours_if_textured: False
+  merge_tex: True
+  
+  batch_size: 4096
+  num_workers: 0
+  sampling_method: "uniform"
+
+  use_importance_sampling: True
+  importance_sampling_pool_size: 1000000
+  importance_sampling_warmup_steps: 250
+  importance_sampling_ema_beta: 0.99
+
+trainer_type: trainers.uv-texture
+trainer:
+  use_knn_implementation: True
+
+  tracer_type: modules.gpu-geodesic-tracer
+  tracer: 
+    n_debug_traces: 10
+    debug: False
+
+  eigen_albo_type: modules.eigen-albo-interpolation-knn
+  eigen_albo: 
+    k_eig: 256
+    mesh_path: ${data.mesh_path}
+    distance_weighting: gaussian_0.05
+    mass_type: ${trainer.model.mass_type}
+    local_frames: principal_curvatures
+    precompute_anisotropies: [1, 5, 15, 30, 60, 100, 200]
+    precompute_angles_every_deg: 30
+
+    knn_embedding_dim: 64
+
+    faiss:
+      use_float16: False
+      distance_impl: bmm
+      build_db_norm: True
+      compile_distances: True
+
+    gather:
+      select_impl: bilinear4
+      compile_select: True
+      gather_impl: stream_vertices
+      compile_gather: True
+
+    weighting:
+      kernel: gaussian
+      gaussian_std: 0.05
+      normalize: False
+      compile_kernel: True
+
+    heat:
+      compile_heat: True
+    parse_weighting_from_str: True
+
+  model: 
+    n_sources: 1000
+    kernel_dim: 32
+    diff_time: 0.06245046192097831
+    mass_type: one
+    init_min_threshold: 0.3  # The higher the smaller
+    range_enforcement_type: activations
+    init_kernel_edge_type: high_skewed
+    out_net: False
+    normalize_colours: False
+    allow_negative_colours: True
+
+    knn_outer_k: 50
+    knn_inner_k: 30
+
+  loss_type: "mse_loss"
+  data_initialisation_random_ratio: 0.5
+
+  optimizers:
+    - name: Adam
+      args: {}
+      #   lr: 1e-3  #5e-4
+      params:
+        model._mean_colour: {lr: 0.0009605697909535365}
+        model._kernel_colours: {lr: 0.006154297191437912}
+        model._angles: {lr: 0.09925815390934509}
+        model._anisotropies: {lr: 0.0046734947696952505}
+        model._thresholds: {lr: 0.0010937350855722754}
+        model._sharpnesses: {lr: 0.001288570245082531}
+        # model.out_net: {}
+      scheduler:
+        name: StepLR
+        args:
+          gamma: 0.5
+          step_size: 1000
+        
+    - name: GeodesicOpt
+      args:
+        lr: 0.09914527998776132
+        momentum: 0.9
+      scheduler:
+        name: StepLR
+        args:
+          gamma: 0.5
+          step_size: 1000
+      tracer: tracer
+      params:
+        model._kernel_locations:
+          face_ids: model._kernel_face_ids
+
+  density_controllers:  # aka Adaptive Density Controllers (ADCs)
+    - density_controller_type: density_controllers.importance_pruning
+      args:
+        start_iter: ${int:${mul:${optim.iters}, 0.1}}
+        prune_interval: ${int:${mul:${optim.iters}, 0.2}}
+        accumulation_interval: ${int:${mul:${mul:${optim.iters}, 0.2}, 0.25}}
+        selection_threshold: 0.0016874044638848424
+        contrib_threshold: 0.034241733313642164
+        stop_iter: ${int:${mul:${optim.iters}, 0.5}}
+    - density_controller_type: density_controllers.error_based_densification
+      args:
+        start_iter: ${int:${mul:${optim.iters}, 0.08}}
+        densify_interval: ${int:${mul:${optim.iters}, 0.02}}
+        error_accumulation_interval: ${int:${mul:${mul:${optim.iters}, 0.02}, 0.75}}
+        error_threshold: 0.02372325867109463
+        size_threshold: 0.17391363035121932
+        split_radius: 0.15
+        max_densify_ratio: 0.4
+        max_kernels: ${int:${mul:${trainer.model.n_sources}, 5}}
+        stop_iter: ${int:${mul:${optim.iters}, 0.7}}
+
+
+
+optim:
+  iters: 5000
