@@ -6,6 +6,7 @@ from . import (
     stat_heat_kernels as stat_heat_kernels,
     mitsuba_trainer as mitsuba_trainer,
     mitsuba_ray_trainer as mitsuba_ray_trainer,
+    vertex_ray_trainer as vertex_ray_trainer,
 )
 from .base import BaseTrainer
 from .utils import parse_optimizers_and_schedulers
