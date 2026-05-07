@@ -51,7 +51,10 @@ trainer:
 
   gt_spp: 0
 
-  learning_rate: 0.01
+  learning_rate: 1e-2
+  lr_scheduling: True
+  steplr_gamma: 0.5
+  steplr_step_size: 15
 
   renderer_mega_kernel: false
   debug_video_frequency: 5

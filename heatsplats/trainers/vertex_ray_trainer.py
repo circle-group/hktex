@@ -57,7 +57,10 @@ class VertexRayTrainer(ObjectWithCallbacks):
         renderer: dict = field(default_factory=dict)
         renderer_mega_kernel: bool = False
 
-        learning_rate: float = 0.05
+        learning_rate: float = 0.01
+        lr_scheduling: bool = True
+        steplr_gamma: float = 0.5
+        steplr_step_size: int = 15
 
         # denoise_ad_prop: bool = False
         spp: int = 0
@@ -333,6 +336,13 @@ class VertexRayTrainer(ObjectWithCallbacks):
             # # TODO: maybe seperate per epoch and per step schedulers
             # for scheduler in self.schedulers:
             #     scheduler.step()
+            if self.cfg.lr_scheduling:
+                gamma, step_size = self.cfg.steplr_gamma, self.cfg.steplr_step_size
+                if (epoch + 1) % step_size == 0:
+                    prev_lr = self.opt.learning_rate()
+                    lr = prev_lr * gamma
+                    heatsplats.info(f"Updating learning rate from {prev_lr} to {lr}")
+                    self.opt.set_learning_rate(lr)
 
             with torch.no_grad():
                 with dr.suspend_grad():
