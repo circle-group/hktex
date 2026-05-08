@@ -47,6 +47,7 @@ if __name__ == "__main__":
     }
     extras_dict = {
         "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
+        "trainer.target_size_kb": 100,
         # "trainer.network.tracer.debug": False,
         # "optim.iters": 10,  # 10,
         # "data.batch_size": 16,

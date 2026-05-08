@@ -22,33 +22,16 @@ import heatsplats
 from heatsplats.modules import (
     Mesh,
 )
-from heatsplats.modules.base import TextureModel
-from heatsplats.modules.heat_kernel_model_knn import HeatKernelModelKNN
 from heatsplats.data import MeshSamplerDataModule
 import heatsplats.rendering as rendering
 from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
 from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
-from heatsplats.modules import (
-    HeatKernelModel,
-    HeatKernelModelKNN,
-    HeatKernelTexture,
-    HeatKernelTextureKNN,
-)
 
 
 import heatsplats.utils as utils
 from heatsplats.utils.video import save_video
 from heatsplats.utils import ObjectWithCallbacks, load_mesh
-from heatsplats.utils import (
-    compute_gmap,
-    get_grid,
-    cart_to_bary_coords,
-    interpolate_barycentric_attr,
-)
 from heatsplats.utils.typing import *
-
-from .utils import parse_optimizers_and_schedulers
-from heatsplats.density_controllers.utils import parse_density_controllers
 
 
 class VertexRayTrainer(ObjectWithCallbacks):
@@ -85,6 +68,8 @@ class VertexRayTrainer(ObjectWithCallbacks):
 
         albedo_init: float = 0.5
 
+        target_size_kb: Optional[float] = None
+
     cfg: Config
 
     def configure(
@@ -99,7 +84,21 @@ class VertexRayTrainer(ObjectWithCallbacks):
 
         self.datamodule = datamodule
 
-        self.mesh = Mesh.from_trimesh(self.datamodule.mesh, device=self.device)
+        self._train_mesh = self.datamodule.mesh
+        if self.cfg.target_size_kb is not None:
+            self._train_mesh = self.datamodule.load_mesh_size_matched(
+                self.cfg.target_size_kb, dtype=np.float32
+            )
+            vc_size_kb = (
+                utils.get_vertex_colours_size_bytes(self._train_mesh, dtype=np.float32)
+                / 1024.0
+            )
+            heatsplats.info(
+                f"Trying to match to {self.cfg.target_size_kb:.2f} KB, "
+                f"final vertex colours size: {vc_size_kb:.2f} KB"
+            )
+
+        self.mesh = Mesh.from_trimesh(self._train_mesh, device=self.device)
 
         self.loss_fn = utils.mitsuba.get_mitsuba_loss(
             self.cfg.loss_type, self.cfg.loss_force_vectorized
@@ -217,9 +216,7 @@ class VertexRayTrainer(ObjectWithCallbacks):
         dataloader = self.datamodule.train_dataloader()
         data_iter = iter(dataloader)
 
-        mi_mesh = self.renderer.mesh_to_mitsuba(
-            self.datamodule.mesh, self.vertex_colours
-        )
+        mi_mesh = self.renderer.mesh_to_mitsuba(self._train_mesh, self.vertex_colours)
         scene, params = self.renderer.make_scene(mi_mesh, with_params=True)
 
         print(params)
@@ -360,6 +357,8 @@ class VertexRayTrainer(ObjectWithCallbacks):
             dr.flush_malloc_cache()
             torch.cuda.empty_cache()
 
+        self.vertex_colours = params["mesh.vertex_color"].torch()
+
         return None, None, None
 
     @abstractmethod
@@ -394,7 +393,7 @@ class VertexRayTrainer(ObjectWithCallbacks):
         """
         renderer = self._get_renderer()
 
-        mi_mesh = renderer.mesh_to_mitsuba(self.datamodule.mesh, self.vertex_colours)
+        mi_mesh = renderer.mesh_to_mitsuba(self._train_mesh, self.vertex_colours)
 
         if rotating_frames == 1:
             img = renderer.render(mi_mesh, denoise=True)
@@ -414,14 +413,15 @@ class VertexRayTrainer(ObjectWithCallbacks):
         return {"loss": []}
 
     def save_model(self, filename):
-        # TODO: Do this
-        # self.model.save_torch(filename)
-        # torch_size = os.path.getsize(filename)
-        torch_size = 1024
-        # npz_filename = filename.replace(".pt", ".npz")
-        # self.model.save_numpy_npz(npz_filename)
-        # npz_size = os.path.getsize(npz_filename)
-        npz_size = 1024
+        model_torch = {"vertex_colours": self.vertex_colours}
+        torch.save(model_torch, filename)
+        torch_size = os.path.getsize(filename)
+
+        model_npz = {k: v.detach().cpu().numpy() for k, v in model_torch.items()}
+        npz_filename = filename.replace(".pt", ".npz")
+        np.savez_compressed(npz_filename, **model_npz)
+        npz_size = os.path.getsize(npz_filename)
+
         return torch_size / 1024, npz_size / 1024
 
 

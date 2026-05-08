@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+import io
 
+import numpy as np
 import torch
 import trimesh
 
 import heatsplats
-from heatsplats.utils import BaseObject, load_mesh
+from heatsplats.utils import BaseObject, load_mesh, load_mesh_size_matched
 from heatsplats.utils.typing import *
 
 from .importance_sampling_strategy import (
@@ -47,3 +49,18 @@ class MeshSamplerDataModule(ImportanceSamplingMixIn):
         assert hasattr(
             self, "mesh"
         ), "Please call prepare_data before setup in data module"
+
+    def load_mesh_size_matched(
+        self, target_size_kb: float, dtype=np.uint8, verbose: bool = True
+    ) -> trimesh.Trimesh:
+        mesh_path = self.cfg.mesh_path
+        has_texture = mesh_path.endswith((".glb", ".obj"))
+        bake_vert_colours = has_texture and self.cfg.bake_vert_colours_if_textured
+        return load_mesh_size_matched(
+            mesh_path,
+            target_size_kb,
+            show=False,
+            bake_vert_colors=bake_vert_colours,
+            dtype=dtype,
+            verbose=verbose,
+        )
