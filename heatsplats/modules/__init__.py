@@ -2,6 +2,7 @@ from .base import *
 from .mesh import *
 from .heat_kernel_texture import *
 from .heat_kernel_texture_knn import *
+from .heat_kernel_density_knn import *
 from .tracer import *
 from .geodesic_opt import *
 from .eigen_albo import *

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import pandas as pd
 import numpy as np
 import traceback
-
+print("Started loading...")
 try:
     script_dir = Path(__file__).resolve().parent.parent
 except NameError:
@@ -18,6 +18,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 from ray import tune
+print("Loaded mi...")
 
 
 def vertex_ray_benchmark_trainable(config):
@@ -179,7 +180,7 @@ if __name__ == "__main__":
         items.append({"filename": row["filename"], "target_kb": row["storage_npz_kb"]})
 
     print(f"Found {len(items)} targets to process.")
-    print(f"Running for encodings: {args.encodings}")
+    print(f"Running for test cases: {args.test}")
 
     # Run for each encoding separately to keep things organized
     for test in args.test:
