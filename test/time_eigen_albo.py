@@ -14,11 +14,12 @@ import numpy as np
 import pandas as pd
 import torch
 import scipy.optimize
+import gc
+from ray import tune
 
 # -------------------------------------------------------------------------
 # Monkey-patching setup to record timings without modifying source files
 # -------------------------------------------------------------------------
-orig_linear_sum_assignment = scipy.optimize.linear_sum_assignment
 
 timing_stats = {
     "lbo_s": 0.0,
@@ -33,66 +34,64 @@ def reset_timings():
         timing_stats[k] = 0.0
 
 
-def patch_hungarian(*args, **kwargs):
-    t0 = time.perf_counter()
-    res = orig_linear_sum_assignment(*args, **kwargs)
-    timing_stats["hungarian_s"] += time.perf_counter() - t0
-    return res
-
-
-scipy.optimize.linear_sum_assignment = patch_hungarian
-
-# Now import heatsplats so we can patch its modules
-import heatsplats
-import heatsplats.modules.eigen_albo as ea_module
-import heatsplats.utils as hs_utils
-
-# Patch linear_sum_assignment safely in the module where align_eigen is defined
-align_eigen_mod_name = hs_utils.align_eigen.__module__
-align_eigen_mod = sys.modules.get(align_eigen_mod_name)
-if align_eigen_mod and hasattr(align_eigen_mod, "linear_sum_assignment"):
-    align_eigen_mod.linear_sum_assignment = patch_hungarian
-
-orig_get_anisotropic_lbo = ea_module.get_anisotropic_lbo
-orig_compute_eig_laplacian = ea_module.compute_eig_laplacian
-orig_align_eigen = ea_module.align_eigen
-
-
 def _gpu_sync():
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
 
-def patch_get_lbo(*args, **kwargs):
-    _gpu_sync()
-    t0 = time.perf_counter()
-    res = orig_get_anisotropic_lbo(*args, **kwargs)
-    _gpu_sync()
-    timing_stats["lbo_s"] += time.perf_counter() - t0
-    return res
+_is_patched = False
 
 
-def patch_compute_eig(*args, **kwargs):
-    _gpu_sync()
-    t0 = time.perf_counter()
-    res = orig_compute_eig_laplacian(*args, **kwargs)
-    _gpu_sync()
-    timing_stats["eig_s"] += time.perf_counter() - t0
-    return res
+def setup_patching():
+    global _is_patched
+    if _is_patched:
+        return
 
+    import heatsplats.modules.eigen_albo as ea_module
+    import scipy.optimize
 
-def patch_align_eigen(*args, **kwargs):
-    _gpu_sync()
-    t0 = time.perf_counter()
-    res = orig_align_eigen(*args, **kwargs)
-    _gpu_sync()
-    timing_stats["align_s"] += time.perf_counter() - t0
-    return res
+    orig_linear_sum_assignment = scipy.optimize.linear_sum_assignment
+    orig_get_anisotropic_lbo = ea_module.get_anisotropic_lbo
+    orig_compute_eig_laplacian = ea_module.compute_eig_laplacian
+    orig_align_eigen = ea_module.align_eigen
 
+    def patch_get_lbo(*args, **kwargs):
+        _gpu_sync()
+        t0 = time.perf_counter()
+        res = orig_get_anisotropic_lbo(*args, **kwargs)
+        _gpu_sync()
+        timing_stats["lbo_s"] += time.perf_counter() - t0
+        return res
 
-ea_module.get_anisotropic_lbo = patch_get_lbo
-ea_module.compute_eig_laplacian = patch_compute_eig
-ea_module.align_eigen = patch_align_eigen
+    def patch_compute_eig(*args, **kwargs):
+        _gpu_sync()
+        t0 = time.perf_counter()
+        res = orig_compute_eig_laplacian(*args, **kwargs)
+        _gpu_sync()
+        timing_stats["eig_s"] += time.perf_counter() - t0
+        return res
+
+    def patch_align_eigen(*args, **kwargs):
+        _gpu_sync()
+        t0 = time.perf_counter()
+        res = orig_align_eigen(*args, **kwargs)
+        _gpu_sync()
+        timing_stats["align_s"] += time.perf_counter() - t0
+        return res
+
+    def patch_hungarian(*args, **kwargs):
+        t0 = time.perf_counter()
+        res = orig_linear_sum_assignment(*args, **kwargs)
+        timing_stats["hungarian_s"] += time.perf_counter() - t0
+        return res
+
+    ea_module.get_anisotropic_lbo = patch_get_lbo
+    ea_module.compute_eig_laplacian = patch_compute_eig
+    ea_module.align_eigen = patch_align_eigen
+    scipy.optimize.linear_sum_assignment = patch_hungarian
+
+    _is_patched = True
+
 
 # -------------------------------------------------------------------------
 # Benchmark Script Logic
@@ -123,10 +122,16 @@ def timed_eigen_albo(mesh, config_dict):
         "align_s": timing_stats["align_s"],
         "hungarian_s": timing_stats["hungarian_s"],
     }
+
+    del eigalbo
+    gc.collect()
+    torch.cuda.empty_cache()
     return timings
 
 
 def infer_trainable(config):
+    setup_patching()
+
     fname = config["filename"]
     mesh_root = config["root"]
     mesh_path = os.path.join(mesh_root, fname)
@@ -134,43 +139,67 @@ def infer_trainable(config):
     from heatsplats.utils import load_mesh
     from heatsplats.modules import Mesh
 
-    tri_mesh = load_mesh(mesh_path, merge_tex=False, bake_vert_colors=False)
-    our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
+    try:
+        tri_mesh = load_mesh(mesh_path, merge_tex=False, bake_vert_colors=False)
+        our_mesh = Mesh.from_trimesh(tri_mesh, device="cuda:0")
+        n_verts = our_mesh.N_verts
 
-    eigalbo_config = {
-        "k_eig": config["k_eig"],
-        "use_precomputed": False,
-        "precompute_anisotropies": [1, 5, 15, 30, 60, 100, 200],
-        "precompute_angles_every_deg": 30,
-        "mesh_path": mesh_path,
-        "distance_weighting": "none",
-        "local_frames": "principal_curvatures",
-    }
+        eigalbo_config = {
+            "k_eig": config["k_eig"],
+            "use_precomputed": False,
+            "precompute_anisotropies": [1, 5, 15, 30, 60, 100, 200],
+            "precompute_angles_every_deg": 30,
+            "mesh_path": mesh_path,
+            "distance_weighting": "none",
+            "local_frames": "principal_curvatures",
+        }
 
-    # Warmup run (highly recommended if n_runs > 1 due to Numba/JIT overheads)
-    if config["n_runs"] > 1:
-        _ = timed_eigen_albo(our_mesh, eigalbo_config)
+        # Warmup run (highly recommended if n_runs > 1 due to Numba/JIT overheads)
+        if config["n_runs"] > 1:
+            _ = timed_eigen_albo(our_mesh, eigalbo_config)
 
-    runs = []
-    for _ in range(config["n_runs"]):
-        timings = timed_eigen_albo(our_mesh, eigalbo_config)
-        runs.append(timings)
+        runs = []
+        for _ in range(config["n_runs"]):
+            timings = timed_eigen_albo(our_mesh, eigalbo_config)
+            runs.append(timings)
 
-    # Summarize
-    keys = runs[0].keys()
-    row = {"filename": fname}
-    for k in keys:
-        vals = [r[k] for r in runs]
-        row[f"{k}_mean"] = float(np.mean(vals))
-        row[f"{k}_std"] = float(np.std(vals))
-        row[f"{k}_min"] = float(np.min(vals))
+        del our_mesh
+        del tri_mesh
+        gc.collect()
+        torch.cuda.empty_cache()
 
-    individual_results_dir = os.path.join(config["output_dir"], "individual_results")
-    os.makedirs(individual_results_dir, exist_ok=True)
-    individual_csv = os.path.join(individual_results_dir, f"{safe_name(fname)}.csv")
-    pd.DataFrame([row]).to_csv(individual_csv, index=False)
+        # Summarize
+        keys = runs[0].keys()
+        row = {"filename": fname, "n_verts": n_verts}
+        for k in keys:
+            vals = [r[k] for r in runs]
+            row[f"{k}_mean"] = float(np.mean(vals))
+            row[f"{k}_std"] = float(np.std(vals))
+            row[f"{k}_min"] = float(np.min(vals))
 
-    return row
+        individual_results_dir = os.path.join(
+            config["output_dir"], "individual_results"
+        )
+        os.makedirs(individual_results_dir, exist_ok=True)
+        individual_csv = os.path.join(individual_results_dir, f"{safe_name(fname)}.csv")
+        pd.DataFrame([row]).to_csv(individual_csv, index=False)
+
+        tune.report(row)
+        return row
+
+    except Exception as e:
+        print(f"Error processing {fname}: {e}")
+        error_row = {"filename": fname, "error": str(e)}
+
+        individual_results_dir = os.path.join(
+            config["output_dir"], "individual_results"
+        )
+        os.makedirs(individual_results_dir, exist_ok=True)
+        individual_csv = os.path.join(individual_results_dir, f"{safe_name(fname)}.csv")
+        pd.DataFrame([error_row]).to_csv(individual_csv, index=False)
+
+        tune.report({"error": str(e), "filename": fname})
+        return error_row
 
 
 if __name__ == "__main__":
@@ -186,6 +215,8 @@ if __name__ == "__main__":
     p.add_argument("--n_runs", type=int, default=1)
     p.add_argument("--k_eig", type=int, default=256)
     p.add_argument("--max_items", type=int, default=100)
+    p.add_argument("--max_concurrent_trials", type=int, default=1)
+    p.add_argument("--gpus_per_trial", type=float, default=1.0)
     args = p.parse_args()
 
     df = pd.read_csv(args.benchmark_csv)
@@ -193,29 +224,52 @@ if __name__ == "__main__":
         df = df[df["error"].isna() | (df["error"] == "")]
     if "mse" in df.columns:
         df = df[np.isfinite(df["mse"])]
+    df = df.sort_values(by="filename").reset_index(drop=True)
     print(f"Loaded {len(df)} entries, keeping {args.max_items}")
     df = df.head(args.max_items)
 
-    items = [{"filename": r["filename"]} for _, r in df.iterrows()]
+    individual_results_dir = os.path.join(args.output_dir, "individual_results")
+    os.makedirs(individual_results_dir, exist_ok=True)
 
-    print(f"Starting with {len(items)} items sequentially")
+    items = []
+    for _, r in df.iterrows():
+        fname = r["filename"]
+        individual_csv = os.path.join(individual_results_dir, f"{safe_name(fname)}.csv")
+        if os.path.exists(individual_csv):
+            print(f"Skipping {fname}, already processed.")
+            continue
+        items.append({"filename": fname})
 
-    results_list = []
-    for item in items:
-        config = {
-            "filename": item["filename"],
-            "root": args.root,
-            "output_dir": os.path.abspath(args.output_dir),
-            "n_runs": args.n_runs,
-            "k_eig": args.k_eig,
-        }
-        try:
-            row = infer_trainable(config)
-            results_list.append(row)
-        except Exception as e:
-            print(f"Error processing {item['filename']}: {e}")
+    print(f"Starting with {len(items)} items using Ray Tune")
 
-    df_out = pd.DataFrame(results_list)
+    if len(items) == 0:
+        print("All items already processed.")
+        sys.exit(0)
+
+    search_space = {
+        "item": tune.grid_search(items),
+        "root": args.root,
+        "output_dir": os.path.abspath(args.output_dir),
+        "n_runs": args.n_runs,
+        "k_eig": args.k_eig,
+    }
+
+    def wrapper(config):
+        item = config.pop("item")
+        config["filename"] = item["filename"]
+        return infer_trainable(config)
+
+    tuner = tune.Tuner(
+        tune.with_resources(wrapper, resources={"gpu": args.gpus_per_trial}),
+        param_space=search_space,
+        tune_config=tune.TuneConfig(max_concurrent_trials=args.max_concurrent_trials),
+        run_config=tune.RunConfig(
+            storage_path=os.path.abspath(args.output_dir), name="time_eigen_albo"
+        ),
+    )
+
+    results = tuner.fit()
+    df_out = results.get_dataframe()
     os.makedirs(args.output_dir, exist_ok=True)
 
     output_csv = os.path.join(args.output_dir, "time_eigen_albo_results.csv")
@@ -231,5 +285,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Could not merge with existing results: {e}")
 
+    if "filename" in df_out.columns:
+        df_out = df_out.sort_values("filename")
     df_out.to_csv(output_csv, index=False)
     print(f"Saved {len(df_out)} rows to {output_csv}")

@@ -42,6 +42,11 @@ def main():
         "part3_render_s_mean",
         "total_s_mean",
         "time_total_s",
+        "lbo_s_mean",
+        "eig_s_mean",
+        "align_s_mean",
+        "hungarian_s_mean",
+        "n_verts",
     ]
 
     print("-" * 85)
