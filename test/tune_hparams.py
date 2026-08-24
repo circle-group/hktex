@@ -285,23 +285,25 @@ if __name__ == "__main__":
         "trainer.model.allow_negative_colours": True,
         #
         # Tunable parameters ###########################################################
-        "trainer.model.n_sources": tune.choice([1000, 2500, 5000, 10000, 20000]),
-        "data.batch_size": tune.choice([512, 1024, 2048]),
-        "data.use_importance_sampling": tune.choice([True, False]),
-        "data.importance_sampling_pool_size": tune.choice(
-            [1_000_000, 5_000_000, 10_000_000]
-        ),
-        "data.importance_sampling_warmup_steps": tune.choice([250, 500, 1_000]),
-        "data.importance_sampling_ema_beta": tune.choice([0.9, 0.95, 0.99]),
-        "trainer.eigen_albo.local_frames": tune.choice(
-            ["principal_curvatures", "axis_aligned_20", "axis_aligned_5"]
-        ),
+        "trainer.model.knn_outer_k": tune.choice([50, 100, 150]),
+        "trainer.model.knn_inner_k": tune.choice([5, 10, 20, 30]),
+        "trainer.model.n_sources": tune.choice([1000, 5000, 20000]),
+        "data.batch_size": tune.choice([1024, 2048, 4096]),
+        # "data.use_importance_sampling": tune.choice([True, False]),
+        # "data.importance_sampling_pool_size": tune.choice(
+        #     [1_000_000, 5_000_000, 10_000_000]
+        # ),
+        # "data.importance_sampling_warmup_steps": tune.choice([250, 500, 1_000]),
+        # "data.importance_sampling_ema_beta": tune.choice([0.9, 0.95, 0.99]),
+        # "trainer.eigen_albo.local_frames": tune.choice(
+        #     ["principal_curvatures", "axis_aligned_20", "axis_aligned_5"]
+        # ),
         "trainer.model.diff_time": tune.loguniform(1e-6, 0.2),
-        "trainer.eigen_albo.distance_weighting": tune.choice(
-            ["none", "gaussian_0.1", "gaussian_0.05", "inverse"]
-        ),
+        # "trainer.eigen_albo.distance_weighting": tune.choice(
+        #     ["none", "gaussian_0.1", "gaussian_0.05", "inverse"]
+        # ),
         "trainer.model.init_min_threshold": tune.choice([0.3, 0.5, 0.9, 0.999]),
-        "trainer.model.range_enforcement_type": tune.choice(["pgd", "activations"]),
+        # "trainer.model.range_enforcement_type": tune.choice(["pgd", "activations"]),
         "trainer.model.init_kernel_edge_type": tune.choice(["uniform", "high_skewed"]),
         # "trainer.model.allow_negative_colours": tune.choice([True, False]),
         "trainer.loss_type": tune.choice(["mse_loss", "smooth_l1_loss", "l1_loss"]),
@@ -422,17 +424,30 @@ if __name__ == "__main__":
 
     try:
         # Plot optimization history
-        history_plot = optuna.visualization.plot_optimization_history(study)
+        mean_error_target = lambda t: t.values[0]
+        history_plot = optuna.visualization.plot_optimization_history(
+            study,
+            target=mean_error_target,
+            target_name="mean_error",
+        )
         history_plot.write_html(os.path.join(experiment_dir, "optuna_history.html"))
 
         # Plot parameter importances
-        importance_plot = optuna.visualization.plot_param_importances(study)
+        importance_plot = optuna.visualization.plot_param_importances(
+            study,
+            target=mean_error_target,
+            target_name="mean_error",
+        )
         importance_plot.write_html(
             os.path.join(experiment_dir, "optuna_importances.html")
         )
 
         # Plot slice plot to see parameter relationships
-        slice_plot = optuna.visualization.plot_slice(study)
+        slice_plot = optuna.visualization.plot_slice(
+            study,
+            target=mean_error_target,
+            target_name="mean_error",
+        )
         slice_plot.write_html(os.path.join(experiment_dir, "optuna_slice.html"))
 
         # Plot Pareto front for multi-objective optimization
