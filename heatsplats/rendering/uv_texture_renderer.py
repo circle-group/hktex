@@ -100,18 +100,33 @@ class UVTextureRenderer(BaseRenderer):
         bsdf_prop = mi.Properties()
         bsdf_prop["mesh_bsdf"] = mi.load_dict(bsdf_dict)
 
+        if (
+            hasattr(mesh, "original_vertices")
+            and hasattr(mesh, "original_faces")
+            and hasattr(mesh, "original_uv")
+        ):
+            verts = mesh.original_vertices
+            faces = mesh.original_faces
+            uv = np.array(mesh.original_uv)
+        else:
+            verts = mesh.vertices
+            faces = mesh.faces
+            uv = np.array(mesh.visual.uv)
+
         mi_mesh = mi.Mesh(
             "mesh",
-            vertex_count=mesh.vertices.shape[0],
-            face_count=mesh.faces.shape[0],
+            vertex_count=verts.shape[0],
+            face_count=faces.shape[0],
             has_vertex_texcoords=True,
+            has_vertex_normals=True,
             props=bsdf_prop,
         )
 
         # "Traverse" the mesh to get its updateable parameters
         mesh_params = mi.traverse(mi_mesh)
-        mesh_params["vertex_positions"] = np.array(mesh.vertices).flatten()
-        mesh_params["faces"] = np.array(mesh.faces).flatten()
+        mesh_params["vertex_positions"] = np.array(verts).flatten()
+        mesh_params["faces"] = np.array(faces).flatten()
+        mesh_params["vertex_normals"] = np.array(mesh.vertex_normals).flatten()
 
         # NOTE: if mesh loaded with merge_tex=True, artefacts may be present. This could
         # be solved using the "original_uv" and "original_faces" during rendering.
@@ -119,7 +134,6 @@ class UVTextureRenderer(BaseRenderer):
         # set of faces after the intesection is identified. This is already perfomed
         # during training. Using the original faces here would result in a mesh
         # with broken topology.
-        uv = np.array(mesh.visual.uv)
         mesh_params["vertex_texcoords"] = np.subtract(
             1.0, uv, out=uv, where=[False, True]
         ).flatten()

@@ -325,7 +325,7 @@ class BaseTrainer(BaseObject):
         pass
 
     def render_result(
-        self, rotating_frames: int = 10
+        self, rotating_frames: int = 10, **kwargs
     ) -> Union[mi.Bitmap, list[mi.Bitmap]]:
         """
         Render the mesh with the resultsing heat kernel texture. This is always rendered
@@ -346,7 +346,7 @@ class BaseTrainer(BaseObject):
         )
 
         mi_mesh = renderer.mesh_to_mitsuba(
-            self.datamodule.mesh, self.mesh, self.model, self.eigalbo_interp
+            self.datamodule.mesh, self.mesh, self.model, self.eigalbo_interp, **kwargs
         )
 
         if self.cfg.use_knn_implementation:

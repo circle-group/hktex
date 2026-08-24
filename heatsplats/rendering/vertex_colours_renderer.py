@@ -40,6 +40,7 @@ class VertexColoursRenderer(BaseRenderer):
             "mesh",
             vertex_count=mesh.vertices.shape[0],
             face_count=mesh.faces.shape[0],
+            has_vertex_normals=True,
             props=bsdf_prop,
         )
 
@@ -55,5 +56,6 @@ class VertexColoursRenderer(BaseRenderer):
         mesh_params = mi.traverse(mi_mesh)
         mesh_params["vertex_positions"] = np.array(mesh.vertices).flatten()
         mesh_params["faces"] = np.array(mesh.faces).flatten()
+        mesh_params["vertex_normals"] = np.array(mesh.vertex_normals).flatten()
 
         return mi_mesh

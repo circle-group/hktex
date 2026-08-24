@@ -246,6 +246,61 @@ class BaseRenderer(BaseObject):
         new_camera_params = mi.traverse(mi.load_dict({"camera": self._camera_dict}))
         params.update(values=new_camera_params)
 
+    def render_shadow_catcher(
+        self,
+        mi_mesh: mi.Mesh = None,
+        t_plane: torch.Tensor | mi.TensorXf = None,
+        t_obj: torch.Tensor | mi.TensorXf = None,
+        denoise: bool = True,
+    ) -> drjit.cuda.ad.TensorXf:
+        initial_ground_state = self.cfg.ground_plane_config.activated
+
+        if t_plane is None:
+            self.cfg.ground_plane_config.activated = True
+            self.reset_scene()
+            scene_dict = self.configure_scene()
+            scene_plane = mi.load_dict(scene_dict)
+            I_plane = self.render(scene=scene_plane, denoise=denoise)
+            t_plane = mi.TensorXf(I_plane).torch()
+        elif isinstance(t_plane, mi.TensorXf):
+            t_plane = t_plane.torch()
+
+        self.cfg.ground_plane_config.activated = True
+        self.reset_scene()
+
+        scene_full = self.make_scene(mi_mesh, with_params=False)
+        I_full = self.render(scene=scene_full, denoise=denoise)
+        t_full = mi.TensorXf(I_full).torch()
+
+        # Render object pass (Object only, no plane) if not provided
+        if t_obj is None:
+            self.cfg.ground_plane_config.activated = False
+            self.reset_scene()
+            scene_obj = self.make_scene(mi_mesh, with_params=False)
+            I_obj = self.render(scene=scene_obj, denoise=denoise)
+            t_obj = mi.TensorXf(I_obj).torch()
+        elif isinstance(t_obj, mi.TensorXf):
+            t_obj = t_obj.torch()
+
+        # Composite shadowcatcher in PyTorch
+        H, W, _ = t_obj.shape
+        obj_mask = (t_obj.max(dim=-1, keepdim=True)[0] > 1e-4).float()
+        plane_mask = (t_plane.max(dim=-1, keepdim=True)[0] > 1e-4).float()
+
+        # Ratio of light on the plane: full / plane
+        ratio = torch.clamp(t_full / t_plane.clamp(min=1e-6), 0.0, 1.0)
+        shadow_strength = 1.0 - ratio.mean(dim=-1, keepdim=True)
+
+        # Combine into RGBA
+        rgba = torch.zeros((H, W, 4), dtype=torch.float32, device=t_full.device)
+        rgba[..., :3] = obj_mask * t_obj
+        rgba[..., 3:4] = obj_mask + (1.0 - obj_mask) * (plane_mask * shadow_strength)
+
+        # Restore ground plane state
+        self.cfg.ground_plane_config.activated = initial_ground_state
+        self.reset_scene()
+        return mi.TensorXf(rgba)
+
     def render(
         self, mi_mesh: mi.Mesh = None, denoise: bool = True, scene=None
     ) -> drjit.cuda.ad.TensorXf:
@@ -314,7 +369,9 @@ class BaseRenderer(BaseObject):
 
         return final_tensor
 
-    def rotating_video(self, mi_mesh: mi.Mesh, n_frames: int = 90) -> list[mi.Bitmap]:
+    def rotating_video(
+        self, mi_mesh: mi.Mesh, n_frames: int = 90, shadow_catcher: bool = False
+    ) -> list[mi.Bitmap]:
         denoiser = mi.OptixDenoiser(
             input_size=(
                 self.cfg.camera_config.img_height,
@@ -326,6 +383,8 @@ class BaseRenderer(BaseObject):
         azimuth = self.cfg.camera_config.azimuth_deg
         elevation = self.cfg.camera_config.elevation_deg
         frames = []
+        prev_denoised_obj = None
+
         for i in tqdm(
             range(n_frames),
             desc=f"Rendering video frames with tiles of size {self._tile_size}",
@@ -335,13 +394,16 @@ class BaseRenderer(BaseObject):
                 azimuth_deg=azimuth + (i / n_frames) * 360,
                 elevation_deg=elevation,
             )
-            frame = self.render(mi_mesh, denoise=False)
+
+            # Render raw object pass
+            raw_obj = self.render(mi_mesh, denoise=False)
+            # Temporally denoise object pass
             if i == 0:
-                initial_denoiser = mi.OptixDenoiser(input_size=frame.shape[:2])
-                frame = initial_denoiser(frame)
+                initial_denoiser = mi.OptixDenoiser(input_size=raw_obj.shape[:2])
+                denoised_obj = initial_denoiser(raw_obj)
             else:
-                frame = denoiser(
-                    frame,
+                denoised_obj = denoiser(
+                    raw_obj,
                     flow=drjit.zeros(
                         drjit.cuda.TensorXf,
                         (
@@ -350,8 +412,18 @@ class BaseRenderer(BaseObject):
                             2,
                         ),
                     ),
-                    previous_denoised=frames[-1],
+                    previous_denoised=prev_denoised_obj,
                 )
+
+            prev_denoised_obj = denoised_obj
+
+            if shadow_catcher:
+                frame = self.render_shadow_catcher(
+                    mi_mesh, t_obj=denoised_obj, denoise=True
+                )
+            else:
+                frame = denoised_obj
+
             frames.append(frame)
         self.reset_scene()
 
