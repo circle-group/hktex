@@ -203,7 +203,7 @@ class GPUGeodesicTracer(GeodesicTracer):
     @dataclass
     class Config(GeodesicTracer.Config):
         max_iterations: Optional[int] = None
-
+        avoid_holes: bool = True
         n_debug_traces: int = 10
 
     cfg: Config
@@ -264,7 +264,7 @@ class GPUGeodesicTracer(GeodesicTracer):
             save_end_direction=False,
             debug=False,
             print_warnings=True,
-            avoid_holes=True,
+            avoid_holes=self.cfg.avoid_holes,
         )
 
         new_coords = end_meshpoints.interpolate(self._digeo_mesh)
