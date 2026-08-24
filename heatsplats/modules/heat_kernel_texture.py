@@ -610,7 +610,7 @@ class HeatKernelTexture(BaseModule):
 
                 sd["_kernel_locations"] = kernel_locations
                 sd.pop("_kernel_bary_coords")
-
+        print(list(sd.keys()))
         self.load_state_dict(sd, strict=False)
         self.float()
 
