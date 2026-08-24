@@ -140,6 +140,9 @@ class HeatKernelTextureKNN(HeatKernelTexture):
             heat_qk_norm if heat_qk_norm is not None else heat_qk
         )
 
+        if self.cfg.power_diffused_diracs != 1:
+            diffused_diracs = diffused_diracs**self.cfg.power_diffused_diracs
+
         with torch.profiler.record_function("kernel_filter"):
             filtered: Float[Tensor, "P K"] = self.kernel_filter_func(
                 diffused_diracs,

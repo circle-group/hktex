@@ -6,7 +6,12 @@ import torch
 import trimesh
 
 import heatsplats
-from heatsplats.utils import BaseObject, load_mesh, load_mesh_size_matched
+from heatsplats.utils import (
+    BaseObject,
+    load_mesh,
+    load_mesh_size_matched,
+    create_image_mesh,
+)
 from heatsplats.utils.typing import *
 
 from .importance_sampling_strategy import (
@@ -33,14 +38,17 @@ class MeshSamplerDataModule(ImportanceSamplingMixIn):
 
     def load_mesh(self):
         mesh_path = self.cfg.mesh_path
-        has_texture = mesh_path.endswith((".glb", ".obj"))
-        bake_vert_colours = has_texture and self.cfg.bake_vert_colours_if_textured
-        self.mesh = load_mesh(
-            mesh_path,
-            show=False,
-            merge_tex=self.cfg.merge_tex,
-            bake_vert_colors=bake_vert_colours,
-        )
+        if mesh_path.lower().endswith((".png", ".jpg", ".jpeg")):
+            self.mesh = create_image_mesh(mesh_path)
+        else:
+            has_texture = mesh_path.endswith((".glb", ".obj"))
+            bake_vert_colours = has_texture and self.cfg.bake_vert_colours_if_textured
+            self.mesh = load_mesh(
+                mesh_path,
+                show=False,
+                merge_tex=self.cfg.merge_tex,
+                bake_vert_colors=bake_vert_colours,
+            )
 
     def prepare_data(self):
         self.load_mesh()

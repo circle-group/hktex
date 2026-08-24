@@ -38,7 +38,7 @@ class Mesh(nn.Module):
         self.faces = nn.Buffer(torch.tensor(faces, dtype=torch.int32, device=device))
         self.fnorms = nn.Buffer(torch.tensor(fnorms, dtype=torch.float, device=device))
         self.vnorms = nn.Buffer(torch.tensor(vnorms, dtype=torch.float, device=device))
-        self.tot_area = compute_tot_area(self.verts, self.faces)
+        self.tot_area = compute_tot_area(self.verts, self.faces.T)
         self.uv = uv
 
         self.N_verts = self.verts.shape[0]

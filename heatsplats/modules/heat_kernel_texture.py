@@ -38,6 +38,7 @@ class HeatKernelTexture(BaseModule):
         range_enforcement_type: str = "activations"  # "pgd" | "activations"
         init_kernel_edge_type: str = "uniform"  # "uniform" | "high_skewed"
         allow_negative_colours: bool = False
+        power_diffused_diracs: int = 1
 
     cfg: Config
 
@@ -411,12 +412,23 @@ class HeatKernelTexture(BaseModule):
         diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :] / (
             diffused_diracs[:, P, :].unsqueeze(1) + 1e-8
         )
+
+        if self.cfg.power_diffused_diracs != 1:
+            diffused_diracs = diffused_diracs**self.cfg.power_diffused_diracs
+
         with torch.profiler.record_function("kernel_filter_func"):
             filtered: Float[Tensor, "G P 1"] = self.kernel_filter_func(
                 diffused_diracs,
                 epsilon=self.thresholds,
                 sharpness=self.sharpnesses,
             )
+
+        # Safeguard to prevent PyTorch topk from hanging the GPU
+        if not torch.isfinite(filtered).all():
+            print(
+                "WARNING: NaN detected in filtered tensor! Zeroing out to prevent topk hang."
+            )
+            filtered = torch.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
 
         colours: Float[Tensor, "G P D"] = filtered * self.kernel_colours.unsqueeze(1)
 

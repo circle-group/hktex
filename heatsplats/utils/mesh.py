@@ -1,11 +1,18 @@
 import trimesh
 import io
+from PIL import Image
+from scipy.spatial import Delaunay
 
 import numpy as np
 import heatsplats
 from .typing import *
 
-__all__ = ["load_mesh", "get_vertex_colours_size_bytes", "load_mesh_size_matched"]
+__all__ = [
+    "load_mesh",
+    "get_vertex_colours_size_bytes",
+    "load_mesh_size_matched",
+    "create_image_mesh",
+]
 
 
 def load_mesh(
@@ -54,6 +61,7 @@ def load_mesh(
     # retrieve correct colours from the texture.
     if merge_tex:
         try:
+            setattr(mesh, "original_vertices", mesh.vertices.copy())
             setattr(mesh, "original_uv", mesh.visual.uv.copy())
             setattr(mesh, "original_faces", mesh.faces.copy())
         except AttributeError:
@@ -66,10 +74,15 @@ def load_mesh(
         mesh.visual = mesh.visual.to_color()
 
     if normalise_size:
-        mesh.apply_translation(-mesh.centroid)
+        translation = -mesh.centroid.copy()
+        mesh.apply_translation(translation)
         scale = 2.0 / max(mesh.extents)
         mesh.apply_scale(scale)
-        heatsplats.info(f"Scaling mesh by {scale}, and translating by {-mesh.centroid}")
+        heatsplats.info(f"Scaling mesh by {scale}, and translating by {translation}")
+
+        if hasattr(mesh, "original_vertices"):
+            mesh.original_vertices += translation
+            mesh.original_vertices *= scale
 
     if show:
         mesh.show()
@@ -204,3 +217,92 @@ def load_mesh_size_matched(
         mesh_vc.show()
 
     return mesh_vc
+
+
+def create_image_mesh(
+    image_path: str, subdivisions: int = 0, jitter_strength: float = 0.4
+) -> trimesh.Trimesh:
+    """
+    Creates a rectangle mesh centered at the origin within [-0.5, 0.5]x[-0.5, 0.5]
+    with dimensions matching the aspect ratio of the given image. The image is UV mapped to the mesh.
+    """
+    image = Image.open(image_path).convert("RGB")
+    w, h = image.size
+
+    max_dim = max(w, h)
+    w_norm = w / max_dim
+    h_norm = h / max_dim
+
+    # Center
+    x_min = -w_norm / 2.0
+    x_max = w_norm / 2.0
+    y_min = -h_norm / 2.0
+    y_max = h_norm / 2.0
+
+    vertices = np.array(
+        [
+            [x_min, y_min, 0.0],
+            [x_max, y_min, 0.0],
+            [x_max, y_max, 0.0],
+            [x_min, y_max, 0.0],
+        ]
+    )
+    faces = np.array([[0, 1, 2], [0, 2, 3]])
+    uv = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+
+    material = trimesh.visual.material.SimpleMaterial(image=image)
+    visuals = trimesh.visual.TextureVisuals(uv=uv, material=material)
+
+    mesh = trimesh.Trimesh(
+        vertices=vertices, faces=faces, visual=visuals, process=False
+    )
+    if subdivisions > 0:
+        original_material = mesh.visual.material
+        for _ in range(subdivisions):
+            new_verts, new_faces, new_attrs = trimesh.remesh.subdivide(
+                mesh.vertices,
+                mesh.faces,
+                vertex_attributes={"uv": mesh.visual.uv},
+            )
+            mesh = trimesh.Trimesh(vertices=new_verts, faces=new_faces, process=False)
+            mesh.visual = trimesh.visual.TextureVisuals(
+                uv=new_attrs["uv"], material=original_material
+            )
+
+        # 2. Identify Boundary Vertices (we do NOT want to jitter the edges)
+        # A vertex is on the boundary if it sits on the min/max X or Y lines
+        verts = mesh.vertices
+        tol = 1e-5
+        on_left = np.abs(verts[:, 0] - x_min) < tol
+        on_right = np.abs(verts[:, 0] - x_max) < tol
+        on_bottom = np.abs(verts[:, 1] - y_min) < tol
+        on_top = np.abs(verts[:, 1] - y_max) < tol
+
+        is_boundary = on_left | on_right | on_bottom | on_top
+        internal_mask = ~is_boundary
+
+        # 3. Apply Jitter to Internal Vertices
+        # We calculate the average edge length to ensure we don't jitter so much that triangles invert
+        edge_lengths = mesh.edges_unique_length
+        avg_edge = np.mean(edge_lengths)
+
+        # Max safe displacement is about half an edge length multiplied by our strength parameter
+        max_disp = (avg_edge / 2.0) * jitter_strength
+
+        noise_x = np.random.uniform(-max_disp, max_disp, size=np.sum(internal_mask))
+        noise_y = np.random.uniform(-max_disp, max_disp, size=np.sum(internal_mask))
+
+        mesh.vertices[internal_mask, 0] += noise_x
+        mesh.vertices[internal_mask, 1] += noise_y
+
+        # Ensure UVs stay aligned with the new physical positions
+        mesh.visual.uv[internal_mask, 0] = (
+            mesh.vertices[internal_mask, 0] - x_min
+        ) / w_norm
+        mesh.visual.uv[internal_mask, 1] = (
+            mesh.vertices[internal_mask, 1] - y_min
+        ) / h_norm
+
+    return mesh
+
+    return mesh
