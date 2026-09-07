@@ -1,7 +1,9 @@
+from pathlib import Path
 import numpy as np
 import mitsuba as mi
 from dataclasses import dataclass
 
+import trimesh
 from heatsplats.utils.typing import *
 from .base import BaseRenderer
 
@@ -25,6 +27,10 @@ class UVTextureRenderer(BaseRenderer):
         **kwargs,
     ) -> mi.Mesh:
 
+        if isinstance(tex_img, (str, Path)):
+            from PIL import Image
+            tex_img = Image.open(tex_img)
+
         if tex_img is None:
             try:
                 tex_img = mesh.visual.material.baseColorTexture
@@ -36,15 +42,30 @@ class UVTextureRenderer(BaseRenderer):
                 tex_img = tex_arr.astype(np.float32) / 255.0
             else:
                 tex_img = tex_arr.astype(np.float32)
+        elif hasattr(tex_img, "convert"):
+            tex_arr = np.asarray(tex_img.convert("RGB"))
+            if tex_arr.dtype == np.uint8:
+                tex_img = tex_arr.astype(np.float32) / 255.0
+            else:
+                tex_img = tex_arr.astype(np.float32)
+        elif isinstance(tex_img, np.ndarray):
+            if tex_img.dtype == np.uint8:
+                tex_img = tex_img.astype(np.float32) / 255.0
+            else:
+                tex_img = tex_img.astype(np.float32)
         else:
             tex_img = tex_img.cpu().numpy()
+            if tex_img.dtype == np.uint8:
+                tex_img = tex_img.astype(np.float32) / 255.0
 
+        bsdf_settings = kwargs.get("bsdf_additional_settings", {})
         bsdf_dict = {
             "type": "principled",
             "base_color": {
                 "type": "bitmap",
                 "bitmap": mi.Bitmap(tex_img),
             },
+            **bsdf_settings,
         }
 
         if full_material and hasattr(mesh.visual, "material"):
@@ -108,10 +129,13 @@ class UVTextureRenderer(BaseRenderer):
             verts = mesh.original_vertices
             faces = mesh.original_faces
             uv = np.array(mesh.original_uv)
+            norm_mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=False)
+            vert_normals = np.array(norm_mesh.vertex_normals).flatten()
         else:
             verts = mesh.vertices
             faces = mesh.faces
             uv = np.array(mesh.visual.uv)
+            vert_normals = np.array(mesh.vertex_normals).flatten()
 
         mi_mesh = mi.Mesh(
             "mesh",
@@ -126,7 +150,7 @@ class UVTextureRenderer(BaseRenderer):
         mesh_params = mi.traverse(mi_mesh)
         mesh_params["vertex_positions"] = np.array(verts).flatten()
         mesh_params["faces"] = np.array(faces).flatten()
-        mesh_params["vertex_normals"] = np.array(mesh.vertex_normals).flatten()
+        mesh_params["vertex_normals"] = vert_normals
 
         # NOTE: if mesh loaded with merge_tex=True, artefacts may be present. This could
         # be solved using the "original_uv" and "original_faces" during rendering.

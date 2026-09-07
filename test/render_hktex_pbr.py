@@ -31,6 +31,9 @@ def render(
     fps: int = 30,
     output_dir: str | None = None,
     mesh_dir: str | None = None,
+    save_format: str = "both",
+    random_kernels: int | None = None,
+    random_threshold_scale: float = 0.01,
 ):
     cfg_path = os.path.join(experiment, "configs/parsed.yaml")
     main_cfg: ExperimentConfig = load_config(cfg_path)
@@ -48,17 +51,56 @@ def render(
                 fname = os.path.join(mesh_dir, from_target)
         else:
             fname = os.path.join(mesh_dir, os.path.basename(fname))
-        print(f"Using mesh path: {fname}")
 
+    # Handle coeus cluster path or machine-specific prefixes (/data/sf3018, coeus)
+    import re
+    if not os.path.exists(fname):
+        if "coeus" in fname:
+            fname_clean = re.sub(r".*coeus[^/]*/", "", fname)
+            cand = os.path.join(mesh_dir or "/data2/objaverse", fname_clean)
+            if os.path.exists(cand):
+                fname = cand
+        if fname.startswith("/data/sf3018/"):
+            cand = fname.replace("/data/sf3018/", "/data2/")
+            if os.path.exists(cand):
+                fname = cand
+
+    if not os.path.exists(fname):
+        cand1 = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", fname))
+        cand2 = os.path.join("/homes/sf3018/Documents/objects", os.path.basename(fname))
+        if os.path.exists(cand1):
+            fname = cand1
+        elif os.path.exists(cand2):
+            fname = cand2
+        elif mesh_dir and os.path.exists(mesh_dir):
+            matches = glob.glob(
+                os.path.join(mesh_dir, f"**/{os.path.basename(fname)}"),
+                recursive=True,
+            )
+            if matches:
+                fname = matches[0]
+
+    print(f"Using mesh path: {fname}")
     main_cfg.data["mesh_path"] = fname
-    model_cfg = OmegaConf.to_container(main_cfg.trainer["model"], resolve=True)
-    eigalbo_config = main_cfg.trainer["eigen_albo"]
+
+    trainer_cfg = main_cfg.trainer
+    if "model" in trainer_cfg:
+        raw_model_cfg = trainer_cfg["model"]
+    elif "network" in trainer_cfg and "model" in trainer_cfg["network"]:
+        raw_model_cfg = trainer_cfg["network"]["model"]
+    else:
+        raise KeyError("Could not find 'model' in trainer configuration")
+
+    if "eigen_albo" in trainer_cfg:
+        eigalbo_config = trainer_cfg["eigen_albo"]
+    elif "network" in trainer_cfg and "eigen_albo" in trainer_cfg["network"]:
+        eigalbo_config = trainer_cfg["network"]["eigen_albo"]
+    else:
+        eigalbo_config = {}
+
+    model_cfg = OmegaConf.to_container(raw_model_cfg, resolve=True)
     eigalbo_config["mesh_path"] = fname
 
-    # Set to an integer (e.g., 5000) to render random kernels, or None to load checkpoint
-    random_kernels = None
-    # Scale factor for random kernels' thresholds (1.0 by default)
-    random_threshold_scale = 0.01
     random_suffix = f"_random_{random_kernels}" if random_kernels is not None else ""
 
     if random_kernels is not None:
@@ -97,7 +139,7 @@ def render(
             "img_width": 1200,
             "img_height": 1200,
             "camera_distance": 5,
-            "azimuth_deg": 40,  # 145: pilot, 40: rex and ding
+            "azimuth_deg": -40,  # 145: pilot, 40: rex and ding
             "elevation_deg": 20,
         },
     }
@@ -218,10 +260,18 @@ def render(
             )
             t1 = time.time()
             print(f"  - Render video time: {t1 - t0:.4f}s")
-            out_name = f"{name}{random_suffix}.mp4"
-            out_path = os.path.join(output_dir, out_name)
-            save_video(frames, out_path, fps=fps)
-            print(f"  - Saved video to: {out_path}")
+            if save_format in ("video", "both"):
+                out_name = f"{name}{random_suffix}.mp4"
+                out_path = os.path.join(output_dir, out_name)
+                save_video(frames, out_path, fps=fps)
+                print(f"  - Saved video to: {out_path}")
+
+            if save_format in ("frames", "both"):
+                frames_dir = os.path.join(output_dir, f"{name}{random_suffix}_frames")
+                os.makedirs(frames_dir, exist_ok=True)
+                for idx, frame_bmp in enumerate(frames):
+                    frame_bmp.write(os.path.join(frames_dir, f"frame_{idx:04d}.png"))
+                print(f"  - Saved {len(frames)} transparent frames to: {frames_dir}")
         else:
             I_shadow = hk_renderer.render_shadow_catcher(
                 mi_mesh=mi_mesh, t_plane=t_plane
@@ -254,10 +304,20 @@ def render(
         frames = hk_renderer.rotating_video(
             mi_mesh=mi_mesh, n_frames=n_frames, shadow_catcher=True
         )
-        out_name = f"albedo_constant{random_suffix}.mp4"
-        out_path = os.path.join(output_dir, out_name)
-        save_video(frames, out_path, fps=fps)
-        print(f"  - Saved video to: {out_path}")
+        if save_format in ("video", "both"):
+            out_name = f"albedo_constant{random_suffix}.mp4"
+            out_path = os.path.join(output_dir, out_name)
+            save_video(frames, out_path, fps=fps)
+            print(f"  - Saved video to: {out_path}")
+
+        if save_format in ("frames", "both"):
+            frames_dir = os.path.join(
+                output_dir, f"albedo_constant{random_suffix}_frames"
+            )
+            os.makedirs(frames_dir, exist_ok=True)
+            for idx, frame_bmp in enumerate(frames):
+                frame_bmp.write(os.path.join(frames_dir, f"frame_{idx:04d}.png"))
+            print(f"  - Saved {len(frames)} transparent frames to: {frames_dir}")
     else:
         I_shadow_constant = hk_renderer.render_shadow_catcher(
             mi_mesh=mi_mesh, t_plane=None
@@ -331,6 +391,25 @@ if __name__ == "__main__":
         default=None,
         help="Root or prefix directory for mesh files (replaces path before 'hf-objaverse-v1').",
     )
+    parser.add_argument(
+        "--save_format",
+        type=str,
+        choices=["video", "frames", "both"],
+        default="both",
+        help="Format to save when n_frames > 1: 'video' for .mp4, 'frames' for transparent PNGs, or 'both'.",
+    )
+    parser.add_argument(
+        "--random_kernels",
+        type=int,
+        default=None,
+        help="Set number of randomly initialized kernels to render instead of loading checkpoint.",
+    )
+    parser.add_argument(
+        "--random_threshold_scale",
+        type=float,
+        default=0.01,
+        help="Scale factor for thresholds when rendering random kernels (default: 0.01).",
+    )
     args = parser.parse_args()
 
     if args.txt_path and args.root_dir:
@@ -346,15 +425,40 @@ if __name__ == "__main__":
         missing_ckpts = []
 
         for name in names:
-            name = name
-            matches = glob.glob(os.path.join(args.root_dir, f"*{name}*"))
-            if not matches:
-                matches = glob.glob(
-                    os.path.join(args.root_dir, f"**/*{name}*"), recursive=True
-                )
+            search_roots = [args.root_dir] if args.root_dir else []
+            for fallback in [
+                "/data/home/ck223/heatsplats/outputs/uv-mitsuba-fitting",
+                "/data2/home/sf3018/hktex/multiview/hs-ray",
+                "/data2/home/sf3018/hktex/multiview/hs-ray-2",
+                "/data2/home/sf3018/hktex/benchmark_hktex/benchmark_run",
+                "/data/home/ck223/heatsplats/outputs",
+            ]:
+                if os.path.exists(fallback) and fallback not in search_roots:
+                    search_roots.append(fallback)
 
-            if matches:
-                matched_run = matches[0]
+            matched_run = None
+            query_patterns = [name]
+            if "_" in name:
+                query_patterns.append(name.split("_")[-1])
+
+            for sroot in search_roots:
+                for q in query_patterns:
+                    matches = glob.glob(os.path.join(sroot, f"*{q}*"))
+                    if not matches:
+                        matches = glob.glob(os.path.join(sroot, f"**/*{q}*"), recursive=True)
+                    if matches:
+                        # Prefer folder that actually contains configs/parsed.yaml or ckpts
+                        for m in matches:
+                            if os.path.exists(os.path.join(m, "configs/parsed.yaml")) or glob.glob(os.path.join(m, "**/parsed.yaml"), recursive=True):
+                                matched_run = m
+                                break
+                        if not matched_run:
+                            matched_run = matches[0]
+                        break
+                if matched_run:
+                    break
+
+            if matched_run:
                 output_subdirs = glob.glob(os.path.join(matched_run, "output/*"))
                 experiment = output_subdirs[0] if output_subdirs else matched_run
 
@@ -383,6 +487,9 @@ if __name__ == "__main__":
                         fps=args.fps,
                         output_dir=output_dir,
                         mesh_dir=args.mesh_dir,
+                        save_format=args.save_format,
+                        random_kernels=args.random_kernels,
+                        random_threshold_scale=args.random_threshold_scale,
                     )
                 else:
                     missing_ckpts.append((name, matched_run))
@@ -441,4 +548,7 @@ if __name__ == "__main__":
             fps=args.fps,
             output_dir=None,
             mesh_dir=args.mesh_dir,
+            save_format=args.save_format,
+            random_kernels=args.random_kernels,
+            random_threshold_scale=args.random_threshold_scale,
         )

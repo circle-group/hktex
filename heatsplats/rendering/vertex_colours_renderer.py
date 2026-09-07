@@ -25,9 +25,11 @@ class VertexColoursRenderer(BaseRenderer):
         **kwargs
     ) -> mi.Mesh:
 
+        bsdf_settings = kwargs.get("bsdf_additional_settings", {})
         bsdf_dict = {
             "type": "principled",
             "base_color": {"type": "mesh_attribute", "name": "vertex_color"},
+            **bsdf_settings,
         }
 
         if self.cfg.mitsuba_mesh_config.twosided:
@@ -45,9 +47,17 @@ class VertexColoursRenderer(BaseRenderer):
         )
 
         if vertex_colours is None:
-            vertex_colours = np.array(mesh.visual.vertex_colors[:, :3] / 255)
+            if hasattr(mesh.visual, "to_color"):
+                mesh_visual = mesh.visual.to_color()
+                vertex_colours = np.array(mesh_visual.vertex_colors[:, :3] / 255.0)
+            else:
+                vertex_colours = np.array(mesh.visual.vertex_colors[:, :3] / 255.0)
         else:
-            vertex_colours = vertex_colours.cpu().numpy()
+            vertex_colours = (
+                vertex_colours.cpu().numpy()
+                if hasattr(vertex_colours, "cpu")
+                else np.asarray(vertex_colours)
+            )
 
         # Vertex color is not a 'built-in' attribute. Needs to be added.
         mi_mesh.add_attribute("vertex_color", 3, vertex_colours.flatten())

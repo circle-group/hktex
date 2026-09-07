@@ -429,7 +429,11 @@ class BaseRenderer(BaseObject):
 
         return [
             mi.Bitmap(frame).convert(
-                pixel_format=mi.Bitmap.PixelFormat.RGB,
+                pixel_format=(
+                    mi.Bitmap.PixelFormat.RGBA
+                    if frame.shape[-1] == 4
+                    else mi.Bitmap.PixelFormat.RGB
+                ),
                 component_format=mi.Struct.Type.UInt8,
                 srgb_gamma=True,
             )

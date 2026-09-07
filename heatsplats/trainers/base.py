@@ -60,6 +60,7 @@ class BaseTrainer(BaseObject):
         renderer_mega_kernel: bool = False
 
         use_knn_implementation: bool = False
+        debug_video_frequency: int = 500
 
     cfg: Config
 
@@ -158,7 +159,9 @@ class BaseTrainer(BaseObject):
         grads_lists = {k: [] for k, _ in self.model.named_parameters()}
 
         for i in (pbar := tqdm(range(n_iter))):
-            if debug_log_dir is not None and (i == 0 or i % 500 == 0):
+            if debug_log_dir is not None and (
+                i == 0 or i % self.cfg.debug_video_frequency == 0
+            ):
                 current_rnd = self.render_result(self.cfg.renderer.n_rotating_frames)
                 save_video(current_rnd, os.path.join(debug_log_dir, f"iter_{i}.mp4"))
 

@@ -12,6 +12,7 @@ import torch
 import trimesh
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
 from heatsplats.modules import Mesh
 from heatsplats.utils import (
@@ -57,13 +58,38 @@ def render_evecs(
     evecs: torch.Tensor,
     vc_renderer: VertexColoursRenderer,
     k_range: tuple = (10, 20),
+    cmap_mode: str = "vibrant_narrow_white",
 ):
     images_vertices = []
+    if cmap_mode == "vibrant_narrow_white":
+        # Narrow white band (0.48 to 0.52), saturated key points, deep contrast endpoints
+        cmap = LinearSegmentedColormap.from_list(
+            "custom_evec",
+            [
+                (0.00, "#2b3b48"),
+                (0.20, "#4b6274"),
+                (0.44, "#6b89a1"),
+                (0.48, "#f0f4f7"),
+                (0.50, "#ffffff"),
+                (0.52, "#fcf0f2"),
+                (0.56, "#ef5b6c"),
+                (0.80, "#df4e5c"),
+                (1.00, "#b82a38"),
+            ],
+        )
+    elif cmap_mode == "white_center_linear":
+        cmap = LinearSegmentedColormap.from_list(
+            "custom_evec", ["#4b6274", "#ffffff", "#df4e5c"]
+        )
+    else:
+        cmap = plt.get_cmap("viridis")
+
+    if isinstance(evecs, torch.Tensor):
+        evecs = evecs.detach().cpu().numpy()
 
     for k in range(*k_range):
         evec = evecs[:, k]
         norm_evec = (evec - evec.min()) / (evec.max() - evec.min() + 1e-8)
-        cmap = plt.get_cmap("viridis")
         v_colours = (cmap(norm_evec)[:, :3] * 255).astype(np.uint8)
 
         out_mesh = mesh.copy()
@@ -117,8 +143,8 @@ if __name__ == "__main__":
             "camera_config": {
                 "azimuth_deg": -90,
                 "camera_distance": 3.5,
-                "img_width": 512,
-                "img_height": 512,
+                "img_width": 1024,
+                "img_height": 1024,
             }
         }
     )

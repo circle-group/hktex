@@ -105,7 +105,8 @@ def save_video(frames: list[mi.Bitmap], output_path: str, fps: int = 30):
 
     numpy_frames = [np.array(frame) for frame in frames]
 
-    # Write the frames to a video file
+    # Write the frames to a video file (strip alpha channel for standard video codecs if present)
     with imageio.get_writer(output_path, fps=fps) as writer:
         for frame in numpy_frames:
-            writer.append_data(frame)
+            rgb_frame = frame[..., :3] if frame.ndim == 3 and frame.shape[2] == 4 else frame
+            writer.append_data(rgb_frame)

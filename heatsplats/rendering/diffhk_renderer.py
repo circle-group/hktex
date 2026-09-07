@@ -149,9 +149,11 @@ class DifferentiableHeatKernelsRenderer(BaseRenderer):
         hk_texture = mi.load_dict({"type": "torch_texture"})
         hk_texture.network = network
 
+        bsdf_settings = kwargs.get("bsdf_additional_settings", {})
         bsdf_dict = {
             "type": "principled",
             "base_color": hk_texture,
+            **bsdf_settings,
         }
 
         if self.cfg.mitsuba_mesh_config.twosided:
@@ -164,6 +166,7 @@ class DifferentiableHeatKernelsRenderer(BaseRenderer):
             "mesh",
             vertex_count=tri_mesh.vertices.shape[0],
             face_count=tri_mesh.faces.shape[0],
+            has_vertex_normals=True,
             props=bsdf_prop,
         )
 
@@ -171,6 +174,7 @@ class DifferentiableHeatKernelsRenderer(BaseRenderer):
         mesh_params = mi.traverse(mi_mesh)
         mesh_params["vertex_positions"] = np.array(tri_mesh.vertices).flatten()
         mesh_params["faces"] = np.array(tri_mesh.faces).flatten()
+        mesh_params["vertex_normals"] = np.array(tri_mesh.vertex_normals).flatten()
 
         mesh_params.update()
         return mi_mesh, hk_texture

@@ -103,7 +103,8 @@ class TorchTextureRenderer(BaseRenderer):
         hk_texture = mi.load_dict({"type": "torch_texture"})
         hk_texture.network = network
 
-        mi_mesh = self.mesh_notex_to_mitsuba(tri_mesh, base_color=hk_texture)
+        bsdf_settings = kwargs.get("bsdf_additional_settings", {})
+        mi_mesh = self.mesh_notex_to_mitsuba(tri_mesh, base_color=hk_texture, **bsdf_settings)
 
         return mi_mesh, hk_texture
 
@@ -120,6 +121,7 @@ class TorchTextureRenderer(BaseRenderer):
             "mesh",
             vertex_count=tri_mesh.vertices.shape[0],
             face_count=tri_mesh.faces.shape[0],
+            has_vertex_normals=True,
             props=bsdf_prop,
         )
 
@@ -127,6 +129,7 @@ class TorchTextureRenderer(BaseRenderer):
         mesh_params = mi.traverse(mi_mesh)
         mesh_params["vertex_positions"] = np.array(tri_mesh.vertices).flatten()
         mesh_params["faces"] = np.array(tri_mesh.faces).flatten()
+        mesh_params["vertex_normals"] = np.array(tri_mesh.vertex_normals).flatten()
 
         mesh_params.update()
         return mi_mesh
