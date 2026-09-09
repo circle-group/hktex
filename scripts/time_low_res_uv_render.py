@@ -237,12 +237,12 @@ if __name__ == "__main__":
     p.add_argument(
         "--benchmark_csv",
         type=str,
-        default="/data2/home/sf3018/hktex/benchmark_low_mem/benchmark_results_uv_low_res.csv",
+        default="/data/hktex/benchmark_low_mem/benchmark_results_uv_low_res.csv",
     )
     p.add_argument(
         "--rendering_config",
         type=str,
-        default="/data/home/ck223/heatsplats/configs/rendering.yaml",
+        default="/data/hktex/configs/rendering.yaml",
     )
     p.add_argument("--output_dir", type=str, default="outputs/time_low_res_uv_render")
     p.add_argument(

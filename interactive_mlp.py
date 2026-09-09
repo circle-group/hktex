@@ -47,15 +47,7 @@ if __name__ == "__main__":
         "verbose": False,
     }
     extras_dict = {
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-018/998d641ce1c74e44978a91fedc849905.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-074/5ecf9d1175ae405a9a073db305786411.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-101/818e088dc59f4a89bfea14cb46a4beca.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-138/6713cc0cdad34f89a0256c5d2f68b7c1.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-013/d79a32a512c64c5e93dc856864789a7e.glb",
-        # "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
         "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-066/e7caba92073d4adba3477c21aa25e91f.glb",
-        # "data.mesh_path": "../objects/spot/spot_triangulated.obj",
         # "optim.iters": 500,
         # "data.batch_size": 2,
         # "renderer.point_batching": 1024,

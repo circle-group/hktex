@@ -5,7 +5,7 @@ seed: 0
 
 data_type: data.camera-sampler
 data:
-  mesh_path: /data/sf3018/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb
+  mesh_path: /data/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb
   bake_vert_colours_if_textured: False
   merge_tex: True
   

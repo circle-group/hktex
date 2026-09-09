@@ -230,7 +230,7 @@ if __name__ == "__main__":
     p.add_argument(
         "--config",
         type=str,
-        default="/data/home/ck223/heatsplats/configs/uv_texture_mlp_fitting.yaml",
+        default="/data/hktex/configs/uv_texture_mlp_fitting.yaml",
     )
     p.add_argument(
         "--base_timing_csv",

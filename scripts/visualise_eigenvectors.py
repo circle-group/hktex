@@ -133,7 +133,7 @@ def render_heat_diff(t_mesh, mass, evals, evecs, device="cuda:0"):
 
 if __name__ == "__main__":
 
-    fname = "/homes/sf3018/Documents/objects/spot/spot_triangulated.obj"
+    fname = "/home/Documents/objects/spot/spot_triangulated.obj"
     tri_mesh = load_mesh(fname, merge_tex=False, bake_vert_colors=False)
 
     # tri_mesh = trimesh.creation.icosphere(subdivisions=4, radius=1.0)

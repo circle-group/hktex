@@ -47,7 +47,6 @@ if __name__ == "__main__":
         "verbose": True,
     }
     extras_dict = {
-        # "data.mesh_path": "../objects/spot/spot_triangulated.obj",
         "data.mesh_path": "/data2/objaverse/hf-objaverse-v1/glbs/000-096/db5f9c28708142909b15212625a127f9.glb",
         "trainer.tracer.debug": False,
         "trainer.model.n_sources": 50000,

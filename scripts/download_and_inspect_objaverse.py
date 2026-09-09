@@ -73,7 +73,7 @@ if __name__ == "__main__":
                     "img_height": 300,
                 },
                 "emitter_config": {
-                    "envmap_path": "/data2/home/sf3018/hktex/lilienstein_1k.exr"
+                    "envmap_path": "/data/hktex/lilienstein_1k.exr"
                 },
                 "ground_plane_config": {"activated": False},
                 "integrator_config": {"type": "path", "hide_emitters": True},

@@ -159,7 +159,6 @@ if __name__ == "__main__":
         # "trainer.model.init_kernel_edge_type": "uniform",
         # "trainer.eigen_albo.use_euclidian_distance": False,
         # "trainer.eigen_albo.faiss.index_type": "flat",
-        "ckpt_path": "/data/home/ck223/heatsplats/outputs/ablations/uv-knn-fix/benchmark_run/benchmark_trainable_825ac_00048_48_filename=hf-objaverse-v1_glbs_000-000_0413d92d70f24a68b3afe8643301c515_glb_2026-03-11_13-26-40/output/hf-objaverse-v1_glbs_000-000_0413d92d70f24a68b3afe8643301c515/ckpts/model.pt",
         "output_path": None,
     }
 

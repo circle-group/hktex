@@ -219,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--root",
         type=str,
-        default="/data2/home/sf3018/objaverse",
+        default="/data2/objaverse",
         help="Root directory of the dataset.",
     )
     parser.add_argument(
