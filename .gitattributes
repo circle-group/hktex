@@ -1,0 +1,36 @@
+* text=auto eol=lf
+
+# Source and documentation
+*.py text eol=lf diff=python
+*.sh text eol=lf
+*.md text eol=lf diff=markdown
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.tsv text eol=lf
+*.bat text eol=crlf
+
+# Images, video, documents, archives, and model/data artifacts
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.exr binary
+*.mp4 binary
+*.mov binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.7z binary
+*.npy binary
+*.npz binary
+*.pt binary
+*.pth binary
+*.ckpt binary
+*.glb binary
+*.ply binary
