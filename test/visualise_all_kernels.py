@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 import os
 
-
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import mitsuba as mi
@@ -12,16 +11,15 @@ mi.set_variant("cuda_ad_rgb")
 import torch
 from functools import partial
 
-import heatsplats
-from heatsplats.utils import (
+import hktex
+from hktex.utils import (
     load_config,
     ExperimentConfig,
 )
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import combine_videos, show_video
-from heatsplats.utils.typing import *
-
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import combine_videos, show_video
+from hktex.utils.typing import *
 
 if __name__ == "__main__":
 
@@ -43,11 +41,11 @@ if __name__ == "__main__":
     extras = [f"{k}={v}" for k, v in extras_dict.items()]
     cfg: ExperimentConfig = load_config(cfg_path, cli_args=extras)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
 

@@ -17,14 +17,14 @@ import matplotlib.pyplot as plt
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     combine_images,
     show_image,
     rescaled_soft_step,
 )
-from heatsplats.rendering.heat_kernels_renderer_knn import HeatKernelsRendererKNN
-from heatsplats.modules import Mesh, HeatKernelTextureKNN, EigenAlboInterpolationKNN
+from hktex.rendering.heat_kernels_renderer_knn import HeatKernelsRendererKNN
+from hktex.modules import Mesh, HeatKernelTextureKNN, EigenAlboInterpolationKNN
 
 
 def apply_colormap(img_tensor, cmap_name="inferno"):

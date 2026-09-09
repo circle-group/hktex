@@ -4,12 +4,12 @@ import numpy as np
 import torch
 import trimesh
 
-from heatsplats.modules import EigenAlboInterpolation
-from heatsplats.utils import (
+from hktex.modules import EigenAlboInterpolation
+from hktex.utils import (
     load_mesh,
     heat_diffusion,
 )
-from heatsplats.utils.typing import *
+from hktex.utils.typing import *
 
 if __name__ == "__main__":
     mesh_path = "../objects/spot/spot_triangulated.ply"

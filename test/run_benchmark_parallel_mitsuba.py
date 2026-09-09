@@ -28,8 +28,8 @@ except ImportError:
 import mitsuba as mi
 from ray import tune
 
-from heatsplats.data.objaverse_downloader import find_filenames
-from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+from hktex.data.objaverse_downloader import find_filenames
+from hktex.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
 

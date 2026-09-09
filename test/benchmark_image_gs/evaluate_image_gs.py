@@ -1,6 +1,6 @@
 """
 Script to evaluate ImageGS fitted textures.
-Run this in the GeoSplat environment.
+Run this in the HKTex environment.
 """
 
 import sys
@@ -23,14 +23,14 @@ except NameError:
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     mibitmaps2torch,
     compute_all_image_metrics,
     save_video,
     combine_videos,
 )
-from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
+from hktex.rendering.uv_texture_renderer import UVTextureRenderer
 
 
 def main():

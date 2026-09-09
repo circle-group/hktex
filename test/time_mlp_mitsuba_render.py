@@ -17,11 +17,10 @@ import mitsuba as mi
 import drjit as dr
 from ray import tune
 
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import load_config, seed_everything
-
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import load_config, seed_everything
 
 mi.set_variant("cuda_ad_rgb")
 
@@ -133,11 +132,11 @@ def load_datamodule_and_trainer_only(args, extras):
     cfg = load_config(args.config, args.rendering_config, cli_args=extras, n_gpus=1)
     seed_everything(cfg.seed)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
     return cfg, datamodule, trainer
@@ -150,9 +149,11 @@ def infer_trainable(config):
     ckpt = config["ckpt_path"]
 
     args = argparse.Namespace(
-        config=config["config_path"]
-        if config.get("config_path") is not None
-        else config["base_config_path"],
+        config=(
+            config["config_path"]
+            if config.get("config_path") is not None
+            else config["base_config_path"]
+        ),
         rendering_config=config["rendering_config_path"],
         gpu="0",
         verbose=False,
@@ -236,9 +237,7 @@ if __name__ == "__main__":
         type=str,
         default="outputs/timing_mitsuba_hs_ray_base/time_mitsuba_render_results.csv",
     )
-    p.add_argument(
-        "--rendering_config", type=str, default="configs/rendering.yaml"
-    )
+    p.add_argument("--rendering_config", type=str, default="configs/rendering.yaml")
     p.add_argument("--output_dir", type=str, default="outputs/time_mlp_mitsuba_render")
     p.add_argument("--rotating_frames", type=int, default=1)
     p.add_argument("--n_runs", type=int, default=1)
@@ -325,7 +324,8 @@ if __name__ == "__main__":
         param_space=search_space,
         tune_config=tune.TuneConfig(max_concurrent_trials=args.max_concurrent_trials),
         run_config=tune.RunConfig(
-            storage_path=os.path.abspath(args.output_dir), name="time_mlp_mitsuba_render"
+            storage_path=os.path.abspath(args.output_dir),
+            name="time_mlp_mitsuba_render",
         ),
     )
 

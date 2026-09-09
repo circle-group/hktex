@@ -24,7 +24,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+from hktex.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
 
@@ -227,7 +227,7 @@ def trainable(config, root, all_filenames, resolver_paths):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hyperparameter tuning for GeoSplat.")
+    parser = argparse.ArgumentParser(description="Hyperparameter tuning for HKTex.")
     parser.add_argument(
         "--root",
         type=str,

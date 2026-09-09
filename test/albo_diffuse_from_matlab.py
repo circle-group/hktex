@@ -17,8 +17,8 @@ import h5py
 from scipy.sparse import csc_matrix
 from scipy.sparse import isspmatrix_csc
 
-from heatsplats.modules import Mesh
-from heatsplats.utils import (
+from hktex.modules import Mesh
+from hktex.utils import (
     load_mesh,
     get_anisotropic_lbo,
     compute_mesh_laplacian,
@@ -28,7 +28,7 @@ from heatsplats.utils import (
     combine_images,
     show_image,
 )
-from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
+from hktex.rendering.vertex_colours_renderer import VertexColoursRenderer
 
 
 def load_albo_matrices(filepath):

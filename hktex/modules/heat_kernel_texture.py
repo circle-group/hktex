@@ -1,0 +1,629 @@
+from dataclasses import dataclass, field
+from abc import abstractmethod
+import numpy as np
+from termcolor import colored
+import trimesh
+
+from tqdm import tqdm
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import hktex
+
+import hktex.utils as utils
+from hktex.utils import BaseModule
+from hktex.utils.typing import *
+
+from .mesh import Mesh
+from .eigen_albo import EigenAlboInterpolation
+from .utils import PointsInfo, KernelInfo
+
+__all__ = ["HeatKernelTexture"]
+
+
+class HeatKernelTexture(BaseModule):
+    @dataclass
+    class Config(BaseModule.Config):
+        n_sources: int = 128
+        out_dim: int = 3
+
+        kernel_dim: int = 32
+        out_net: bool = True
+        normalize_colours: bool = False
+        diff_time: float = 1e-2
+        mass_type: str = "kde"  # "kde" | "interpolated" | "one"
+        init_min_threshold: float = 0.3
+        range_enforcement_type: str = "activations"  # "pgd" | "activations"
+        init_kernel_edge_type: str = "uniform"  # "uniform" | "high_skewed"
+        allow_negative_colours: bool = False
+        power_diffused_diracs: int = 1
+
+    cfg: Config
+
+    _mean_colour: Float[Tensor, "1 D"]
+    _kernel_colours: Float[Tensor, "G D"]
+    _angles: Float[Tensor, "G"]
+    _anisotropies: Float[Tensor, "G"]
+    _thresholds: Float[Tensor, "G"]
+    _sharpnesses: Float[Tensor, "G"]
+    _kernel_locations: Float[Tensor, "G 3"]
+    _kernel_face_ids: Int[Tensor, "G"]
+
+    def configure(
+        self,
+        mesh: Mesh,
+        **kwargs,
+    ):
+        super().configure()
+        self.__mesh = mesh
+
+        self.N_sources = self.cfg.n_sources
+        self.out_dim = self.cfg.out_dim
+
+        self.kernel_dim = self.cfg.kernel_dim
+        self.normalize_colours = self.cfg.normalize_colours
+
+        if self.cfg.range_enforcement_type == "activations":
+            self._thresholds_act = lambda x: 0.3 + (0.7 - 1e-8) * torch.sigmoid(
+                x + 0.916
+            )
+            self._angle_scale = torch.pi
+            self._angle_act = lambda x: self._angle_scale * torch.sigmoid(x)
+            self._anis_act = lambda x: 1.0 + 99.0 * torch.sigmoid(x)
+            self._sharpness_act = lambda x: 10.0 + 190.0 * torch.sigmoid(x)
+
+            if self.cfg.allow_negative_colours:
+                self._colour_act = lambda x: torch.tanh(x)
+                self._inv_colour_act = lambda x: torch.atanh(x)
+            else:
+                self._colour_act = lambda x: torch.sigmoid(x)
+                self._inv_colour_act = lambda x: torch.logit(x)
+
+        elif self.cfg.range_enforcement_type == "pgd":
+            self._thresholds_act = lambda x: x
+            self._angle_scale = torch.pi
+            self._angle_act = lambda x: x
+            self._anis_act = lambda x: x
+            self._sharpness_act = lambda x: x
+            self._colour_act = lambda x: x
+            self._inv_colour_act = lambda x: x
+        else:
+            raise ValueError(
+                f"Unknown range enforcement type: {self.cfg.range_enforcement_type}"
+            )
+
+        self.kernel_filter_func = utils.rescaled_soft_step
+
+        self.out_net = None
+        if self.cfg.out_net:
+            self.out_net = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(self.kernel_dim, 2 * self.kernel_dim),
+                nn.ReLU(),
+                nn.Linear(2 * self.kernel_dim, self.out_dim),
+                nn.Sigmoid(),
+            ).to(self.device)
+
+        self._make_splats(mesh)
+
+    def named_buffers(
+        self, prefix: str = "", recurse: bool = True, remove_duplicate: bool = True
+    ):
+        nb = super().named_buffers(prefix, recurse, remove_duplicate)
+        for name, buf in nb:
+            if "__mesh" not in name:
+                yield name, buf
+
+    def _make_splats(self, mesh: Mesh):
+        factory_kwargs = {"dtype": torch.float, "device": self.device}
+        if self.out_net is not None:
+            kernel_colours = torch.randn(
+                (self.N_sources, self.kernel_dim), **factory_kwargs
+            )
+        else:
+            kernel_colours = torch.rand(
+                (self.N_sources, self.out_dim), **factory_kwargs
+            )
+            if self.cfg.allow_negative_colours:
+                kernel_colours = kernel_colours * 2 - 1
+
+        if self.cfg.range_enforcement_type == "activations":
+            # Initialise angles for uniform output in [0, π/2] considering activation
+            p = torch.rand(self.N_sources, **factory_kwargs)
+            angles = torch.log(p / (1 - p + 1e-7))
+
+            epsilon = 1e-8
+            # Initialize Sharpnesses for uniform output in [10.0, 50.0] considering activation
+            power = 0.5 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power = torch.rand(self.N_sources, **factory_kwargs) ** power
+            uniform_sharpnesses = 10.0 + 190.0 * random_power
+            p_sharp = (uniform_sharpnesses - 10.0) / (200.0 - 10.0)
+            sharpnesses = torch.log(p_sharp / (1 - p_sharp + epsilon))
+
+            # Initialize Thresholds for uniform output in [min_thresh, 0.9999] considering activation
+            power = 0.7 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power = torch.rand(self.N_sources, **factory_kwargs) ** power
+            min_thresh = self.cfg.init_min_threshold
+            uniform_thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power
+            p_thresh = (uniform_thresholds - 0.3) / (0.7 - 1e-8)
+            thresholds = torch.log(p_thresh / (1 - p_thresh + epsilon)) - 0.916
+
+            # Initialize Anisotropies for uniform output in a chosen range [1, 100]
+            uniform_anisotropies = 1.0 + 99.0 * torch.rand(
+                self.N_sources, **factory_kwargs
+            )
+            p_anisotropy = (uniform_anisotropies - 1.0) / 99.0
+            anisotropies = torch.log(p_anisotropy / (1 - p_anisotropy + epsilon))
+
+        elif self.cfg.range_enforcement_type == "pgd":
+            angles = torch.rand(self.N_sources, **factory_kwargs) * self._angle_scale
+
+            power = 0.5 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power_sharp = torch.rand(self.N_sources, **factory_kwargs) ** power
+            sharpnesses = 10.0 + 40.0 * random_power_sharp
+
+            power = 0.7 if self.cfg.init_kernel_edge_type == "high_skewed" else 1.0
+            random_power_thresh = torch.rand(self.N_sources, **factory_kwargs) ** power
+            min_thresh = self.cfg.init_min_threshold
+            thresholds = min_thresh + (1.0 - min_thresh - 1e-8) * random_power_thresh
+
+            anisotropies = 1.0 + 99.0 * torch.rand(self.N_sources, **factory_kwargs)
+
+        else:
+            # This case is handled in the configure method. No need to raise an error
+            pass
+
+        # Uniformly sample many points on the mesh surface
+        # and then use farthest point sampling to select the kernel locations
+        fids, bary = utils.uniform_sampling(
+            mesh.verts, mesh.faces, max(3 * self.N_sources, 10_000)
+        )
+        pos = mesh.barycentric_to_cartesian(bary, mesh.get_face_vertices(fids))
+        mask = utils.farthest_point_sampling(pos, self.N_sources)
+        kernel_locations = pos[mask]
+        kernel_face_ids = fids[mask]
+
+        mean_colour = torch.mean(kernel_colours, dim=0, keepdim=True)
+        residual_colors = kernel_colours - mean_colour
+
+        self._mean_colour = torch.nn.Parameter(mean_colour)
+        self._kernel_colours = torch.nn.Parameter(residual_colors)
+        self._angles = torch.nn.Parameter(angles)
+        self._anisotropies = torch.nn.Parameter(anisotropies)
+        self._thresholds = torch.nn.Parameter(thresholds)
+        self._sharpnesses = torch.nn.Parameter(sharpnesses)
+        self._kernel_locations = nn.Parameter(kernel_locations)
+        self._kernel_face_ids = nn.Buffer(kernel_face_ids, persistent=True)
+
+        self.splat_param_keys = [
+            "kernel_colours",
+            "angles",
+            "anisotropies",
+            "sharpnesses",
+            "thresholds",
+        ]
+
+    @property
+    def kernel_colours(self) -> Float[Tensor, "G D"]:
+        return self._colour_act(self._kernel_colours)
+
+    @property
+    def angles(self) -> Float[Tensor, "G"]:
+        return self._angle_act(self._angles)
+
+    @property
+    def anisotropies(self) -> Float[Tensor, "G"]:
+        return self._anis_act(self._anisotropies)
+
+    @property
+    def diff_times(self) -> Float[Tensor, "G"]:
+        return self.cfg.diff_time * torch.ones(self.N_sources, device=self.device)
+
+    @property
+    def thresholds(self) -> Float[Tensor, "G"]:
+        return self._thresholds_act(self._thresholds)
+
+    @property
+    def sharpnesses(self) -> Float[Tensor, "G"]:
+        return self._sharpness_act(self._sharpnesses)
+
+    @property
+    def kernel_locations(self) -> Float[Tensor, "G 3"]:
+        return self._kernel_locations
+
+    @property
+    def kernel_face_ids(self) -> Int[Tensor, "G"]:
+        return self._kernel_face_ids
+
+    def post_optimizer_step(self):
+        if self.cfg.range_enforcement_type == "pgd":
+            self.clamp_parameters()
+
+    @torch.no_grad()
+    def clamp_parameters(self):
+        self._sharpnesses.clamp_(min=10.0, max=200.0)
+        self._thresholds.clamp_(min=0.3, max=1.0 - 1e-8)
+        self._angles.clamp_(min=0, max=self._angle_scale)
+        self._anisotropies.clamp_(min=1.0, max=200.0)
+
+        if self.cfg.allow_negative_colours:
+            self._kernel_colours.clamp_(min=-1.0, max=1.0)
+        else:
+            self._kernel_colours.clamp_(min=0.0, max=1.0)
+        self._mean_colour.clamp_(min=0.0, max=1.0)
+
+    def prepare_points_for_diffusion(
+        self,
+        mesh: Mesh,
+        eigalbo_interp: EigenAlboInterpolation,
+        albo_weights: Float[Tensor, "G M"],
+        face_ids: Float[Tensor, "P"],
+        barys: Float[Tensor, "P 3"] | None = None,
+        pts: Float[Tensor, "P 3"] | None = None,
+    ) -> PointsInfo:
+        pts_tri_vert_idx = mesh.get_face_vertices(face_ids)  # [P, 3]
+
+        if barys is None and pts is not None:
+            barys = mesh.cartesian_to_barycentric(pts, pts_tri_vert_idx)
+        elif barys is not None and pts is None:
+            pass
+        else:
+            raise ValueError(
+                "Either barys or pts must be provided to prepare points for diffusion"
+            )
+
+        # iso_evecs=None if 'distance_weighting' == "none" in eigalbo_interp config
+        iso_evecs = eigalbo_interp.barycentric_ilbo_evec_points(barys, pts_tri_vert_idx)
+
+        debug_correctness = False
+        with torch.profiler.record_function("barycentric_albo_points"):
+            albo_evals, pts_evecs, pts_mass = eigalbo_interp.barycentric_albo_points(
+                albo_weights=albo_weights,
+                barycentric_coords=barys,
+                vert_idx=pts_tri_vert_idx,
+            )
+        if debug_correctness:
+            albo_evals_old, pts_evecs_old, pts_mass_old = (
+                eigalbo_interp.barycentric_albo_points_old(
+                    albo_weights=albo_weights,
+                    barycentric_coords=barys,
+                    vert_idx=pts_tri_vert_idx,
+                )
+            )
+            assert torch.allclose(albo_evals, albo_evals_old), "albo_evals"
+            assert torch.allclose(pts_evecs, pts_evecs_old, atol=1e-6), "pts_evecs"
+            assert torch.allclose(pts_mass, pts_mass_old), "pts_mass"
+
+        return {
+            "iso_evecs": iso_evecs,  # [P, K] or None
+            "albo_evals": albo_evals,  # [G, K]
+            "albo_evecs": pts_evecs,  # [G, P, K]
+            "mass": pts_mass,  # [1, P]
+        }
+
+    def prepare_kernels_for_diffusion(
+        self,
+        mesh: Mesh,
+        eigalbo_interp: EigenAlboInterpolation,
+        albo_weights: Float[Tensor, "G M"],
+        save_barycentric: bool = True,
+    ) -> KernelInfo:
+        kernel_vert_idx = mesh.get_face_vertices(self.kernel_face_ids)
+        kernel_barycentric_coords = mesh.cartesian_to_barycentric(
+            self.kernel_locations, kernel_vert_idx
+        )
+
+        if save_barycentric:
+            self.save_barycentric_locations(kernel_barycentric_coords)
+
+        with torch.profiler.record_function("barycentric_albo_gaussians"):
+            kernel_evecs, kernel_mass = eigalbo_interp.barycentric_albo_gaussians(
+                albo_weights=albo_weights,
+                barycentric_coords=kernel_barycentric_coords,
+                vert_idx=kernel_vert_idx,
+            )
+
+        return {
+            "vert_idx": kernel_vert_idx,  # [G, 3]
+            "barycentric_coords": kernel_barycentric_coords,  # [G, 3]
+            "albo_evecs": kernel_evecs,  # [G, K]
+            "mass": kernel_mass,  # [G]
+        }
+
+    def diffuse_heat_kernels(
+        self,
+        eigalbo_interp: EigenAlboInterpolation,
+        pts_info: PointsInfo,
+        kernel_info: KernelInfo,
+        at_vertices: bool = False,
+    ) -> Float[Tensor, "P D"]:
+
+        pts_iso_evecs: Optional[Float[Tensor, "P K"]] = pts_info["iso_evecs"]
+        pts_evecs: Float[Tensor, "G P K"] = pts_info["albo_evecs"]
+        pts_evals: Float[Tensor, "G K"] = pts_info["albo_evals"]
+        pts_mass: Float[Tensor, "1 P"] | None = pts_info["mass"]
+
+        kernel_vert_idx: Float[Tensor, "G 3"] = kernel_info["vert_idx"]
+        kernel_bary: Float[Tensor, "G 3"] = kernel_info["barycentric_coords"]
+        kernel_evecs: Float[Tensor, "G K"] = kernel_info["albo_evecs"]
+        kernel_mass: Float[Tensor, "G"] | None = kernel_info["mass"]
+
+        G, P = self.N_sources, pts_evecs.shape[1]
+
+        diracs = torch.zeros([G, P, 1], device=pts_evecs.device)
+        diracs: Float[Tensor, "G P+1 L"] = torch.cat(
+            (diracs, torch.ones([G, 1, 1], device=pts_evecs.device)), dim=1
+        )
+
+        pts_evecs: Float[Tensor, "G P+1 K"] = torch.cat(
+            ((pts_evecs, kernel_evecs.unsqueeze(1))), dim=1
+        )
+
+        pts2kernel_dist: Optional[Float[Tensor, "G P"]] = (
+            eigalbo_interp.compute_pts2kernel_biharmonic_distance(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx
+            )
+        )
+
+        # PS: pts_iso_evecs = None and biharmonic_dist_weights = None
+        # if 'distance_weighting' == "none" in eigalbo_interp config
+        with torch.profiler.record_function("compute_biharmonic_weights"):
+            biharmonic_dist_weights = eigalbo_interp.compute_biharmonic_weights(
+                pts_iso_evecs, kernel_bary, kernel_vert_idx, pts2kernel_dist
+            )
+
+        if self.cfg.mass_type == "kde":
+            with torch.profiler.record_function("compute_biharmonic_dist_kde_mass"):
+                pts_mass: Float[Tensor, "G P+1"] = (
+                    eigalbo_interp.compute_biharmonic_dist_kde_mass(
+                        pts_iso_evecs,
+                        kernel_bary,
+                        kernel_vert_idx,
+                        pts2kernel_dist,
+                        sigma=0.05,
+                        total_area_normalise=True,
+                    )
+                )
+        elif self.cfg.mass_type == "interpolated":
+            pts_mass: Float[Tensor, "G P+1"] = torch.cat(
+                (pts_mass.expand(G, -1), kernel_mass.unsqueeze(-1)), dim=1
+            )
+        elif self.cfg.mass_type == "one":
+            # pts_mass: Float[Tensor, "G P+1"] = torch.ones_like(pts_evecs[:, :, 0])
+            pts_mass = torch.tensor(1.0, device=pts_evecs.device)
+        else:
+            raise ValueError(f"Unknown mass type: {self.cfg.mass_type}")
+
+        with torch.profiler.record_function("heat_diffusion"):
+            diffused_diracs: Float[Tensor, "G P+1 1"] = utils.heat_diffusion(
+                diracs,
+                pts_mass,
+                pts_evals,
+                pts_evecs,
+                self.diff_times,
+                biharmonic_dist_weights,
+                at_vertices=at_vertices,
+            )
+
+        # diffused_diracs: Float[Tensor, "G P+1 1"] = diffused_diracs / (diffused_diracs[:, P, :].unsqueeze(1) + 1e-8)
+        # diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :]
+        diffused_diracs: Float[Tensor, "G P 1"] = diffused_diracs[:, :P, :] / (
+            diffused_diracs[:, P, :].unsqueeze(1) + 1e-8
+        )
+
+        if self.cfg.power_diffused_diracs != 1:
+            diffused_diracs = diffused_diracs**self.cfg.power_diffused_diracs
+
+        with torch.profiler.record_function("kernel_filter_func"):
+            filtered: Float[Tensor, "G P 1"] = self.kernel_filter_func(
+                diffused_diracs,
+                epsilon=self.thresholds,
+                sharpness=self.sharpnesses,
+            )
+
+        # Safeguard to prevent PyTorch topk from hanging the GPU
+        if not torch.isfinite(filtered).all():
+            print(
+                "WARNING: NaN detected in filtered tensor! Zeroing out to prevent topk hang."
+            )
+            filtered = torch.nan_to_num(filtered, nan=0.0, posinf=0.0, neginf=0.0)
+
+        colours: Float[Tensor, "G P D"] = filtered * self.kernel_colours.unsqueeze(1)
+
+        contribs: Float[Tensor, "kG P 1"]
+        contribs, top_idx = filtered.topk(k=min(10, G), largest=True, dim=0)
+        idx_exp = top_idx.expand(-1, -1, colours.size(-1))  # [kG, P, D]
+        contrib_colours: Float[Tensor, "kG P D"] = torch.gather(colours, 0, idx_exp)
+        colours: Float[Tensor, "P D"] = contrib_colours.sum(dim=0) / torch.clamp(
+            contribs.sum(dim=0), min=1.0
+        )
+
+        colours = (self._mean_colour + colours).clamp(min=0.0, max=1.0)
+        return colours, filtered, top_idx
+
+    def forward(self, x_diffusion: Float[Tensor, "P D"]) -> Float[Tensor, "P out_dim"]:
+        out = x_diffusion
+        if self.out_net is not None:
+            out = self.out_net(out)
+        if self.normalize_colours:
+            out = utils.normalise_colours(out)
+        return out
+
+    def compute_vertex_colours(
+        self, mesh: Mesh, eigalbo_interp: EigenAlboInterpolation
+    ):
+        albo_weights = eigalbo_interp.interpolate_anisotropies(
+            angles=self.angles, scales=self.anisotropies
+        )
+        albo_evals, albo_evecs, mass = eigalbo_interp.albo_vertices(
+            albo_weights=albo_weights
+        )
+        ilbo_evecs = eigalbo_interp.ilbo_evec_vertices()
+
+        verts_info: PointsInfo = {
+            "iso_evecs": ilbo_evecs,  # [V, K] or None
+            "albo_evals": albo_evals,  # [G, K]
+            "albo_evecs": albo_evecs,  # [G, V, K]
+            "mass": mass,  # [1, V]
+        }
+
+        kernel_info: KernelInfo = self.prepare_kernels_for_diffusion(
+            mesh=mesh,
+            eigalbo_interp=eigalbo_interp,
+            albo_weights=albo_weights,
+            save_barycentric=False,
+        )
+
+        v_colours, _, _ = self.diffuse_heat_kernels(
+            eigalbo_interp=eigalbo_interp,
+            pts_info=verts_info,
+            kernel_info=kernel_info,
+            at_vertices=True,
+        )  # [V, D]
+
+        v_colours = self.forward(v_colours)  # Postprocess
+
+        return v_colours
+
+    @property
+    def colored_print_opt_params(self):
+        angles = torch.rad2deg(self.angles).detach().cpu().numpy()
+        anisotropies = self.anisotropies.detach().cpu().numpy()
+        kernel_colours = self.kernel_colours.view(-1).detach().cpu().numpy()
+        return (
+            colored(f"Angles: {angles}, ", "yellow")
+            + colored(f"Anisotropies: {anisotropies}, ", "green")
+            + colored(f"Kernel colours: {kernel_colours}", "red")
+            + colored(f"Sharpnesses: {self.sharpnesses}", "cyan")
+            + colored(f"Thresholds: {self.thresholds}", "blue")
+        )
+
+    def save_barycentric_locations(self, barycentric_coords):
+        setattr(
+            self._kernel_locations,
+            "bary_coords",
+            barycentric_coords.detach(),
+        )
+
+    # def save_torch(self, filename):
+    #     torch.save(self.state_dict(), filename)
+
+    # def save_numpy_npz(self, filename):
+    #     np_dict = {}
+    #     for k, v in self.state_dict().items():
+    #         np_dict[k] = v.detach().cpu().numpy()
+    #     np.savez_compressed(filename, **np_dict)
+
+    # def load_torch(self, filename):
+    #     self.load_state_dict(
+    #         torch.load(filename, map_location=self.device, weights_only=True)
+    #     )
+
+    def save_torch(self, filename, compressed: bool = True):
+        if compressed:
+            state_dict = {
+                k: v.half() if v.is_floating_point() else v
+                for k, v in self.state_dict().items()
+            }
+        else:
+            state_dict = self.state_dict()
+
+        if "_kernel_locations" in state_dict and "_kernel_face_ids" in state_dict:
+            bary_coords = self.__mesh.cartesian_to_barycentric(
+                state_dict["_kernel_locations"],
+                self.__mesh.get_face_vertices(state_dict["_kernel_face_ids"]),
+            )
+
+            state_dict["_kernel_bary_coords"] = bary_coords[:, :2]
+            state_dict.pop("_kernel_locations")
+
+            if state_dict["_kernel_face_ids"].max().item() < 32_767:
+                state_dict["_kernel_face_ids"] = state_dict["_kernel_face_ids"].to(
+                    torch.int16
+                )
+            else:
+                state_dict["_kernel_face_ids"] = state_dict["_kernel_face_ids"].to(
+                    torch.int32
+                )
+
+        drop_keys = ["_error_accumulator", "_hit_accumulator", "_contrib_accumulator"]
+        for k in list(state_dict.keys()):
+            if k in drop_keys:
+                state_dict.pop(k)
+
+        torch.save(state_dict, filename)
+
+    def save_numpy_npz(self, filename, compressed: bool = True):
+        np_dict = {}
+        for k, v in self.state_dict().items():
+            if "__mesh" in k:
+                continue
+            if compressed and v.is_floating_point():
+                np_dict[k] = v.half().detach().cpu().numpy()
+            else:
+                np_dict[k] = v.detach().cpu().numpy()
+
+        if "_kernel_locations" in np_dict and "_kernel_face_ids" in np_dict:
+            face_vertices = self.__mesh.get_face_vertices(np_dict["_kernel_face_ids"])
+            bary_coords = self.__mesh.cartesian_to_barycentric(
+                torch.tensor(np_dict["_kernel_locations"], device=face_vertices.device),
+                face_vertices,
+            )
+
+            np_dict["_kernel_bary_coords"] = bary_coords[:, :2].cpu().numpy()
+            np_dict.pop("_kernel_locations")
+
+            if np_dict["_kernel_face_ids"].max().item() < 32767:
+                np_dict["_kernel_face_ids"] = np_dict["_kernel_face_ids"].astype(
+                    np.int16
+                )
+            else:
+                np_dict["_kernel_face_ids"] = np_dict["_kernel_face_ids"].astype(
+                    np.int32
+                )
+
+        drop_keys = ["_error_accumulator", "_hit_accumulator", "_contrib_accumulator"]
+        for k in list(np_dict.keys()):
+            if k in drop_keys:
+                np_dict.pop(k)
+
+        np.savez_compressed(filename, **np_dict)
+
+    def _process_load(self, sd: Dict[str, Union[Tensor, np.ndarray]]):
+        n_sources_in_ckpt = sd["_kernel_colours"].shape[0]
+        if n_sources_in_ckpt != self.cfg.n_sources:
+            self.cfg.n_sources = n_sources_in_ckpt
+            self.configure(self.__mesh)
+
+            if "_kernel_bary_coords" in sd and "_kernel_face_ids" in sd:
+                bary_coords = sd["_kernel_bary_coords"]
+                bary_coords = torch.cat(
+                    (bary_coords, 1.0 - bary_coords.sum(dim=1, keepdim=True)), dim=1
+                )
+
+                kernel_locations = self.__mesh.barycentric_to_cartesian(
+                    bary_coords,
+                    self.__mesh.get_face_vertices(sd["_kernel_face_ids"].long()),
+                )
+
+                sd["_kernel_locations"] = kernel_locations
+                sd.pop("_kernel_bary_coords")
+        print(list(sd.keys()))
+        self.load_state_dict(sd, strict=False)
+        self.float()
+
+    def load_torch(self, filename: str):
+        sd = torch.load(filename, map_location=self.device, weights_only=True)
+        self._process_load(sd)
+
+    def load_numpy_npz(self, filename: str):
+        if filename.endswith(".pt"):
+            filename = filename.replace(".pt", ".npz")
+
+        np_dict = np.load(filename, allow_pickle=False)
+        sd = {}
+        for k, v in np_dict.items():
+            sd[k] = torch.tensor(v, device=self.device)
+        self._process_load(sd)

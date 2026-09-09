@@ -15,13 +15,13 @@ mi.set_variant("cuda_ad_rgb")
 from IPython import get_ipython
 from omegaconf import OmegaConf
 from optimisation import main
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import big_trimesh_pcl, show_video
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import big_trimesh_pcl, show_video
 
-from heatsplats.utils import repr_patches, load_config
+from hktex.utils import repr_patches, load_config
 
-from heatsplats.rendering.diffhk_renderer import DifferentiableHeatKernelsRenderer
+from hktex.rendering.diffhk_renderer import DifferentiableHeatKernelsRenderer
 
 __all__ = ["repr_patches", "show_video"]
 

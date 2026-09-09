@@ -17,10 +17,11 @@ import mitsuba as mi
 import drjit as dr
 from ray import tune
 
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import load_config, seed_everything
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import load_config, seed_everything
+
 mi.set_variant("cuda_ad_rgb")
 
 
@@ -32,7 +33,9 @@ def safe_name(fname: str) -> str:
     return os.path.basename(fname).replace(".", "_")
 
 
-def find_ckpt_for_filename(benchmark_out_dir: str, fname: str) -> tuple[str | None, str | None]:
+def find_ckpt_for_filename(
+    benchmark_out_dir: str, fname: str
+) -> tuple[str | None, str | None]:
     s = safe_name(fname)
     matches = list(Path(benchmark_out_dir).glob(f"**/output/{s}/ckpts/model.pt"))
     if not matches:
@@ -125,11 +128,11 @@ def load_datamodule_and_trainer_only(args, extras):
     cfg = load_config(args.config, args.rendering_config, cli_args=extras, n_gpus=1)
     seed_everything(cfg.seed)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
     return cfg, datamodule, trainer
@@ -141,9 +144,11 @@ def infer_trainable(config):
     ckpt = config["ckpt_path"]
 
     args = argparse.Namespace(
-        config=config["config_path"]
-        if config.get("config_path") is not None
-        else config["base_config_path"],
+        config=(
+            config["config_path"]
+            if config.get("config_path") is not None
+            else config["base_config_path"]
+        ),
         rendering_config=config["rendering_config_path"],
         gpu="0",
         verbose=False,
@@ -161,7 +166,6 @@ def infer_trainable(config):
 
     state = torch.load(ckpt, map_location="cpu")
     trainer.vertex_colours = state["vertex_colours"].float()
-
 
     # warmup (exclude from metrics)
     _ = timed_render_result_from_trainer(

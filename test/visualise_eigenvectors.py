@@ -14,8 +14,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
-from heatsplats.modules import Mesh
-from heatsplats.utils import (
+from hktex.modules import Mesh
+from hktex.utils import (
     load_mesh,
     get_anisotropic_lbo,
     compute_eig_laplacian,
@@ -25,8 +25,8 @@ from heatsplats.utils import (
     heat_diffusion,
     show_image,
 )
-from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
-from heatsplats.utils import repr_patches
+from hktex.rendering.vertex_colours_renderer import VertexColoursRenderer
+from hktex.utils import repr_patches
 
 __all__ = ["repr_patches"]
 

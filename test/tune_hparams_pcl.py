@@ -25,7 +25,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+from hktex.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
 

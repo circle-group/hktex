@@ -14,16 +14,16 @@ import torch
 from IPython import get_ipython
 from omegaconf import OmegaConf
 from optimisation import main
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import (
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import (
     big_trimesh_pcl,
     show_video,
     mibitmaps2torch,
     compute_all_image_metrics,
 )
 
-from heatsplats.utils import repr_patches, load_config
+from hktex.utils import repr_patches, load_config
 
 __all__ = ["repr_patches", "show_video"]
 

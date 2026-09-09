@@ -12,9 +12,9 @@ import trimesh
 import mitsuba as mi
 from tqdm import tqdm
 
-from heatsplats.data.objaverse_downloader import ObjaverseDownloader, find_filenames
-from heatsplats.utils import load_mesh, show_video
-from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
+from hktex.data.objaverse_downloader import ObjaverseDownloader, find_filenames
+from hktex.utils import load_mesh, show_video
+from hktex.rendering.uv_texture_renderer import UVTextureRenderer
 
 if __name__ == "__main__":
     root = "/data2/objaverse"

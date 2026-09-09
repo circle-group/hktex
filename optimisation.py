@@ -7,13 +7,13 @@ import time
 
 import torch
 
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils.video import save_video, combine_videos
-from heatsplats.utils.typing import *
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils.video import save_video, combine_videos
+from hktex.utils.typing import *
 
-from heatsplats.utils import repr_patches
+from hktex.utils import repr_patches
 
 __all__ = ["repr_patches", "show_video"]
 
@@ -71,7 +71,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
         n_gpus = len(selected_gpus)
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    logger = logging.getLogger("heatsplats")
+    logger = logging.getLogger("hktex")
     if args.verbose:
         logger.setLevel(logging.DEBUG)
     else:
@@ -88,7 +88,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.set_float32_matmul_precision("high")
 
-    from heatsplats.utils import (
+    from hktex.utils import (
         ExperimentConfig,
         load_config,
         seed_everything,
@@ -103,11 +103,11 @@ def main(args, extras, render=True) -> Dict[str, Any]:
 
     seed_everything(cfg.seed)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
 
@@ -135,7 +135,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
     )
 
     debug_log_dir = None
-    if heatsplats.is_debug():
+    if hktex.is_debug():
         debug_log_dir = os.path.join(cfg.trial_dir, "debug_logs")
         os.makedirs(debug_log_dir, exist_ok=True)
 
@@ -144,7 +144,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
         n_iter=cfg.optim.iters, debug_log_dir=debug_log_dir
     )
     optimise_end = time.time()
-    heatsplats.info(f"Optimise took {optimise_end-optimise_start:.2f} seconds")
+    hktex.info(f"Optimise took {optimise_end-optimise_start:.2f} seconds")
 
     if not render:
         return {
@@ -158,7 +158,7 @@ def main(args, extras, render=True) -> Dict[str, Any]:
     render_start = time.time()
     result_renderings = trainer.render_result(cfg.renderer.n_rotating_frames)
     render_end = time.time()
-    heatsplats.info(f"Rendering results took {render_end-render_start:.2f} seconds")
+    hktex.info(f"Rendering results took {render_end-render_start:.2f} seconds")
     if hasattr(trainer, "render_kernel_rings"):
         ring_renderings = trainer.render_kernel_rings(cfg.renderer.n_rotating_frames)
     else:
@@ -180,9 +180,9 @@ def main(args, extras, render=True) -> Dict[str, Any]:
             os.path.join(save_dir, cfg.optim.save_model_name)
         )
         if torch_size is not None:
-            heatsplats.info(f"Pytorch model saved: {torch_size:.2f} KB")
+            hktex.info(f"Pytorch model saved: {torch_size:.2f} KB")
         if npz_size is not None:
-            heatsplats.info(f"Numpy model saved: {npz_size:.2f} KB")
+            hktex.info(f"Numpy model saved: {npz_size:.2f} KB")
         save_video(combined_renderings, os.path.join(save_dir, "gt_vs_out.mp4"))
 
     return {

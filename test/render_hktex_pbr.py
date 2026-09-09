@@ -13,15 +13,15 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from omegaconf import OmegaConf
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     load_config,
     ExperimentConfig,
     show_video,
     save_video,
 )
-from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
-import heatsplats
+from hktex.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
+import hktex
 
 
 def render(
@@ -54,6 +54,7 @@ def render(
 
     # Handle coeus cluster path or machine-specific prefixes (/data/sf3018, coeus)
     import re
+
     if not os.path.exists(fname):
         if "coeus" in fname:
             fname_clean = re.sub(r".*coeus[^/]*/", "", fname)
@@ -151,9 +152,9 @@ def render(
 
     if use_knn:
         print("Using KNN implementation based on experiment config.")
-        from heatsplats.modules.heat_kernel_texture_knn import HeatKernelTextureKNN
-        from heatsplats.modules.eigen_albo_knn import EigenAlboInterpolationKNN
-        from heatsplats.rendering.heat_kernels_renderer_knn import (
+        from hktex.modules.heat_kernel_texture_knn import HeatKernelTextureKNN
+        from hktex.modules.eigen_albo_knn import EigenAlboInterpolationKNN
+        from hktex.rendering.heat_kernels_renderer_knn import (
             HeatKernelsRendererKNN,
         )
 
@@ -167,7 +168,7 @@ def render(
         hk_renderer = HeatKernelsRendererKNN(renderer_config)
     else:
         print("Using standard implementation based on experiment config.")
-        from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
+        from hktex.rendering.heat_kernels_renderer import HeatKernelsRenderer
 
         model = HeatKernelTexture(model_cfg, our_mesh)
         if random_kernels is None:
@@ -445,11 +446,17 @@ if __name__ == "__main__":
                 for q in query_patterns:
                     matches = glob.glob(os.path.join(sroot, f"*{q}*"))
                     if not matches:
-                        matches = glob.glob(os.path.join(sroot, f"**/*{q}*"), recursive=True)
+                        matches = glob.glob(
+                            os.path.join(sroot, f"**/*{q}*"), recursive=True
+                        )
                     if matches:
                         # Prefer folder that actually contains configs/parsed.yaml or ckpts
                         for m in matches:
-                            if os.path.exists(os.path.join(m, "configs/parsed.yaml")) or glob.glob(os.path.join(m, "**/parsed.yaml"), recursive=True):
+                            if os.path.exists(
+                                os.path.join(m, "configs/parsed.yaml")
+                            ) or glob.glob(
+                                os.path.join(m, "**/parsed.yaml"), recursive=True
+                            ):
                                 matched_run = m
                                 break
                         if not matched_run:

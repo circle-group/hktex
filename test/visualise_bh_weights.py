@@ -10,12 +10,12 @@ import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 
-from heatsplats.modules import EigenAlboInterpolation
-from heatsplats.utils import load_mesh, big_trimesh_pcl, compute_biharmonic_distance
-import heatsplats.utils as utils
-from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
-from heatsplats.data.known_heat_vertex_colours import KnownHeatVertexColoursDataModule
-from heatsplats.utils.typing import *
+from hktex.modules import EigenAlboInterpolation
+from hktex.utils import load_mesh, big_trimesh_pcl, compute_biharmonic_distance
+import hktex.utils as utils
+from hktex.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
+from hktex.data.known_heat_vertex_colours import KnownHeatVertexColoursDataModule
+from hktex.utils.typing import *
 
 if __name__ == "__main__":
     model_cfg = {

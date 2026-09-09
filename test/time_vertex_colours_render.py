@@ -22,8 +22,8 @@ import yaml
 
 from ray import tune
 
-from heatsplats.utils import load_mesh
-from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
+from hktex.utils import load_mesh
+from hktex.rendering.vertex_colours_renderer import VertexColoursRenderer
 
 mi.set_variant("cuda_ad_rgb")
 

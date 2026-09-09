@@ -128,7 +128,7 @@ def mlp_benchmark_trainable(config):
     except Exception:
         pass
 
-    from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+    from hktex.utils import mibitmaps2torch, compute_all_image_metrics
     from optimisation import main
 
     fname = config["filename"]

@@ -12,15 +12,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     uniform_sampling,
     interpolate_barycentric_attr,
     big_trimesh_pcl,
 )
-from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
-
+from hktex.rendering.heat_kernels_renderer import HeatKernelsRenderer
+from hktex.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 
 if __name__ == "__main__":
 
@@ -112,7 +111,3 @@ if __name__ == "__main__":
 
     scene = trimesh.Scene([out_mesh, *pcl_pts, *pcl_kernel])
     scene2 = trimesh.Scene([out_mesh, pcl_pts_trim, *pcl_kernel])
-
-    # trimesh.exchange.export.export_scene(
-    #     scene, "/homes/sf3018/Documents/geosplat/outputs/scene.obj"
-    # )

@@ -21,7 +21,7 @@ sys.path.append(str(script_dir))
 
 import trimesh
 from PIL import Image
-from heatsplats.utils import load_mesh
+from hktex.utils import load_mesh
 
 
 def get_texture_image(mesh):

@@ -9,8 +9,7 @@ except NameError:
 sys.path.append(str(script_dir))
 
 import torch
-from heatsplats.utils import compute_aligned_frame
-
+from hktex.utils import compute_aligned_frame
 
 if __name__ == "__main__":
     import igl
@@ -18,7 +17,7 @@ if __name__ == "__main__":
     import numpy as np
 
     import meshplot as mp
-    from heatsplats import utils
+    from hktex import utils
 
     fname = "../objects/spot/spot_triangulated.obj"
     mesh = utils.load_mesh(fname)

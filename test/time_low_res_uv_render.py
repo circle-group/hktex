@@ -24,9 +24,8 @@ import yaml
 from PIL import Image
 from ray import tune
 
-from heatsplats.utils import load_mesh
-from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
-
+from hktex.utils import load_mesh
+from hktex.rendering.uv_texture_renderer import UVTextureRenderer
 
 mi.set_variant("cuda_ad_rgb")
 
@@ -73,7 +72,9 @@ def get_uv_size_bytes(mesh: trimesh.Trimesh) -> int:
     return buffer.tell()
 
 
-def downsample_image_to_target_size(image: Image.Image, target_size_kb: float, fmt="png"):
+def downsample_image_to_target_size(
+    image: Image.Image, target_size_kb: float, fmt="png"
+):
     target_size_bytes = int(target_size_kb * 1024)
     min_scale = 0.0
     max_scale = 1.0
@@ -106,7 +107,9 @@ def apply_low_res_texture(mesh: trimesh.Trimesh, target_size_kb: float, fmt: str
     if available_kb > original_size_kb:
         downsampled_image = texture
     elif available_kb > 0:
-        downsampled_image = downsample_image_to_target_size(texture, available_kb, fmt=fmt)
+        downsampled_image = downsample_image_to_target_size(
+            texture, available_kb, fmt=fmt
+        )
     else:
         downsampled_image = None
 

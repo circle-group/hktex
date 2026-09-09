@@ -23,7 +23,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     show_video,
     save_video,
@@ -31,7 +31,7 @@ from heatsplats.utils import (
     mibitmaps2torch,
     compute_all_image_metrics,
 )
-from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
+from hktex.rendering.uv_texture_renderer import UVTextureRenderer
 
 
 def get_texture_image(

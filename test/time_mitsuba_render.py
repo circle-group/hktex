@@ -17,10 +17,11 @@ import mitsuba as mi
 import drjit as dr
 from ray import tune
 
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import load_config, seed_everything
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils import load_config, seed_everything
+
 mi.set_variant("cuda_ad_rgb")
 
 
@@ -103,12 +104,12 @@ def load_datamodule_and_trainer_only(args, extras):
     cfg = load_config(args.config, args.rendering_config, cli_args=extras, n_gpus=1)
     seed_everything(cfg.seed)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
     cfg.trainer.density_controllers = []
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
     return cfg, datamodule, trainer

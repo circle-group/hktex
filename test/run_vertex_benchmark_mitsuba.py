@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import pandas as pd
 import numpy as np
 import traceback
+
 print("Started loading...")
 try:
     script_dir = Path(__file__).resolve().parent.parent
@@ -18,6 +19,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 from ray import tune
+
 print("Loaded mi...")
 
 
@@ -31,8 +33,8 @@ def vertex_ray_benchmark_trainable(config):
     except Exception:
         pass
 
-    from heatsplats.trainers.vertex_ray_trainer import VertexRayTrainer
-    from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+    from hktex.trainers.vertex_ray_trainer import VertexRayTrainer
+    from hktex.utils import mibitmaps2torch, compute_all_image_metrics
     from optimisation import main
 
     fname = config["filename"]

@@ -11,15 +11,15 @@ import torch
 from IPython import get_ipython
 import trimesh
 import argparse
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.modules import HeatKernelDensityKNN
-from heatsplats.rendering.heat_kernels_density_renderer_knn import (
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.modules import HeatKernelDensityKNN
+from hktex.rendering.heat_kernels_density_renderer_knn import (
     HeatKernelsDensityRendererKNN,
 )
-from heatsplats.rendering.heat_kernels_renderer_knn import HeatKernelsRendererKNN
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils import (
+from hktex.rendering.heat_kernels_renderer_knn import HeatKernelsRendererKNN
+from hktex.trainers import BaseTrainer
+from hktex.utils import (
     big_trimesh_pcl,
     compute_all_image_metrics,
     load_config,
@@ -28,7 +28,7 @@ from heatsplats.utils import (
     seed_everything,
     config_to_primitive,
 )
-from heatsplats.utils.video import combine_videos, save_video, show_video
+from hktex.utils.video import combine_videos, save_video, show_video
 
 __all__ = ["repr_patches", "show_video"]
 
@@ -54,12 +54,12 @@ def load_datamodule_and_trainer_only(args, extras):
     cfg = load_config(args.config, cli_args=extras, n_gpus=1)
     seed_everything(cfg.seed)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
     cfg.trainer.density_controllers = []
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(
         cfg.trainer, datamodule, renderer_cfg=cfg.renderer
     )
     return cfg, datamodule, trainer

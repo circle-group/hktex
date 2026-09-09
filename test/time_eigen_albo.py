@@ -47,7 +47,7 @@ def setup_patching():
     if _is_patched:
         return
 
-    import heatsplats.modules.eigen_albo as ea_module
+    import hktex.modules.eigen_albo as ea_module
     import scipy.optimize
 
     orig_linear_sum_assignment = scipy.optimize.linear_sum_assignment
@@ -103,7 +103,7 @@ def safe_name(fname: str) -> str:
 
 
 def timed_eigen_albo(mesh, config_dict):
-    from heatsplats.modules import EigenAlboInterpolation
+    from hktex.modules import EigenAlboInterpolation
 
     reset_timings()
     _gpu_sync()
@@ -136,8 +136,8 @@ def infer_trainable(config):
     mesh_root = config["root"]
     mesh_path = os.path.join(mesh_root, fname)
 
-    from heatsplats.utils import load_mesh
-    from heatsplats.modules import Mesh
+    from hktex.utils import load_mesh
+    from hktex.modules import Mesh
 
     try:
         tri_mesh = load_mesh(mesh_path, merge_tex=False, bake_vert_colors=False)

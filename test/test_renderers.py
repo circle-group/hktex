@@ -8,11 +8,11 @@ import time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from heatsplats.utils import load_mesh, load_config, ExperimentConfig, show_video
-from heatsplats.rendering.vertex_colours_renderer import VertexColoursRenderer
-from heatsplats.rendering.uv_texture_renderer import UVTextureRenderer
-from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
+from hktex.utils import load_mesh, load_config, ExperimentConfig, show_video
+from hktex.rendering.vertex_colours_renderer import VertexColoursRenderer
+from hktex.rendering.uv_texture_renderer import UVTextureRenderer
+from hktex.rendering.heat_kernels_renderer import HeatKernelsRenderer
+from hktex.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
 
 if __name__ == "__main__":
     fname = "../objects/spot/spot_triangulated.obj"

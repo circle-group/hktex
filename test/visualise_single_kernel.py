@@ -2,7 +2,6 @@ import sys
 from pathlib import Path
 import os
 
-
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import torch
@@ -11,12 +10,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-from heatsplats.utils import load_config, ExperimentConfig
-import heatsplats
-from heatsplats.data import MeshSamplerDataModule
-from heatsplats.trainers import BaseTrainer
-from heatsplats.utils.typing import *
-
+from hktex.utils import load_config, ExperimentConfig
+import hktex
+from hktex.data import MeshSamplerDataModule
+from hktex.trainers import BaseTrainer
+from hktex.utils.typing import *
 
 if __name__ == "__main__":
 
@@ -25,11 +23,11 @@ if __name__ == "__main__":
     cfg_path = os.path.join(experiment, "configs/parsed.yaml")
     cfg: ExperimentConfig = load_config(cfg_path)
 
-    datamodule: MeshSamplerDataModule = heatsplats.find(cfg.data_type)(cfg.data)
+    datamodule: MeshSamplerDataModule = hktex.find(cfg.data_type)(cfg.data)
     datamodule.prepare_data()
     datamodule.setup("fit")
 
-    trainer: BaseTrainer = heatsplats.find(cfg.trainer_type)(cfg.trainer, datamodule)
+    trainer: BaseTrainer = hktex.find(cfg.trainer_type)(cfg.trainer, datamodule)
 
     ckpt_name = os.path.join(cfg.trial_dir, "ckpts", cfg.optim.save_model_name)
     trainer.model.load_torch(ckpt_name)

@@ -4,7 +4,7 @@ import torch
 
 import numpy as np
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     get_anisotropic_lbo,
     compute_eig_laplacian,

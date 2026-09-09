@@ -24,7 +24,7 @@ import mitsuba as mi
 
 mi.set_variant("cuda_ad_rgb")
 
-from heatsplats.utils import mibitmaps2torch, compute_all_image_metrics
+from hktex.utils import mibitmaps2torch, compute_all_image_metrics
 from optimisation import main
 
 
@@ -125,9 +125,7 @@ def trainable(config, root, all_filenames, resolver_paths):
     prune_accumulation_interval = int(
         prune_interval * config["dc_importance_accum_ratio"]
     )
-    config[
-        "trainer.density_controllers"
-    ] = f"""
+    config["trainer.density_controllers"] = f"""
     - density_controller_type: density_controllers.importance_pruning
       args:
         start_iter: {int(total_iters * config["dc_importance_start_iter_frac"])}
@@ -217,7 +215,7 @@ def trainable(config, root, all_filenames, resolver_paths):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Hyperparameter tuning for GeoSplat.")
+    parser = argparse.ArgumentParser(description="Hyperparameter tuning for HKTex.")
     parser.add_argument(
         "--root",
         type=str,

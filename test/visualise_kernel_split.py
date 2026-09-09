@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 
-
 try:
     script_dir = Path(__file__).resolve().parent.parent
 except NameError:
@@ -16,21 +15,20 @@ import torch
 from functools import partial
 from omegaconf import OmegaConf
 
-from heatsplats.utils import (
+from hktex.utils import (
     load_mesh,
     combine_videos,
     show_video,
     combine_images,
     show_image,
 )
-from heatsplats.utils import repr_patches, box_border
+from hktex.utils import repr_patches, box_border
 
-from heatsplats.rendering.heat_kernels_renderer import HeatKernelsRenderer
-from heatsplats.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
-from heatsplats.density_controllers import BaseDensityController
-from heatsplats.trainers import parse_optimizers_and_schedulers
-from heatsplats.modules import CPUGeodesicTracer
-
+from hktex.rendering.heat_kernels_renderer import HeatKernelsRenderer
+from hktex.modules import Mesh, HeatKernelTexture, EigenAlboInterpolation
+from hktex.density_controllers import BaseDensityController
+from hktex.trainers import parse_optimizers_and_schedulers
+from hktex.modules import CPUGeodesicTracer
 
 if __name__ == "__main__":
 

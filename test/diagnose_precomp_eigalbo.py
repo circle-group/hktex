@@ -12,10 +12,10 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from heatsplats.utils import load_mesh
-from heatsplats.utils import repr_patches
+from hktex.utils import load_mesh
+from hktex.utils import repr_patches
 
-from heatsplats.modules import Mesh, EigenAlboInterpolation
+from hktex.modules import Mesh, EigenAlboInterpolation
 
 
 def subspace_distance(V1, V2):
