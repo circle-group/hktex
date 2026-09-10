@@ -135,15 +135,14 @@ hktex/
 If you use HKTex in your research, please cite:
 
 ```bibtex
-@inbook{foti2026heat,
-  title   = {Heat Kernel Textures: the Geodesic Gaussians That Do Not Splat},
-  author  = {Foti, Simone and Korkmaz, Caner and Zafeiriou, Stefanos and Birdal, Tolga},
-  booktitle = {Computer Vision -- ECCV 2026},
-  pages   = {306--323},
-  publisher = {Springer Nature Switzerland},
-  year    = {2026},
-  doi     = {10.1007/978-3-032-37595-7_17},
-  url     = {https://doi.org/10.1007/978-3-032-37595-7_17}
+@inproceedings{foti2026hktex,
+    author    = {Foti, Simone and Korkmaz, Caner and Zafeiriou, Stefanos and Birdal, Tolga},
+    title     = {Heat Kernel Textures: the Geodesic Gaussians That Do Not Splat},
+    booktitle = {Computer Vision -- ECCV 2026},
+    year      = {2026},
+    publisher = {Springer Nature Switzerland},
+    pages     = {306--323},
+    doi       = {10.1007/978-3-032-37595-7_17},
 }
 ```
 
