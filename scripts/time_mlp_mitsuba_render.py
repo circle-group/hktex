@@ -230,14 +230,14 @@ if __name__ == "__main__":
     p.add_argument(
         "--config",
         type=str,
-        default="/data/hktex/configs/uv_texture_mlp_fitting.yaml",
+        default="/data/hktex/configs/texture_mlp.yaml",
     )
     p.add_argument(
         "--base_timing_csv",
         type=str,
         default="outputs/timing_mitsuba_hs_ray_base/time_mitsuba_render_results.csv",
     )
-    p.add_argument("--rendering_config", type=str, default="configs/rendering.yaml")
+    p.add_argument("--rendering_config", type=str, default="configs/render.yaml")
     p.add_argument("--output_dir", type=str, default="outputs/time_mlp_mitsuba_render")
     p.add_argument("--rotating_frames", type=int, default=1)
     p.add_argument("--n_runs", type=int, default=1)

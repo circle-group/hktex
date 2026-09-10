@@ -237,7 +237,7 @@ if __name__ == "__main__":
         help="Root directory for objaverse",
     )
     parser.add_argument(
-        "--rendering_config", type=str, default="configs/rendering.yaml"
+        "--rendering_config", type=str, default="configs/render.yaml"
     )
     parser.add_argument("--output_dir", type=str, default="outputs/low_res_benchmark")
     args = parser.parse_args()

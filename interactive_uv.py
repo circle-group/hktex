@@ -46,11 +46,11 @@ except NameError:
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.9.0/"
     args_dict = {
-        # "config": "configs/vertex_colour_texture_fitting.yaml",
-        # "config": "configs/known_vertex_colour_fitting.yaml",
-        # "config": "configs/uv_texture_fitting.yaml",
-        "config": "configs/uv_texture_fitting_knn.yaml",
-        "rendering_config": "configs/rendering.yaml",
+        # "config": "configs/vertex_hktex.yaml",
+        # "config": "configs/synthetic_hktex.yaml",
+        # "config": "configs/texture_hktex.yaml",
+        "config": "configs/texture_hktex_knn.yaml",
+        "rendering_config": "configs/render.yaml",
         "gpu": "0",
         "verbose": False,
     }

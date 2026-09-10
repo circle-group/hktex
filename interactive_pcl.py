@@ -41,8 +41,8 @@ except NameError:
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.9.0/"
     args_dict = {
-        "config": "configs/uv_texture_fitting_pcl.yaml",
-        "rendering_config": "configs/rendering.yaml",
+        "config": "configs/texture_pcl.yaml",
+        "rendering_config": "configs/render.yaml",
         "gpu": "0",
         "verbose": True,
     }

@@ -40,8 +40,8 @@ dr.set_flag(dr.JitFlag.Debug, False)
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
-        "config": "configs/uv_hs_ray_knn.yaml",
-        "rendering_config": "configs/rendering.yaml",
+        "config": "configs/multiview_hktex_knn_ray.yaml",
+        "rendering_config": "configs/render.yaml",
         "gpu": "0",
         "verbose": True,
     }

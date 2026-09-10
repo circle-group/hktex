@@ -215,7 +215,7 @@ if __name__ == "__main__":
         type=str,
         default="outputs/vertex_colours_benchmark/benchmark_results_vertex_colours.csv",
     )
-    p.add_argument("--rendering_config", type=str, default="configs/rendering.yaml")
+    p.add_argument("--rendering_config", type=str, default="configs/render.yaml")
     p.add_argument(
         "--output_dir", type=str, default="outputs/time_vertex_colours_render"
     )

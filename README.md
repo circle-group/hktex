@@ -6,7 +6,7 @@
 
 <sup>&#42;</sup> Equal contribution
 
-ECCV 2026 (Award Candidate and Long Oral)
+ECCV 2026 (Best Paper and Long Oral)
 
 [![Paper](https://img.shields.io/badge/arXiv-2609.07557-b31b1b.svg)](https://arxiv.org/abs/2609.07557) [![Publication](https://img.shields.io/badge/ECCV-2026-013243.svg)](https://doi.org/10.1007/978-3-032-37595-7_17) [![Project page](https://img.shields.io/badge/Project-Page-4c8bf5.svg)](https://circle-group.github.io/research/HeatKernelTextures/)
 
@@ -82,7 +82,7 @@ Run commands from the repository root. The example configurations refer to local
 ```bash
 mamba activate hktex
 python optimisation.py \
-  --config configs/uv_texture_fitting_knn.yaml \
+  --config configs/texture_hktex_knn.yaml \
   data.mesh_path=/path/to/your/textured_mesh.obj
 ```
 
@@ -90,7 +90,7 @@ By default, experiment configurations, logs, renderings, and checkpoints are wri
 
 ```bash
 python optimisation.py \
-  --config configs/uv_texture_fitting_knn.yaml \
+  --config configs/texture_hktex_knn.yaml \
   data.mesh_path=/path/to/your/textured_mesh.obj \
   trainer.model.n_sources=2000 \
   optim.iters=10000
@@ -104,11 +104,10 @@ The main experiment families are defined in [`configs/`](configs/):
 
 | Configuration | Purpose |
 | --- | --- |
-| `uv_texture_fitting_knn.yaml` | Fit the KNN-accelerated HKTex model to a textured mesh. |
-| `uv_texture_fitting.yaml` | Fit the base HKTex implementation to a textured mesh. |
-| `uv_mitsuba_fitting.yaml` | Fit appearance through the Mitsuba rendering pipeline. |
-| `uv_texture_mlp_fitting.yaml` | Run the neural texture baseline. |
-| `vertex_colour_texture_fitting.yaml` | Run the vertex-colour baseline. |
+| `texture_hktex_knn.yaml` | Fit the KNN-accelerated HKTex model to a textured mesh. |
+| `multiview_hktex_knn_ray_small.yaml` | Fit the KNN-accelerated HKTex model from multiview observations through the Mitsuba ray rendering pipeline. |
+| `texture_mlp.yaml`<br>`multiview_mlp_ray.yaml` | Run the texture and Mitsuba ray rendering based neural texture baselines. |
+| `multiview_vertex_ray.yaml` | Run the Mitsuba ray rendering based vertex-colour baseline. |
 | `ablations/` | Reproduce individual HKTex ablations. |
 
 Benchmarking, timing, visualisation, and paper-figure utilities live in [`scripts/`](scripts/). The component names available to YAML configurations are summarized in [`registry.md`](registry.md).

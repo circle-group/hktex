@@ -283,10 +283,10 @@ if __name__ == "__main__":
         help="Path to existing benchmark CSV with target sizes.",
     )
     parser.add_argument(
-        "--config", type=str, default="configs/uv_texture_mlp_fitting.yaml"
+        "--config", type=str, default="configs/texture_mlp.yaml"
     )
     parser.add_argument(
-        "--rendering_config", type=str, default="configs/rendering.yaml"
+        "--rendering_config", type=str, default="configs/render.yaml"
     )
     parser.add_argument("--output_dir", type=str, default="outputs/mlp_benchmark")
     parser.add_argument(

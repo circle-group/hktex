@@ -40,9 +40,9 @@ except NameError:
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.2.0/"
     args_dict = {
-        # "config": "configs/uv_mlp_fitting.yaml",
-        "config": "configs/uv_texture_mlp_fitting.yaml",
-        "rendering_config": "configs/rendering.yaml",
+        # "config": "configs/multiview_mlp_render.yaml",
+        "config": "configs/texture_mlp.yaml",
+        "rendering_config": "configs/render.yaml",
         "gpu": "0",
         "verbose": False,
     }

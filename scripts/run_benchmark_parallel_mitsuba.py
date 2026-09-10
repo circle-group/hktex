@@ -138,10 +138,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run parallel benchmark with Ray.")
     parser.add_argument("--root", type=str, default="/data2/objaverse")
     parser.add_argument(
-        "--config", type=str, default="configs/uv_texture_fitting_knn.yaml"
+        "--config", type=str, default="configs/texture_hktex_knn.yaml"
     )
     parser.add_argument(
-        "--rendering_config", type=str, default="configs/rendering.yaml"
+        "--rendering_config", type=str, default="configs/render.yaml"
     )
     parser.add_argument("--output_dir", type=str, default="outputs/benchmark")
     parser.add_argument("--start_index", type=int, default=0)

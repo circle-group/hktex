@@ -58,7 +58,7 @@ def main():
         "--renderings_dir", type=str, default="outputs/imagegs_renderings"
     )
     parser.add_argument(
-        "--rendering_config", type=str, default="configs/rendering.yaml"
+        "--rendering_config", type=str, default="configs/render.yaml"
     )
 
     args = parser.parse_args()

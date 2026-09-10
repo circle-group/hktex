@@ -242,7 +242,7 @@ if __name__ == "__main__":
     p.add_argument(
         "--rendering_config",
         type=str,
-        default="/data/hktex/configs/rendering.yaml",
+        default="/data/hktex/configs/render.yaml",
     )
     p.add_argument("--output_dir", type=str, default="outputs/time_low_res_uv_render")
     p.add_argument(

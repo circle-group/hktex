@@ -204,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", required=True, help="path to config file")
     parser.add_argument(
         "--rendering_config",
-        default="configs/rendering.yaml",
+        default="configs/render.yaml",
         help="path to rendering config file",
     )
     parser.add_argument(

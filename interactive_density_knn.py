@@ -136,7 +136,7 @@ def render_density(
 if __name__ == "__main__":
     os.environ["CUDA_HOME"] = "/vol/cuda/12.9.0/"
     args_dict = {
-        # "config": "configs/uv_texture_fitting_knn.yaml",
+        # "config": "configs/texture_hktex_knn.yaml",
         "config": None,
         "gpu": "0",
         "verbose": True,

@@ -186,8 +186,8 @@ if __name__ == "__main__":
     p.add_argument(
         "--benchmark_csv", type=str, default="outputs/benchmark/benchmark_results.csv"
     )
-    p.add_argument("--config", type=str, default="configs/uv_hs_ray_knn_small.yaml")
-    p.add_argument("--rendering_config", type=str, default="configs/rendering.yaml")
+    p.add_argument("--config", type=str, default="configs/multiview_hktex_knn_ray_small.yaml")
+    p.add_argument("--rendering_config", type=str, default="configs/render.yaml")
     p.add_argument("--output_dir", type=str, default="outputs/time_mitsuba_render")
     p.add_argument("--rotating_frames", type=int, default=1)
     p.add_argument("--n_runs", type=int, default=1)

@@ -111,8 +111,8 @@ def trainable(config, root, all_filenames, resolver_paths):
 
     project_root = Path(__file__).resolve().parent.parent
     args_dict = {
-        "config": str(project_root / "configs/uv_texture_fitting_pcl.yaml"),
-        "rendering_config": str(project_root / "configs/rendering.yaml"),
+        "config": str(project_root / "configs/texture_pcl.yaml"),
+        "rendering_config": str(project_root / "configs/render.yaml"),
         "verbose": False,
     }
     args = argparse.Namespace(**args_dict)

@@ -33,7 +33,7 @@ trainer:
     eigen_albo_type: modules.eigen-albo-interpolation-knn
     eigen_albo:
       k_eig: 256
-      mesh_path: /data/objaverse/000-087/0e708d1e0ce0447ba5637a5320f5729c.glb
+      mesh_path: ${data.mesh_path}
       distance_weighting: gaussian_0.05
       local_frames: principal_curvatures
       precompute_anisotropies:
