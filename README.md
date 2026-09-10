@@ -110,28 +110,29 @@ The main experiment families are defined in [`configs/`](configs/):
 | `multiview_vertex_ray.yaml` | Run the Mitsuba ray rendering based vertex-colour baseline. |
 | `ablations/` | Reproduce individual HKTex ablations. |
 
-Benchmarking, timing, visualisation, and paper-figure utilities live in [`scripts/`](scripts/). The component names available to YAML configurations are summarized in [`registry.md`](registry.md).
+Benchmarking, timing, visualisation, and paper-figure utilities live in [`scripts/`](scripts/).
 
 ## Repository structure
 
 ```text
 hktex/
-├── configs/              # Experiment and rendering configurations
+├── configs/                 # Experiment and rendering configurations
 ├── hktex/
-│   ├── data/             # Mesh and observation data modules
-│   ├── density_controllers/
-│   ├── knn_heat/         # KNN heat-kernel implementation
-│   ├── modules/          # Texture, geometry, and interpolation models
-│   ├── rendering/        # Differentiable and Mitsuba renderers
-│   ├── trainers/         # Optimisation workflows
+│   ├── data/                # Mesh and observation data modules
+│   ├── density_controllers/ # Adaptive density controllers
+│   ├── knn_heat/            # KNN heat-kernel implementation
+│   ├── modules/             # Texture, geometry, and interpolation models
+│   ├── rendering/           # Differentiable and Mitsuba renderers
+│   ├── trainers/            # Optimisation workflows
 │   └── utils/
-├── scripts/              # Benchmarks, analyses, and visualisations
-└── optimisation.py       # Main experiment entry point
+├── scripts/                 # Benchmarks, analyses, and visualisations
+├── optimisation.py          # Main experiment entry point
+└── interactive_*.py.        # Interactive Jupyter Notebook entry points
 ```
 
 ## Citation
 
-If you use this work, please cite:
+If you use HKTex in your research, please cite:
 
 ```bibtex
 @inbook{foti2026heat,
@@ -151,3 +152,9 @@ If you use this work, please cite:
 - [arXiv Preprint](https://arxiv.org/abs/2609.07557)
 - [Paper](https://doi.org/10.1007/978-3-032-37595-7_17)
 - [Project page](https://circle-group.github.io/research/HeatKernelTextures/)
+
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
