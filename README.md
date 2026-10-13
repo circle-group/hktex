@@ -112,6 +112,8 @@ The main experiment families are defined in [`configs/`](configs/):
 
 Benchmarking, timing, visualisation, and paper-figure utilities live in [`scripts/`](scripts/).
 
+*Note:* by setting `trainer.model.power_diffused_diracs`>1, it is possible to further reduce the size of the heat kernels, enabling higher resolution texture fitting at the expense of a higher storage cost. This parameter corresponds to the $\alpha$ parameter introduced in Sec. 5.4 of our paper. Despite being beyond the scope of our paper, we note that $\alpha=30$ produces visually compelling results. `texture_hktex_knn_hr.yaml` contains a config file for launching these experiments.
+
 ## Repository structure
 
 ```text
